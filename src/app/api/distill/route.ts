@@ -1,5 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
+import { getUserAndProfile } from "@/lib/auth";
+import { FREE_GENERATIONS_LIMIT, isSubscribed } from "@/lib/billing";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { DistillRequestBody, DistillResult } from "@/lib/types";
 
 // Le prompt exact demandé pour transformer les notes en résumé + flashcards.
@@ -63,6 +66,26 @@ export async function POST(request: Request) {
           "La clé API Anthropic n'est pas configurée sur le serveur. Ajoutez ANTHROPIC_API_KEY dans le fichier .env.local puis redémarrez le serveur.",
       },
       { status: 500 },
+    );
+  }
+
+  const auth = await getUserAndProfile();
+  if (!auth) {
+    return NextResponse.json(
+      { error: "Vous devez être connecté pour distiller vos notes." },
+      { status: 401 },
+    );
+  }
+  const { user, profile } = auth;
+  const subscribed = isSubscribed(profile);
+
+  if (!subscribed && profile.generations_used >= FREE_GENERATIONS_LIMIT) {
+    return NextResponse.json(
+      {
+        error: `Vous avez utilisé vos ${FREE_GENERATIONS_LIMIT} générations gratuites. Abonnez-vous pour continuer sans limite.`,
+        limitReached: true,
+      },
+      { status: 403 },
     );
   }
 
@@ -164,6 +187,17 @@ export async function POST(request: Request) {
         },
         { status: 502 },
       );
+    }
+
+    // Ne compte que pour les comptes non abonnés — un abonné actif n'a pas
+    // de limite. L'écriture passe par le client "service role" car les
+    // utilisateurs n'ont pas le droit de modifier leur propre compteur.
+    if (!subscribed) {
+      const admin = createAdminClient();
+      await admin
+        .from("profiles")
+        .update({ generations_used: profile.generations_used + 1 })
+        .eq("id", user.id);
     }
 
     return NextResponse.json(parsed satisfies DistillResult);

@@ -2,7 +2,9 @@
 
 Distill transforme vos notes de cours (texte, photo manuscrite ou PDF) en un
 **résumé structuré** et des **flashcards de révision**, grâce à l'API Claude
-d'Anthropic.
+d'Anthropic. Les utilisateurs créent un compte (Supabase), ont droit à 3
+générations gratuites, puis peuvent s'abonner (9,99€/mois via Stripe) pour un
+accès illimité.
 
 ## Démarrer le projet en local
 
@@ -12,46 +14,58 @@ d'Anthropic.
 npm install
 ```
 
-**2. Ajouter votre clé API Claude.**
-
-Créez un fichier nommé `.env.local` à la racine du projet (à côté de
-`package.json`) et ajoutez-y cette ligne, en remplaçant par votre propre clé
-(obtenue sur [console.anthropic.com](https://console.anthropic.com)) :
+**2. Créer le fichier `.env.local`** à la racine du projet, avec ces
+variables (voir plus bas comment obtenir chacune) :
 
 ```
-ANTHROPIC_API_KEY=sk-ant-votre-clé-ici
+ANTHROPIC_API_KEY=sk-ant-...
+
+NEXT_PUBLIC_SUPABASE_URL=https://xxxxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_PRICE_ID=price_...
 ```
 
-Ce fichier n'est jamais envoyé sur GitHub (il est ignoré par `.gitignore`) :
-votre clé reste privée.
+Ce fichier n'est jamais envoyé sur GitHub (ignoré par `.gitignore`) : vos
+clés restent privées.
 
-**3. Lancer le serveur de développement :**
+**3. Créer le schéma de base de données Supabase** : dans le dashboard
+Supabase → SQL Editor, copiez-collez le contenu de `supabase/schema.sql` et
+exécutez-le. Cela crée la table `profiles` (une ligne par utilisateur) avec
+les bonnes règles de sécurité.
+
+**4. Lancer le serveur de développement :**
 
 ```bash
 npm run dev
 ```
 
-Ouvrez ensuite [http://localhost:3000](http://localhost:3000) dans votre
-navigateur.
+Ouvrez ensuite [http://localhost:3000](http://localhost:3000).
 
 ## Comment ça marche
 
-- La page d'accueil (`src/app/page.tsx` → `src/components/DistillApp.tsx`)
-  affiche le formulaire : texte collé, photo, PDF, et le bouton "Distiller
-  mes notes".
-- Quand vous cliquez sur le bouton, le navigateur envoie votre contenu à la
-  route serveur `src/app/api/distill/route.ts`.
-- Cette route appelle l'API Claude (modèle `claude-sonnet-4-6`) avec un
-  prompt qui demande un résumé structuré et 8 à 10 flashcards, au format
-  JSON.
-- Le résultat est ensuite affiché avec deux onglets : **Résumé** (rendu en
-  Markdown avec titres et mots-clés en gras) et **Flashcards** (cartes
-  cliquables qui se retournent pour révéler la réponse).
+- **Comptes utilisateurs** (Supabase Auth, email + mot de passe) :
+  `src/app/signup`, `src/app/login`, `src/middleware` (rafraîchit la
+  session), `src/lib/supabase/*` (clients navigateur / serveur / admin).
+- **Base de données** : une table `profiles` (voir `supabase/schema.sql`)
+  stocke le compteur de générations gratuites et le statut d'abonnement de
+  chaque utilisateur.
+- **Génération** (`src/app/api/distill/route.ts`) : vérifie que
+  l'utilisateur est connecté, vérifie sa limite gratuite, appelle l'API
+  Claude, puis incrémente son compteur.
+- **Abonnement Stripe** : `src/app/api/stripe/checkout` crée une session de
+  paiement, `src/app/api/stripe/portal` ouvre la gestion de l'abonnement, et
+  `src/app/api/stripe/webhook` reçoit les événements Stripe (paiement
+  réussi, annulation, ...) pour mettre à jour Supabase.
+- **Interface** (`src/components/DistillApp.tsx`) : formulaire de
+  distillation, compteur de générations restantes, bouton d'abonnement,
+  résultat en onglets Résumé / Flashcards.
 
-## Limites de cette version 1
+## Limites de cette version
 
-- Pas de compte utilisateur, pas de paiement, pas de sauvegarde : chaque
-  session est indépendante.
 - Les photos sont automatiquement redimensionnées et compressées avant
-  l'envoi (aucune limite pratique côté utilisateur). Les PDF sont limités à
-  3 Mo, pour rester sous la limite de taille de requête de Vercel.
+  l'envoi. Les PDF sont limités à 3 Mo.
+- 3 générations gratuites **à vie** par compte ; au-delà, abonnement requis.

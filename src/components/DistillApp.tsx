@@ -4,6 +4,7 @@ import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import FileDropZone from "@/components/FileDropZone";
 import FlashcardView from "@/components/FlashcardView";
+import { FREE_GENERATIONS_LIMIT, isSubscribed } from "@/lib/billing";
 import type { DistillResult } from "@/lib/types";
 
 // Vercel limite la taille d'une requête à ~4,5 Mo. Le base64 gonfle les
@@ -20,6 +21,13 @@ const MAX_IMAGE_DIMENSION = 1568;
 const IMAGE_JPEG_QUALITY = 0.85;
 
 type Tab = "summary" | "flashcards";
+
+interface DistillAppProps {
+  email: string;
+  subscriptionStatus: string;
+  generationsUsed: number;
+  checkoutStatus: "success" | "cancelled" | null;
+}
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -107,14 +115,84 @@ async function parseJsonResponse(res: Response): Promise<Record<string, unknown>
   }
 }
 
-export default function DistillApp() {
+function AccountBar({
+  email,
+  subscribed,
+  remaining,
+  billingLoading,
+  onSubscribe,
+  onManage,
+}: {
+  email: string;
+  subscribed: boolean;
+  remaining: number;
+  billingLoading: boolean;
+  onSubscribe: () => void;
+  onManage: () => void;
+}) {
+  return (
+    <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
+      <span className="font-display text-2xl text-foreground">Distill</span>
+
+      <div className="flex flex-wrap items-center gap-3">
+        {subscribed ? (
+          <span className="rounded-full bg-accent-light/50 px-3 py-1 text-xs font-semibold text-accent-dark">
+            ✦ Abonné — accès illimité
+          </span>
+        ) : (
+          <span className="text-xs text-muted">
+            {remaining} génération{remaining !== 1 ? "s" : ""} gratuite
+            {remaining !== 1 ? "s" : ""} restante{remaining !== 1 ? "s" : ""}
+          </span>
+        )}
+
+        <button
+          onClick={subscribed ? onManage : onSubscribe}
+          disabled={billingLoading}
+          className="rounded-full border border-border px-4 py-1.5 text-xs font-semibold text-foreground transition-colors hover:border-accent hover:text-accent-dark disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {subscribed ? "Gérer mon abonnement" : "S'abonner — 9,99€/mois"}
+        </button>
+
+        <span className="hidden max-w-[10rem] truncate text-xs text-muted sm:inline" title={email}>
+          {email}
+        </span>
+
+        <form action="/auth/signout" method="post">
+          <button
+            type="submit"
+            className="text-xs font-medium text-muted underline underline-offset-2 hover:text-foreground"
+          >
+            Déconnexion
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+export default function DistillApp({
+  email,
+  subscriptionStatus,
+  generationsUsed,
+  checkoutStatus,
+}: DistillAppProps) {
   const [text, setText] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
+  const [billingLoading, setBillingLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<DistillResult | null>(null);
   const [tab, setTab] = useState<Tab>("summary");
+  const [localGenerationsUsed, setLocalGenerationsUsed] = useState(generationsUsed);
+  const [dismissedCheckoutBanner, setDismissedCheckoutBanner] = useState(false);
+
+  const subscribed = isSubscribed({ subscription_status: subscriptionStatus });
+  const remaining = subscribed
+    ? Infinity
+    : Math.max(0, FREE_GENERATIONS_LIMIT - localGenerationsUsed);
+  const limitReached = !subscribed && remaining <= 0;
 
   const hasInput = text.trim().length > 0 || !!imageFile || !!pdfFile;
 
@@ -140,8 +218,50 @@ export default function DistillApp() {
     setPdfFile(file);
   }
 
+  async function handleSubscribe() {
+    if (billingLoading) return;
+    setBillingLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/stripe/checkout", { method: "POST" });
+      const payload = await parseJsonResponse(res);
+      if (!res.ok || typeof payload.url !== "string") {
+        throw new Error(
+          typeof payload.error === "string"
+            ? payload.error
+            : "Impossible de démarrer le paiement.",
+        );
+      }
+      window.location.href = payload.url;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Une erreur est survenue.");
+      setBillingLoading(false);
+    }
+  }
+
+  async function handleManagePortal() {
+    if (billingLoading) return;
+    setBillingLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/stripe/portal", { method: "POST" });
+      const payload = await parseJsonResponse(res);
+      if (!res.ok || typeof payload.url !== "string") {
+        throw new Error(
+          typeof payload.error === "string"
+            ? payload.error
+            : "Impossible d'ouvrir la gestion de l'abonnement.",
+        );
+      }
+      window.location.href = payload.url;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Une erreur est survenue.");
+      setBillingLoading(false);
+    }
+  }
+
   async function handleSubmit() {
-    if (!hasInput || loading) return;
+    if (!hasInput || loading || limitReached) return;
     setLoading(true);
     setError(null);
 
@@ -166,6 +286,9 @@ export default function DistillApp() {
       const payload = await parseJsonResponse(res);
 
       if (!res.ok) {
+        if (payload.limitReached) {
+          setLocalGenerationsUsed(FREE_GENERATIONS_LIMIT);
+        }
         throw new Error(
           typeof payload.error === "string" ? payload.error : "Une erreur est survenue.",
         );
@@ -173,6 +296,9 @@ export default function DistillApp() {
 
       setResult(payload as unknown as DistillResult);
       setTab("summary");
+      if (!subscribed) {
+        setLocalGenerationsUsed((n) => n + 1);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Une erreur est survenue.");
     } finally {
@@ -191,36 +317,43 @@ export default function DistillApp() {
   if (result) {
     return (
       <div className="mx-auto w-full max-w-3xl px-4 py-12">
-        <div className="mb-8 flex items-center justify-between">
-          <span className="font-display text-2xl text-foreground">Distill</span>
+        <AccountBar
+          email={email}
+          subscribed={subscribed}
+          remaining={remaining}
+          billingLoading={billingLoading}
+          onSubscribe={handleSubscribe}
+          onManage={handleManagePortal}
+        />
+
+        <div className="mb-6 flex items-center justify-between gap-3">
+          <div className="flex gap-2 rounded-full bg-background-alt p-1">
+            <button
+              onClick={() => setTab("summary")}
+              className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                tab === "summary"
+                  ? "bg-card text-accent-dark shadow-sm"
+                  : "text-muted hover:text-foreground"
+              }`}
+            >
+              Résumé
+            </button>
+            <button
+              onClick={() => setTab("flashcards")}
+              className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                tab === "flashcards"
+                  ? "bg-card text-accent-dark shadow-sm"
+                  : "text-muted hover:text-foreground"
+              }`}
+            >
+              Flashcards ({result.flashcards.length})
+            </button>
+          </div>
           <button
             onClick={reset}
             className="rounded-full border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-accent hover:text-accent-dark"
           >
             ↺ Nouvelle distillation
-          </button>
-        </div>
-
-        <div className="mb-6 flex gap-2 rounded-full bg-background-alt p-1">
-          <button
-            onClick={() => setTab("summary")}
-            className={`flex-1 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-              tab === "summary"
-                ? "bg-card text-accent-dark shadow-sm"
-                : "text-muted hover:text-foreground"
-            }`}
-          >
-            Résumé
-          </button>
-          <button
-            onClick={() => setTab("flashcards")}
-            className={`flex-1 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-              tab === "flashcards"
-                ? "bg-card text-accent-dark shadow-sm"
-                : "text-muted hover:text-foreground"
-            }`}
-          >
-            Flashcards ({result.flashcards.length})
           </button>
         </div>
 
@@ -276,10 +409,33 @@ export default function DistillApp() {
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-16">
+      <AccountBar
+        email={email}
+        subscribed={subscribed}
+        remaining={remaining}
+        billingLoading={billingLoading}
+        onSubscribe={handleSubscribe}
+        onManage={handleManagePortal}
+      />
+
+      {checkoutStatus && !dismissedCheckoutBanner && (
+        <div className="mb-6 flex items-start justify-between gap-3 rounded-xl border border-accent-light bg-accent-light/30 px-4 py-3 text-sm text-accent-dark">
+          <span>
+            {checkoutStatus === "success"
+              ? "Merci ! Votre abonnement est en cours d'activation — cela prend quelques secondes."
+              : "Paiement annulé. Vous pouvez réessayer quand vous le souhaitez."}
+          </span>
+          <button
+            onClick={() => setDismissedCheckoutBanner(true)}
+            className="shrink-0 text-accent-dark/70 hover:text-accent-dark"
+            aria-label="Fermer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       <div className="mb-10 text-center">
-        <p className="mb-3 text-xs font-medium uppercase tracking-[0.2em] text-accent-dark">
-          Distill
-        </p>
         <h1 className="font-display text-4xl leading-tight text-foreground sm:text-5xl">
           Vos notes de cours,
           <br />
@@ -330,13 +486,25 @@ export default function DistillApp() {
           </p>
         )}
 
-        <button
-          onClick={handleSubmit}
-          disabled={!hasInput || loading}
-          className="w-full rounded-xl bg-accent px-6 py-3.5 text-sm font-semibold text-accent-foreground transition-colors hover:bg-accent-dark disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {loading ? "Distillation en cours…" : "Distiller mes notes"}
-        </button>
+        {limitReached ? (
+          <button
+            onClick={handleSubscribe}
+            disabled={billingLoading}
+            className="w-full rounded-xl bg-accent px-6 py-3.5 text-sm font-semibold text-accent-foreground transition-colors hover:bg-accent-dark disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {billingLoading
+              ? "Redirection vers le paiement…"
+              : "Limite atteinte — S'abonner pour continuer (9,99€/mois)"}
+          </button>
+        ) : (
+          <button
+            onClick={handleSubmit}
+            disabled={!hasInput || loading}
+            className="w-full rounded-xl bg-accent px-6 py-3.5 text-sm font-semibold text-accent-foreground transition-colors hover:bg-accent-dark disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {loading ? "Distillation en cours…" : "Distiller mes notes"}
+          </button>
+        )}
       </div>
     </div>
   );
