@@ -1,0 +1,192 @@
+import Anthropic from "@anthropic-ai/sdk";
+import { NextResponse } from "next/server";
+import type { DistillRequestBody, DistillResult } from "@/lib/types";
+
+// Le prompt exact demandé pour transformer les notes en résumé + flashcards.
+const SYSTEM_PROMPT = `Tu es un expert pédagogique. Génère un résumé structuré (titre, sections, points clés en gras) et 8 à 10 flashcards (question/réponse) à partir de ce contenu. Réponds uniquement en JSON : {"summary": "...", "flashcards": [{"question": "...", "answer": "..."}]}`;
+
+const MODEL = "claude-sonnet-4-6";
+const MAX_FILE_BYTES = 8 * 1024 * 1024; // 8 Mo par fichier une fois décodé
+
+function base64ByteLength(base64: string): number {
+  const cleaned = base64.replace(/=+$/, "");
+  return Math.floor((cleaned.length * 3) / 4);
+}
+
+/** Extrait un objet JSON depuis la réponse texte du modèle, même si elle est
+ * entourée de balises markdown ``` ou de texte superflu. */
+function extractJson(text: string): unknown {
+  let candidate = text.trim();
+
+  const fenced = candidate.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced) {
+    candidate = fenced[1].trim();
+  }
+
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    const start = candidate.indexOf("{");
+    const end = candidate.lastIndexOf("}");
+    if (start !== -1 && end !== -1 && end > start) {
+      return JSON.parse(candidate.slice(start, end + 1));
+    }
+    throw new Error("Réponse du modèle non conforme au format JSON attendu.");
+  }
+}
+
+function isDistillResult(value: unknown): value is DistillResult {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  if (typeof v.summary !== "string") return false;
+  if (!Array.isArray(v.flashcards)) return false;
+  return v.flashcards.every((card) => {
+    if (!card || typeof card !== "object") return false;
+    const c = card as Record<string, unknown>;
+    return typeof c.question === "string" && typeof c.answer === "string";
+  });
+}
+
+export async function POST(request: Request) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    return NextResponse.json(
+      {
+        error:
+          "La clé API Anthropic n'est pas configurée sur le serveur. Ajoutez ANTHROPIC_API_KEY dans le fichier .env.local puis redémarrez le serveur.",
+      },
+      { status: 500 },
+    );
+  }
+
+  let body: DistillRequestBody;
+  try {
+    body = (await request.json()) as DistillRequestBody;
+  } catch {
+    return NextResponse.json({ error: "Requête invalide." }, { status: 400 });
+  }
+
+  const text = body.text?.trim();
+  const { image, pdf } = body;
+
+  if (!text && !image && !pdf) {
+    return NextResponse.json(
+      {
+        error:
+          "Merci de coller du texte, ou d'ajouter une image ou un PDF avant de distiller vos notes.",
+      },
+      { status: 400 },
+    );
+  }
+
+  for (const file of [image, pdf]) {
+    if (file && base64ByteLength(file.data) > MAX_FILE_BYTES) {
+      return NextResponse.json(
+        { error: "Le fichier est trop volumineux (8 Mo maximum)." },
+        { status: 400 },
+      );
+    }
+  }
+
+  const content: Anthropic.MessageParam["content"] = [];
+
+  if (image) {
+    content.push({
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: image.mediaType as
+          | "image/jpeg"
+          | "image/png"
+          | "image/gif"
+          | "image/webp",
+        data: image.data,
+      },
+    });
+  }
+
+  if (pdf) {
+    content.push({
+      type: "document",
+      source: {
+        type: "base64",
+        media_type: "application/pdf",
+        data: pdf.data,
+      },
+    });
+  }
+
+  if (text) {
+    content.push({ type: "text", text });
+  }
+
+  const client = new Anthropic({ apiKey });
+
+  try {
+    const response = await client.messages.create({
+      model: MODEL,
+      max_tokens: 4096,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: "user", content }],
+    });
+
+    if (response.stop_reason === "refusal") {
+      return NextResponse.json(
+        {
+          error:
+            "Le modèle n'a pas pu traiter ce contenu. Essayez avec un autre texte ou fichier.",
+        },
+        { status: 422 },
+      );
+    }
+
+    const textBlock = response.content.find((block) => block.type === "text");
+    if (!textBlock || textBlock.type !== "text") {
+      return NextResponse.json(
+        { error: "Le modèle n'a renvoyé aucun contenu exploitable." },
+        { status: 502 },
+      );
+    }
+
+    const parsed = extractJson(textBlock.text);
+    if (!isDistillResult(parsed)) {
+      return NextResponse.json(
+        {
+          error:
+            "La réponse du modèle ne correspond pas au format attendu. Réessayez.",
+        },
+        { status: 502 },
+      );
+    }
+
+    return NextResponse.json(parsed satisfies DistillResult);
+  } catch (error) {
+    if (error instanceof Anthropic.AuthenticationError) {
+      return NextResponse.json(
+        { error: "Clé API Anthropic invalide." },
+        { status: 401 },
+      );
+    }
+    if (error instanceof Anthropic.RateLimitError) {
+      return NextResponse.json(
+        {
+          error:
+            "Trop de requêtes envoyées à l'API Claude. Réessayez dans un instant.",
+        },
+        { status: 429 },
+      );
+    }
+    if (error instanceof Anthropic.APIError) {
+      return NextResponse.json(
+        { error: `Erreur de l'API Claude : ${error.message}` },
+        { status: error.status ?? 500 },
+      );
+    }
+
+    console.error("Erreur inattendue lors de l'appel à Claude :", error);
+    return NextResponse.json(
+      { error: "Une erreur inattendue est survenue." },
+      { status: 500 },
+    );
+  }
+}

@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+:root {
+  /* Palette neutre, chaude et sobre */
+  --background: #faf8f4;
+  --background-alt: #f2ede3;
+  --foreground: #262220;
+  --muted: #6f665c;
+  --border: #e6ddcc;
+  --card: #ffffff;
+
+  /* Accent doré / bronze */
+  --accent: #b08a4e;
+  --accent-dark: #8a6a37;
+  --accent-light: #e7d3a6;
+  --accent-foreground: #2a2116;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-background-alt: var(--background-alt);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-card: var(--card);
+
+  --color-accent: var(--accent);
+  --color-accent-dark: var(--accent-dark);
+  --color-accent-light: var(--accent-light);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* Utilitaire pour l'effet de retournement des flashcards */
+.flip-card {
+  perspective: 1500px;
+}
+
+.flip-card-inner {
+  transform-style: preserve-3d;
+  transition: transform 0.5s cubic-bezier(0.4, 0.2, 0.2, 1);
+}
+
+.flip-card.is-flipped .flip-card-inner {
+  transform: rotateY(180deg);
+}
+
+.flip-card-face {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.flip-card-back {
+  transform: rotateY(180deg);
+}
