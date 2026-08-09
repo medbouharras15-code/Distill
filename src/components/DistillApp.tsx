@@ -6,7 +6,18 @@ import FileDropZone from "@/components/FileDropZone";
 import FlashcardView from "@/components/FlashcardView";
 import type { DistillResult } from "@/lib/types";
 
-const MAX_FILE_BYTES = 8 * 1024 * 1024; // 8 Mo, doit correspondre à la limite côté serveur
+// Vercel limite la taille d'une requête à ~4,5 Mo. Le base64 gonfle les
+// données d'environ 33 % : on garde donc une marge de sécurité pour les PDF
+// (qui ne peuvent pas être compressés côté client, contrairement aux images).
+const MAX_PDF_BYTES = 3 * 1024 * 1024; // 3 Mo
+const MAX_RAW_IMAGE_BYTES = 20 * 1024 * 1024; // simple garde-fou avant compression
+
+// Les photos sont redimensionnées et recompressées côté client : une photo
+// d'iPad de plusieurs Mo devient une poignée de centaines de Ko avant envoi,
+// ce qui évite à la fois de dépasser la taille de requête autorisée et de
+// ralentir inutilement l'analyse par Claude.
+const MAX_IMAGE_DIMENSION = 1568;
+const IMAGE_JPEG_QUALITY = 0.85;
 
 type Tab = "summary" | "flashcards";
 
@@ -26,6 +37,76 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
+/** Redimensionne et recompresse une image (JPEG) via un canvas, quel que
+ * soit son format d'origine. Réduit fortement le poids des photos avant
+ * l'envoi au serveur. */
+function resizeImageToJpeg(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+
+      let { naturalWidth: width, naturalHeight: height } = img;
+      if (!width || !height) {
+        reject(new Error("Cette image n'a pas pu être lue. Essayez un autre fichier."));
+        return;
+      }
+      if (Math.max(width, height) > MAX_IMAGE_DIMENSION) {
+        const scale = MAX_IMAGE_DIMENSION / Math.max(width, height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        reject(new Error("Cet appareil ne permet pas de traiter l'image."));
+        return;
+      }
+      ctx.drawImage(img, 0, 0, width, height);
+
+      const dataUrl = canvas.toDataURL("image/jpeg", IMAGE_JPEG_QUALITY);
+      const base64 = dataUrl.split(",")[1];
+      if (!base64) {
+        reject(new Error("Cette image n'a pas pu être compressée."));
+        return;
+      }
+      resolve(base64);
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(
+        new Error(
+          "Cette image n'a pas pu être ouverte. Essayez un format JPG ou PNG.",
+        ),
+      );
+    };
+
+    img.src = objectUrl;
+  });
+}
+
+/** Lit une réponse HTTP comme du JSON, en donnant un message clair si le
+ * serveur (ou une plateforme intermédiaire comme Vercel) a renvoyé autre
+ * chose que du JSON — par exemple après un délai d'exécution dépassé. */
+async function parseJsonResponse(res: Response): Promise<Record<string, unknown>> {
+  const raw = await res.text();
+  try {
+    return raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+  } catch {
+    throw new Error(
+      res.ok
+        ? "Réponse du serveur illisible. Réessayez."
+        : `Le serveur a mis trop de temps à répondre ou a rejeté la requête (code ${res.status}). Réessayez avec un fichier plus léger.`,
+    );
+  }
+}
+
 export default function DistillApp() {
   const [text, setText] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -39,8 +120,12 @@ export default function DistillApp() {
 
   function selectImage(file: File) {
     setError(null);
-    if (file.size > MAX_FILE_BYTES) {
-      setError("L'image est trop volumineuse (8 Mo maximum).");
+    if (!file.type.startsWith("image/") && file.type !== "") {
+      setError("Ce fichier n'est pas une image reconnue.");
+      return;
+    }
+    if (file.size > MAX_RAW_IMAGE_BYTES) {
+      setError("Cette photo est trop volumineuse (20 Mo maximum).");
       return;
     }
     setImageFile(file);
@@ -48,8 +133,8 @@ export default function DistillApp() {
 
   function selectPdf(file: File) {
     setError(null);
-    if (file.size > MAX_FILE_BYTES) {
-      setError("Le PDF est trop volumineux (8 Mo maximum).");
+    if (file.size > MAX_PDF_BYTES) {
+      setError("Le PDF est trop volumineux (3 Mo maximum).");
       return;
     }
     setPdfFile(file);
@@ -61,8 +146,10 @@ export default function DistillApp() {
     setError(null);
 
     try {
+      // Les photos sont compressées en JPEG côté client (poids réduit et
+      // format toujours accepté par l'API) ; les PDF sont envoyés tels quels.
       const [imageData, pdfData] = await Promise.all([
-        imageFile ? fileToBase64(imageFile) : Promise.resolve(null),
+        imageFile ? resizeImageToJpeg(imageFile) : Promise.resolve(null),
         pdfFile ? fileToBase64(pdfFile) : Promise.resolve(null),
       ]);
 
@@ -71,20 +158,20 @@ export default function DistillApp() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text: text.trim() || undefined,
-          image: imageData
-            ? { data: imageData, mediaType: imageFile!.type }
-            : undefined,
+          image: imageData ? { data: imageData, mediaType: "image/jpeg" } : undefined,
           pdf: pdfData ? { data: pdfData, mediaType: "application/pdf" } : undefined,
         }),
       });
 
-      const payload = await res.json();
+      const payload = await parseJsonResponse(res);
 
       if (!res.ok) {
-        throw new Error(payload.error ?? "Une erreur est survenue.");
+        throw new Error(
+          typeof payload.error === "string" ? payload.error : "Une erreur est survenue.",
+        );
       }
 
-      setResult(payload as DistillResult);
+      setResult(payload as unknown as DistillResult);
       setTab("summary");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Une erreur est survenue.");
@@ -221,15 +308,15 @@ export default function DistillApp() {
         <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <FileDropZone
             label="Photo de notes manuscrites"
-            hint="PNG, JPG ou WEBP"
-            accept="image/png,image/jpeg,image/webp,image/gif"
+            hint="Compressée automatiquement"
+            accept="image/*"
             file={imageFile}
             onSelect={selectImage}
             onClear={() => setImageFile(null)}
           />
           <FileDropZone
             label="PDF de cours"
-            hint="Cours scanné ou texte"
+            hint="Cours scanné ou texte (3 Mo max.)"
             accept="application/pdf"
             file={pdfFile}
             onSelect={selectPdf}

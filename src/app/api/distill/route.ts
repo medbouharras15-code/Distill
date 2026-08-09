@@ -6,7 +6,14 @@ import type { DistillRequestBody, DistillResult } from "@/lib/types";
 const SYSTEM_PROMPT = `Tu es un expert pédagogique. Génère un résumé structuré (titre, sections, points clés en gras) et 8 à 10 flashcards (question/réponse) à partir de ce contenu. Réponds uniquement en JSON : {"summary": "...", "flashcards": [{"question": "...", "answer": "..."}]}`;
 
 const MODEL = "claude-sonnet-4-6";
-const MAX_FILE_BYTES = 8 * 1024 * 1024; // 8 Mo par fichier une fois décodé
+// Doit rester cohérent avec les limites côté client (src/components/DistillApp.tsx) :
+// les images sont compressées avant envoi, les PDF sont plafonnés à 3 Mo.
+const MAX_FILE_BYTES = 4 * 1024 * 1024; // 4 Mo par fichier une fois décodé
+
+// Laisse plus de temps à Vercel pour l'analyse d'image / génération des
+// flashcards (le délai par défaut peut être trop court, ce qui provoquait
+// une page d'erreur non-JSON côté client sur les envois avec photo).
+export const maxDuration = 60;
 
 function base64ByteLength(base64: string): number {
   const cleaned = base64.replace(/=+$/, "");
@@ -82,7 +89,7 @@ export async function POST(request: Request) {
   for (const file of [image, pdf]) {
     if (file && base64ByteLength(file.data) > MAX_FILE_BYTES) {
       return NextResponse.json(
-        { error: "Le fichier est trop volumineux (8 Mo maximum)." },
+        { error: "Le fichier est trop volumineux (4 Mo maximum une fois traité)." },
         { status: 400 },
       );
     }

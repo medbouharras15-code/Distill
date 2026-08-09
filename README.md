@@ -52,4 +52,6 @@ navigateur.
 
 - Pas de compte utilisateur, pas de paiement, pas de sauvegarde : chaque
   session est indépendante.
-- Fichiers limités à 8 Mo (image ou PDF).
+- Les photos sont automatiquement redimensionnées et compressées avant
+  l'envoi (aucune limite pratique côté utilisateur). Les PDF sont limités à
+  3 Mo, pour rester sous la limite de taille de requête de Vercel.
