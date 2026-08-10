@@ -27,6 +27,22 @@ async function getAccessToken(): Promise<string> {
     throw new Error("PAYPAL_CLIENT_ID / PAYPAL_CLIENT_SECRET ne sont pas configurées.");
   }
 
+  // DIAGNOSTIC TEMPORAIRE — à retirer une fois le problème d'authentification
+  // résolu. N'affiche jamais les valeurs en entier, seulement de quoi
+  // repérer un copier-coller corrompu (longueur, bornes, espaces, "=" en trop).
+  console.log("[paypal debug]", {
+    PAYPAL_ENV: process.env.PAYPAL_ENV ?? "(non défini → sandbox)",
+    apiBase: apiBase(),
+    clientId_length: clientId.length,
+    clientId_preview: `${clientId.slice(0, 6)}...${clientId.slice(-4)}`,
+    clientId_hasWhitespace: /\s/.test(clientId),
+    clientId_hasEqualsSign: clientId.includes("="),
+    secret_length: secret.length,
+    secret_preview: `${secret.slice(0, 4)}...${secret.slice(-4)}`,
+    secret_hasWhitespace: /\s/.test(secret),
+    secret_hasEqualsSign: secret.includes("="),
+  });
+
   const res = await fetch(`${apiBase()}/v1/oauth2/token`, {
     method: "POST",
     headers: {
@@ -37,7 +53,9 @@ async function getAccessToken(): Promise<string> {
   });
 
   if (!res.ok) {
-    throw new Error(`Authentification PayPal échouée (${res.status}).`);
+    const body = await res.text();
+    console.error("[paypal debug] réponse PayPal brute :", body);
+    throw new Error(`Authentification PayPal échouée (${res.status}) : ${body}`);
   }
 
   const data = (await res.json()) as { access_token: string; expires_in: number };
