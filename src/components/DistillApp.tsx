@@ -121,14 +121,14 @@ function AccountBar({
   remaining,
   billingLoading,
   onSubscribe,
-  onManage,
+  onCancel,
 }: {
   email: string;
   subscribed: boolean;
   remaining: number;
   billingLoading: boolean;
   onSubscribe: () => void;
-  onManage: () => void;
+  onCancel: () => void;
 }) {
   return (
     <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
@@ -147,11 +147,11 @@ function AccountBar({
         )}
 
         <button
-          onClick={subscribed ? onManage : onSubscribe}
+          onClick={subscribed ? onCancel : onSubscribe}
           disabled={billingLoading}
           className="rounded-full border border-border px-4 py-1.5 text-xs font-semibold text-foreground transition-colors hover:border-accent hover:text-accent-dark disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {subscribed ? "Gérer mon abonnement" : "S'abonner — 9,99€/mois"}
+          {subscribed ? "Annuler mon abonnement" : "S'abonner — 9,99€/mois"}
         </button>
 
         <span className="hidden max-w-[10rem] truncate text-xs text-muted sm:inline" title={email}>
@@ -223,7 +223,7 @@ export default function DistillApp({
     setBillingLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/stripe/checkout", { method: "POST" });
+      const res = await fetch("/api/paypal/subscribe", { method: "POST" });
       const payload = await parseJsonResponse(res);
       if (!res.ok || typeof payload.url !== "string") {
         throw new Error(
@@ -232,6 +232,8 @@ export default function DistillApp({
             : "Impossible de démarrer le paiement.",
         );
       }
+      // Redirige vers la page hébergée par PayPal : la carte bancaire y est
+      // saisie directement, elle ne transite jamais par notre serveur.
       window.location.href = payload.url;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Une erreur est survenue.");
@@ -239,21 +241,26 @@ export default function DistillApp({
     }
   }
 
-  async function handleManagePortal() {
+  async function handleCancelSubscription() {
     if (billingLoading) return;
+    if (!window.confirm("Annuler votre abonnement Distill ? L'accès illimité s'arrêtera immédiatement.")) {
+      return;
+    }
     setBillingLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/stripe/portal", { method: "POST" });
+      const res = await fetch("/api/paypal/cancel", { method: "POST" });
       const payload = await parseJsonResponse(res);
-      if (!res.ok || typeof payload.url !== "string") {
+      if (!res.ok) {
         throw new Error(
           typeof payload.error === "string"
             ? payload.error
-            : "Impossible d'ouvrir la gestion de l'abonnement.",
+            : "Impossible d'annuler l'abonnement.",
         );
       }
-      window.location.href = payload.url;
+      // Recharge la page pour refléter le nouveau statut (recalculé côté
+      // serveur dans page.tsx).
+      window.location.reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Une erreur est survenue.");
       setBillingLoading(false);
@@ -323,7 +330,7 @@ export default function DistillApp({
           remaining={remaining}
           billingLoading={billingLoading}
           onSubscribe={handleSubscribe}
-          onManage={handleManagePortal}
+          onCancel={handleCancelSubscription}
         />
 
         <div className="mb-6 flex items-center justify-between gap-3">
@@ -415,7 +422,7 @@ export default function DistillApp({
         remaining={remaining}
         billingLoading={billingLoading}
         onSubscribe={handleSubscribe}
-        onManage={handleManagePortal}
+        onCancel={handleCancelSubscription}
       />
 
       {checkoutStatus && !dismissedCheckoutBanner && (

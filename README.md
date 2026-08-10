@@ -3,8 +3,8 @@
 Distill transforme vos notes de cours (texte, photo manuscrite ou PDF) en un
 **résumé structuré** et des **flashcards de révision**, grâce à l'API Claude
 d'Anthropic. Les utilisateurs créent un compte (Supabase), ont droit à 3
-générations gratuites, puis peuvent s'abonner (9,99€/mois via Stripe) pour un
-accès illimité.
+générations gratuites, puis peuvent s'abonner (9,99€/mois via PayPal
+Subscriptions) pour un accès illimité.
 
 ## Démarrer le projet en local
 
@@ -24,9 +24,11 @@ NEXT_PUBLIC_SUPABASE_URL=https://xxxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
 
-STRIPE_SECRET_KEY=sk_test_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-STRIPE_PRICE_ID=price_...
+PAYPAL_ENV=sandbox
+PAYPAL_CLIENT_ID=...
+PAYPAL_CLIENT_SECRET=...
+PAYPAL_PLAN_ID=P-...
+PAYPAL_WEBHOOK_ID=...
 ```
 
 Ce fichier n'est jamais envoyé sur GitHub (ignoré par `.gitignore`) : vos
@@ -56,10 +58,11 @@ Ouvrez ensuite [http://localhost:3000](http://localhost:3000).
 - **Génération** (`src/app/api/distill/route.ts`) : vérifie que
   l'utilisateur est connecté, vérifie sa limite gratuite, appelle l'API
   Claude, puis incrémente son compteur.
-- **Abonnement Stripe** : `src/app/api/stripe/checkout` crée une session de
-  paiement, `src/app/api/stripe/portal` ouvre la gestion de l'abonnement, et
-  `src/app/api/stripe/webhook` reçoit les événements Stripe (paiement
-  réussi, annulation, ...) pour mettre à jour Supabase.
+- **Abonnement PayPal** : `src/app/api/paypal/subscribe` crée l'abonnement
+  et renvoie le lien vers la page hébergée par PayPal (la carte bancaire n'y
+  transite jamais par notre serveur), `src/app/api/paypal/cancel` annule
+  l'abonnement, et `src/app/api/paypal/webhook` reçoit les événements PayPal
+  (activation, suspension, annulation, ...) pour mettre à jour Supabase.
 - **Interface** (`src/components/DistillApp.tsx`) : formulaire de
   distillation, compteur de générations restantes, bouton d'abonnement,
   résultat en onglets Résumé / Flashcards.

@@ -1,4 +1,4 @@
--- Schéma Distill : comptes utilisateurs + abonnement Stripe
+-- Schéma Distill : comptes utilisateurs + abonnement PayPal
 -- À exécuter une fois dans Supabase : Dashboard > SQL Editor > New query > coller > Run
 
 -- 1. Table de profil, une ligne par utilisateur (liée à auth.users géré par Supabase Auth)
@@ -6,10 +6,9 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   email text,
   generations_used integer not null default 0,
-  stripe_customer_id text unique,
-  stripe_subscription_id text,
-  -- 'free' tant que l'utilisateur n'a jamais payé, sinon le statut Stripe
-  -- brut ('active', 'trialing', 'past_due', 'canceled', ...).
+  paypal_subscription_id text unique,
+  -- 'free' tant que l'utilisateur n'a jamais souscrit, sinon le statut PayPal
+  -- brut ('APPROVAL_PENDING', 'ACTIVE', 'SUSPENDED', 'CANCELLED', 'EXPIRED').
   subscription_status text not null default 'free',
   created_at timestamptz not null default now()
 );
