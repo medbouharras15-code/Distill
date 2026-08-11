@@ -66,9 +66,17 @@ Ouvrez ensuite [http://localhost:3000](http://localhost:3000).
 - **Interface** (`src/components/DistillApp.tsx`) : formulaire de
   distillation, compteur de générations restantes, bouton d'abonnement,
   résultat en onglets Résumé / Flashcards.
+- **Notes à main levée** (`/notes`, en construction — voir
+  `docs/notes-module.md`) : éditeur façon Notability/GoodNotes avec l'IA de
+  Distill intégrée. `src/components/notes/*` (canvas, barre d'outils),
+  `src/lib/notes/*` (types, moteur de dessin). Actuellement disponible :
+  canvas avec stylo (couleurs/tailles/types), gomme, annuler/rétablir.
 
 ## Limites de cette version
 
 - Les photos sont automatiquement redimensionnées et compressées avant
   l'envoi. Les PDF sont limités à 3 Mo.
 - 3 générations gratuites **à vie** par compte ; au-delà, abonnement requis.
+- Le module Notes à main levée est en cours de construction par phases (voir
+  `docs/notes-module.md`) : la sauvegarde, l'IA, l'export et la
+  collaboration ne sont pas encore implémentés.
