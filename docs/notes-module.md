@@ -77,6 +77,16 @@ Code : `src/app/notes/`, `src/components/notes/`, `src/lib/notes/`.
       - Un tracé rapide sans maintien (griffonnage normal, écriture) n'est
         jamais transformé — seul un maintien explicite déclenche la
         reconnaissance, pour ne jamais interférer avec l'écriture normale.
+      - **Verrouillage après redressement** (`LockedSnap` dans
+        `NotesCanvas.tsx`) : une fois le maintien déclenché, la géométrie
+        (ligne / rectangle / cercle) ne redevient plus jamais un tracé à
+        main levée, quoi qu'il arrive ensuite tant que le stylet reste
+        appuyé. Le stylet ne contrôle plus alors que le *placement* :
+        l'extrémité d'arrivée pour une ligne (le départ reste fixe), ou le
+        coin opposé à l'ancrage pour un cercle/rectangle (l'ancrage est le
+        coin de la boîte englobante le plus proche du tout premier point du
+        tracé). `deriveLockedSnap` calcule cet ancrage une seule fois, au
+        moment du verrouillage.
       - Undo/redo unifié : l'historique annuler/rétablir couvre maintenant
         aussi bien les traits que les formes dans une seule pile de
         snapshots (`Document = { strokes, shapes }` dans `NotesCanvas.tsx`).

@@ -58,6 +58,62 @@ interface SnapAnimation {
   toPoints: StrokePoint[];
 }
 
+/** Forme verrouillée après un redressement : une fois détectée, sa
+ * géométrie (ligne / rectangle / cercle) ne change plus jamais — seul le
+ * point `current` (l'extrémité de la ligne, ou le coin opposé à l'ancrage
+ * pour une forme) continue de suivre le stylet, jusqu'au relâchement. */
+interface LockedSnap {
+  kind: "line" | "shape";
+  shapeType?: ShapeType;
+  anchor: { x: number; y: number };
+  current: { x: number; y: number };
+  color: string;
+  size: number;
+  penType?: PenType;
+}
+
+/** Calcule la forme verrouillée à partir du résultat de détection :
+ * l'ancrage est choisi comme le point de départ (pour une ligne) ou le
+ * coin de la boîte englobante le plus proche du tout premier point du
+ * tracé (pour un cercle/rectangle) — celui qui reste fixe pendant que le
+ * stylet continue d'ajuster l'autre extrémité. */
+function deriveLockedSnap(
+  result: NonNullable<ShapeDetectionResult>,
+  originPoint: { x: number; y: number },
+  color: string,
+  size: number,
+  penType: PenType,
+): LockedSnap {
+  if (result.kind === "line") {
+    const [start, end] = result.points;
+    return {
+      kind: "line",
+      anchor: { x: start.x, y: start.y },
+      current: { x: end.x, y: end.y },
+      color,
+      size,
+      penType,
+    };
+  }
+
+  const { shape } = result;
+  const x0 = shape.x;
+  const x1 = shape.x + shape.width;
+  const y0 = shape.y;
+  const y1 = shape.y + shape.height;
+  const anchorX = Math.abs(originPoint.x - x0) <= Math.abs(originPoint.x - x1) ? x0 : x1;
+  const anchorY = Math.abs(originPoint.y - y0) <= Math.abs(originPoint.y - y1) ? y0 : y1;
+
+  return {
+    kind: "shape",
+    shapeType: shape.type,
+    anchor: { x: anchorX, y: anchorY },
+    current: { x: anchorX === x0 ? x1 : x0, y: anchorY === y0 ? y1 : y0 },
+    color,
+    size,
+  };
+}
+
 export type NotesTool = "pen" | "highlighter" | "eraser" | "shapes";
 
 export interface NotesCanvasHandle {
@@ -150,7 +206,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const holdAnchorPos = useRef<{ x: number; y: number } | null>(null);
   const holdAnchorTime = useRef<number>(0);
-  const snappedPreview = useRef<ShapeDetectionResult>(null);
+  const lockedSnap = useRef<LockedSnap | null>(null);
   const snapAnimation = useRef<SnapAnimation | null>(null);
 
   const debugInfo = useRef({
@@ -216,22 +272,33 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         size: penSize,
         points: interpolated,
       });
-    } else if (snappedPreview.current) {
-      if (snappedPreview.current.kind === "shape") {
-        drawShape(ctx, {
-          id: "__preview__",
-          color: penColor,
-          strokeWidth: penSize,
-          ...snappedPreview.current.shape,
-        });
-      } else {
+    } else if (lockedSnap.current) {
+      // Forme verrouillée : le stylet n'ajuste plus que `current`, la
+      // géométrie (ligne / rectangle / cercle) ne redevient jamais un tracé
+      // à main levée.
+      const locked = lockedSnap.current;
+      if (locked.kind === "line") {
         drawStroke(ctx, {
-          id: "__preview__",
+          id: "__locked__",
           tool: "pen",
-          penType,
-          color: penColor,
-          size: penSize,
-          points: snappedPreview.current.points,
+          penType: locked.penType ?? "fineliner",
+          color: locked.color,
+          size: locked.size,
+          points: [
+            { x: locked.anchor.x, y: locked.anchor.y, pressure: 0.5 },
+            { x: locked.current.x, y: locked.current.y, pressure: 0.5 },
+          ],
+        });
+      } else if (locked.shapeType) {
+        drawShape(ctx, {
+          id: "__locked__",
+          type: locked.shapeType,
+          x: locked.anchor.x,
+          y: locked.anchor.y,
+          width: locked.current.x - locked.anchor.x,
+          height: locked.current.y - locked.anchor.y,
+          color: locked.color,
+          strokeWidth: locked.size,
         });
       }
     } else if (currentStroke.current) {
@@ -305,7 +372,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
           : "aucun (tracé non reconnu)";
       }
       if (result) {
-        snappedPreview.current = result;
+        lockedSnap.current = deriveLockedSnap(result, snapshotPoints[0] ?? pos, penColor, penSize, penType);
         startSnapAnimation(snapshotPoints, result);
       }
     }, holdToSnapMs);
@@ -426,7 +493,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       tapIsCandidate.current = false;
     }
 
-    snappedPreview.current = null;
+    lockedSnap.current = null;
     snapAnimation.current = null;
     holdAnchorPos.current = null;
     if (holdTimer.current) {
@@ -506,6 +573,17 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     }
 
     if (!currentStroke.current) return;
+
+    if (tool === "pen" && lockedSnap.current) {
+      // Verrouillé : la géométrie ne bouge plus jamais — le stylet
+      // n'ajuste plus que le point d'arrivée (ligne) ou le coin opposé à
+      // l'ancrage (cercle/rectangle).
+      lockedSnap.current = { ...lockedSnap.current, current: { x: pos.x, y: pos.y } };
+      snapAnimation.current = null;
+      scheduleRender();
+      return;
+    }
+
     currentStroke.current.points.push(pos);
 
     if (tool === "pen") {
@@ -524,7 +602,6 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
 
       if (distanceFromAnchor > HOLD_JITTER_TOLERANCE) {
         // Mouvement réel (pas juste du bruit de capteur) : on repart de zéro.
-        snappedPreview.current = null;
         snapAnimation.current = null;
         scheduleHoldCheck(pos);
       }
@@ -573,34 +650,46 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     currentStroke.current = null;
     activePointerId.current = null;
 
-    const snapped = snappedPreview.current;
-    snappedPreview.current = null;
+    const locked = lockedSnap.current;
+    lockedSnap.current = null;
     snapAnimation.current = null;
 
-    if (!finished) {
-      scheduleRender();
-      return;
-    }
-
-    if (snapped) {
-      if (snapped.kind === "shape") {
+    if (locked) {
+      if (locked.kind === "line") {
+        const stroke: Stroke = {
+          id: crypto.randomUUID(),
+          tool: "pen",
+          penType: locked.penType ?? "fineliner",
+          color: locked.color,
+          size: locked.size,
+          points: [
+            { x: locked.anchor.x, y: locked.anchor.y, pressure: 0.5 },
+            { x: locked.current.x, y: locked.current.y, pressure: 0.5 },
+          ],
+        };
+        commitDoc({ strokes: [...strokesRef.current, stroke], shapes: shapesRef.current });
+      } else if (locked.shapeType) {
         const shape: ShapeElement = {
           id: crypto.randomUUID(),
-          ...snapped.shape,
-          color: finished.color,
-          strokeWidth: finished.size,
+          type: locked.shapeType,
+          x: locked.anchor.x,
+          y: locked.anchor.y,
+          width: locked.current.x - locked.anchor.x,
+          height: locked.current.y - locked.anchor.y,
+          color: locked.color,
+          strokeWidth: locked.size,
         };
         commitDoc({ strokes: strokesRef.current, shapes: [...shapesRef.current, shape] });
-      } else {
-        commitDoc({
-          strokes: [...strokesRef.current, { ...finished, points: snapped.points }],
-          shapes: shapesRef.current,
-        });
       }
       tapStartInfo.current = null;
       lastTap.current = null;
       scheduleRender();
       onActionComplete?.();
+      return;
+    }
+
+    if (!finished) {
+      scheduleRender();
       return;
     }
 
@@ -651,7 +740,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     currentStroke.current = null;
     currentShape.current = null;
     shapeStartPos.current = null;
-    snappedPreview.current = null;
+    lockedSnap.current = null;
     snapAnimation.current = null;
     holdAnchorPos.current = null;
     erasedStrokeIds.current = null;
