@@ -68,6 +68,8 @@ export function NotesToolbar({
   onUndo,
   onRedo,
 }: NotesToolbarProps) {
+  const isCustomColor = !PEN_COLORS.some((c) => c.value === penColor);
+
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3 shadow-sm">
       <div className="flex items-center gap-1.5">
@@ -143,6 +145,27 @@ export function NotesToolbar({
                 style={{ backgroundColor: c.value }}
               />
             ))}
+
+            <span className="relative h-7 w-7" title="Palette complète">
+              <input
+                type="color"
+                value={penColor}
+                onChange={(e) => onPenColorChange(e.target.value)}
+                aria-label="Choisir une couleur personnalisée"
+                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+              />
+              <span
+                aria-hidden="true"
+                className={`pointer-events-none absolute inset-0 grid place-items-center rounded-full border-2 transition ${
+                  isCustomColor ? "border-accent scale-110" : "border-border"
+                }`}
+                style={{
+                  background: isCustomColor
+                    ? penColor
+                    : "conic-gradient(from 90deg, #a83e35, #d4a13a, #2f6b4f, #3d6fa8, #7451a8, #a83e35)",
+                }}
+              />
+            </span>
           </div>
 
           <div className="flex items-center gap-1 rounded-full border border-border bg-background-alt p-1">
