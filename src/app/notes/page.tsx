@@ -10,10 +10,18 @@ import {
   PEN_COLORS,
   PEN_SIZES,
 } from "@/components/notes/NotesToolbar";
-import type { PenType } from "@/lib/notes/types";
+import { SheetSelector } from "@/components/notes/SheetSelector";
+import { BACKGROUND_COLORS, PAPER_SIZES, SHEET_TYPES } from "@/lib/notes/sheets";
+import type { PaperSize, PenType, SheetType } from "@/lib/notes/types";
 
 export default function NotesPage() {
   const canvasHandle = useRef<NotesCanvasHandle | null>(null);
+
+  const [sheetChosen, setSheetChosen] = useState(false);
+  const [sheetPanelOpen, setSheetPanelOpen] = useState(false);
+  const [sheetType, setSheetType] = useState<SheetType>("plain");
+  const [paperSize, setPaperSize] = useState<PaperSize>("letter");
+  const [backgroundColor, setBackgroundColor] = useState(BACKGROUND_COLORS[0].value);
 
   const [tool, setTool] = useState<NotesTool>("pen");
   const [previousTool, setPreviousTool] = useState<NotesTool>("pen");
@@ -64,6 +72,34 @@ export default function NotesPage() {
     }
   }
 
+  const sheetLabel = SHEET_TYPES.find((s) => s.value === sheetType)?.label ?? sheetType;
+  const paperLabel = PAPER_SIZES.find((p) => p.value === paperSize)?.label ?? paperSize;
+
+  if (!sheetChosen) {
+    return (
+      <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-4 py-6 sm:px-6">
+        <div className="flex items-center justify-between">
+          <Link href="/" className="text-sm text-muted transition hover:text-foreground">
+            ← Retour à Distill
+          </Link>
+          <h1 className="font-display text-lg font-medium text-foreground">Notes à main levée</h1>
+          <div className="w-24" />
+        </div>
+
+        <SheetSelector
+          sheetType={sheetType}
+          onSheetTypeChange={setSheetType}
+          paperSize={paperSize}
+          onPaperSizeChange={setPaperSize}
+          backgroundColor={backgroundColor}
+          onBackgroundColorChange={setBackgroundColor}
+          onConfirm={() => setSheetChosen(true)}
+          confirmLabel="Commencer à écrire"
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-4 px-4 py-6 sm:px-6">
       <div className="flex items-center justify-between">
@@ -73,6 +109,19 @@ export default function NotesPage() {
         <h1 className="font-display text-lg font-medium text-foreground">Notes à main levée</h1>
         <div className="w-24" />
       </div>
+
+      <button
+        type="button"
+        onClick={() => setSheetPanelOpen(true)}
+        className="flex w-fit items-center gap-2 self-center rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted transition hover:text-foreground"
+      >
+        <span
+          className="h-3 w-3 rounded-full border border-border"
+          style={{ backgroundColor }}
+          aria-hidden="true"
+        />
+        {sheetLabel} · {paperLabel}
+      </button>
 
       <NotesToolbar
         tool={tool}
@@ -108,6 +157,9 @@ export default function NotesPage() {
           highlighterColor={highlighterColor}
           highlighterSize={highlighterSize}
           eraserRadius={eraserRadius}
+          sheetType={sheetType}
+          paperSize={paperSize}
+          backgroundColor={backgroundColor}
           onActionComplete={handleActionComplete}
           onPenDoubleTap={activateTempEraser}
           onHistoryChange={(undo, redo) => {
@@ -116,6 +168,37 @@ export default function NotesPage() {
           }}
         />
       </div>
+
+      {sheetPanelOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setSheetPanelOpen(false)}
+        >
+          <div
+            className="max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-border bg-background p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSheetPanelOpen(false)}
+                aria-label="Fermer"
+                className="grid h-8 w-8 place-items-center rounded-full border border-border text-muted transition hover:text-foreground"
+              >
+                ×
+              </button>
+            </div>
+            <SheetSelector
+              sheetType={sheetType}
+              onSheetTypeChange={setSheetType}
+              paperSize={paperSize}
+              onPaperSizeChange={setPaperSize}
+              backgroundColor={backgroundColor}
+              onBackgroundColorChange={setBackgroundColor}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

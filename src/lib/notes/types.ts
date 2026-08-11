@@ -19,6 +19,8 @@ export interface Stroke {
   points: StrokePoint[];
 }
 
+export type PaperSize = "letter" | "a4" | "a5";
+
 export type SheetType =
   | "plain"
   | "lined-thin"
@@ -72,6 +74,7 @@ export interface NotePage {
   id: string;
   title: string;
   sheetType: SheetType;
+  paperSize: PaperSize;
   backgroundColor: string;
   strokes: Stroke[];
   shapes: ShapeElement[];

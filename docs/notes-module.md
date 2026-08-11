@@ -29,8 +29,19 @@ Code : `src/app/notes/`, `src/components/notes/`, `src/lib/notes/`.
       Safari/WebKit n'expose pas l'API `UIPencilInteraction` aux sites,
       réservée aux apps natives ; le double-tap de la pointe est
       l'équivalent le plus proche accessible depuis le navigateur.*
-- [ ] **Phase 2** — Sélecteur de types de feuilles (16 types), taille de
-      papier, couleur de fond.
+- [x] **Phase 2 — Sélecteur de feuilles** : les 16 types requis
+      (`src/lib/notes/sheets.ts`), rendus fidèlement sur le canvas
+      (`drawSheetPattern` dans `canvasUtils.ts`) et dans des vignettes
+      d'aperçu qui réutilisent le même moteur de rendu
+      (`SheetPreview.tsx`). Sélecteur plein écran avant la première page
+      (`SheetSelector.tsx`), réouvrable ensuite depuis un bouton d'état
+      ("Cornell Note · A4") qui ouvre le même sélecteur en modal. 3 formats
+      de papier (Letter/A4/A5, vraies proportions), 4 couleurs de fond
+      (blanc/crème/gris clair/noir). *Note : sur fond noir, l'encre ne
+      s'adapte pas encore automatiquement (encre par défaut peu lisible) —
+      l'adaptation de couleur d'encre au mode nuit est explicitement prévue
+      en phase 8 ("Confort visuel"), pas avant. En attendant, choisir une
+      couleur de stylo claire via la palette complète.*
 - [ ] **Phase 3** — Marqueur (6 couleurs rapides + palette 64, rendu
       "multiply"), formes géométriques + détection automatique, trait qui se
       redresse automatiquement.
@@ -61,6 +72,7 @@ interface NotePage {
   id: string;
   title: string;           // généré par l'IA
   sheetType: SheetType;
+  paperSize: PaperSize;
   backgroundColor: string;
   strokes: Stroke[];
   shapes: ShapeElement[];
@@ -93,10 +105,13 @@ mémoire côté client (rien n'est encore sauvegardé).
   points sont accumulés dans une ref pendant `pointermove`, redessinés via
   `requestAnimationFrame`, et l'état React n'est mis à jour qu'une fois le
   trait terminé (`pointerup`) — pour l'historique annuler/rétablir.
-- Page logique fixe (850×1100, ratio Letter provisoire — sera piloté par le
-  choix de format en phase 2), mise à l'échelle en CSS ; les coordonnées de
-  pointeur sont reprojetées dans l'espace logique pour rester stables quel
-  que soit le zoom du conteneur.
+- Page logique dont les dimensions dépendent du format choisi
+  (`getPageDimensions` dans `sheets.ts` : grand côté fixé à 1100px, petit
+  côté dérivé du vrai ratio Letter/A4/A5), mise à l'échelle en CSS ; les
+  coordonnées de pointeur sont reprojetées dans l'espace logique pour
+  rester stables quel que soit le zoom du conteneur. A4 et A5 partagent le
+  même ratio (feuilles ISO) donc s'affichent à l'identique à l'écran — la
+  différence de taille réelle ne comptera qu'à l'export/impression (phase 9).
 - Gomme : suppression au niveau du trait entier (pas de gomme pixel) — un
   trait est retiré dès qu'un de ses segments passe à moins du rayon de
   gomme choisi.

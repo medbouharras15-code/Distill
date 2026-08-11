@@ -8,11 +8,9 @@ import {
   useRef,
   useState,
 } from "react";
-import type { PenType, Stroke, StrokePoint } from "@/lib/notes/types";
-import { drawStroke, strokeHitTest } from "@/lib/notes/canvasUtils";
-
-export const PAGE_WIDTH = 850;
-export const PAGE_HEIGHT = 1100;
+import type { PaperSize, PenType, SheetType, Stroke, StrokePoint } from "@/lib/notes/types";
+import { drawSheetPattern, drawStroke, strokeHitTest } from "@/lib/notes/canvasUtils";
+import { getPageDimensions } from "@/lib/notes/sheets";
 
 /** Durée pendant laquelle on ignore le tactile après une entrée stylet, pour
  * éviter que la paume de la main ne dessine pendant l'écriture. */
@@ -43,6 +41,8 @@ interface NotesCanvasProps {
   highlighterColor: string;
   highlighterSize: number;
   eraserRadius: number;
+  sheetType: SheetType;
+  paperSize: PaperSize;
   backgroundColor?: string;
   /** Appelé après chaque trait terminé (dessiné ou effacé). */
   onActionComplete?: () => void;
@@ -61,6 +61,8 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     highlighterColor,
     highlighterSize,
     eraserRadius,
+    sheetType,
+    paperSize,
     backgroundColor = "#ffffff",
     onActionComplete,
     onPenDoubleTap,
@@ -68,6 +70,8 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   },
   ref,
 ) {
+  const { width: PAGE_WIDTH, height: PAGE_HEIGHT } = getPageDimensions(paperSize);
+
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
 
@@ -100,6 +104,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     ctx.clearRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
     ctx.fillStyle = backgroundColor;
     ctx.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
+    drawSheetPattern(ctx, sheetType, PAGE_WIDTH, PAGE_HEIGHT, backgroundColor);
 
     for (const stroke of strokesRef.current) {
       drawStroke(ctx, stroke);
@@ -107,7 +112,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     if (currentStroke.current) {
       drawStroke(ctx, currentStroke.current);
     }
-  }, [backgroundColor]);
+  }, [backgroundColor, sheetType, PAGE_WIDTH, PAGE_HEIGHT]);
 
   const scheduleRender = useCallback(() => {
     if (renderScheduled.current) return;
@@ -130,7 +135,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     ctx.scale(dpr, dpr);
     ctxRef.current = ctx;
     renderAll();
-  }, [renderAll]);
+  }, [renderAll, PAGE_WIDTH, PAGE_HEIGHT]);
 
   useEffect(() => {
     scheduleRender();
