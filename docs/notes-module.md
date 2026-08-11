@@ -85,6 +85,35 @@ Code : `src/app/notes/`, `src/components/notes/`, `src/lib/notes/`.
         rectangle (tolérance/seuil du test de rectangle trop permissifs à
         grande échelle) — resserré (`tolerance` 12%→8% de la taille,
         seuil d'adhérence aux bords 82%→92%).
+      - *Bug plus important trouvé sur appareil réel (iPad + Apple Pencil)* :
+        rien ne se redressait jamais, alors que tout fonctionnait dans les
+        tests automatisés. Cause : un vrai stylet envoie des `pointermove`
+        en continu même à l'arrêt (tremblement de la main, bruit du
+        capteur), et le code réinitialisait le minuteur de maintien à
+        **chaque** mouvement, aussi minime soit-il — il n'avait donc
+        jamais l'occasion d'aller au bout. Invisible avec des événements de
+        souris synthétiques (`page.mouse.move` + attente), qui eux
+        n'émettent strictement aucun événement pendant l'attente. Corrigé
+        par une tolérance de gigue (`HOLD_JITTER_TOLERANCE`, 4px) : le
+        minuteur n'est réarmé que si le mouvement dépasse ce rayon autour
+        du point d'ancrage. Reproduit et vérifié via de vrais
+        `PointerEvent` synthétiques `pointerType: "pen"` envoyés en continu
+        avec un micro-bruit aléatoire pendant l'attente (au lieu d'une
+        simple pause JS), pour imiter fidèlement un appareil réel.
+      - Cette correction a elle-même révélé un troisième bug : les points
+        de gigue accumulés *pendant* le maintien (parfois des dizaines,
+        concentrés au même endroit) faussaient l'analyse de forme une fois
+        le minuteur déclenché. Corrigé en figeant un instantané des points
+        du tracé au moment où le minuteur est (ré)armé, et en analysant cet
+        instantané plutôt que la liste de points toujours croissante.
+      - **Indicateur de debug temporaire** : ajouter `?debug=1` à l'URL
+        (`/notes?debug=1`) affiche un encart en direct (type de pointeur,
+        outil actif, temps d'immobilité écoulé, écart par rapport à
+        l'ancrage, dernier résultat de détection) — pratique pour
+        diagnostiquer sur un appareil réel où la console n'est pas
+        accessible facilement. À retirer une fois le module stabilisé
+        (`debugHoldDetection` sur `NotesCanvas`, lu depuis l'URL dans
+        `src/app/notes/page.tsx`).
 - [ ] **Phase 4** — Import de photos (redimensionnables), zoom/dézoom.
 - [ ] **Phase 5** — Outil texte "Tt" + clavier auto, outil lasso (sélection /
       déplacement / redimensionnement).

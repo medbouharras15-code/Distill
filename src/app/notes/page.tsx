@@ -45,6 +45,13 @@ export default function NotesPage() {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
+  // Indicateur de debug temporaire pour le hold-timer : ajouter ?debug=1 à
+  // l'URL (ex. sur iPad) pour l'activer sans redéploiement.
+  const [debugHoldDetection] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).get("debug") === "1";
+  });
+
   function selectPen() {
     setTool("pen");
     setTempEraser(false);
@@ -181,6 +188,7 @@ export default function NotesPage() {
           sheetType={sheetType}
           paperSize={paperSize}
           backgroundColor={backgroundColor}
+          debugHoldDetection={debugHoldDetection}
           onActionComplete={handleActionComplete}
           onPenDoubleTap={activateTempEraser}
           onHistoryChange={(undo, redo) => {

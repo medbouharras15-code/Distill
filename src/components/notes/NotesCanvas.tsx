@@ -34,6 +34,15 @@ const DOUBLE_TAP_MAX_DISTANCE = 30;
  * prop `holdToSnapMs`. */
 const DEFAULT_HOLD_TO_SNAP_MS = 600;
 
+/** Tolérance de "gigue" (px logiques) autour du point d'ancrage du maintien.
+ * Un vrai stylet/doigt envoie des `pointermove` en continu même quand
+ * l'utilisateur croit rester parfaitement immobile (tremblement de la main,
+ * bruit du capteur) — sans cette tolérance, chaque micro-mouvement
+ * réinitialiserait le minuteur et empêcherait le maintien de jamais aboutir
+ * en conditions réelles (invisible avec des événements de test synthétiques
+ * qui, eux, ne bougent jamais pendant l'attente). */
+const HOLD_JITTER_TOLERANCE = 4;
+
 /** Durée de l'animation de transition quand un tracé se redresse : chaque
  * point du trait à main levée migre en douceur vers sa position sur la
  * forme propre, plutôt qu'un remplacement brutal. */
@@ -78,6 +87,10 @@ interface NotesCanvasProps {
   /** Durée d'immobilité (ms, stylet toujours appuyé) avant la détection de
    * forme automatique. Défaut 600ms. */
   holdToSnapMs?: number;
+  /** Affiche un indicateur de debug temporaire (état du minuteur de
+   * maintien en direct) — pour diagnostiquer sur un appareil réel où la
+   * console n'est pas facilement accessible. */
+  debugHoldDetection?: boolean;
   /** Appelé après chaque trait terminé (dessiné ou effacé). */
   onActionComplete?: () => void;
   /** Appelé quand un double-tap de la pointe du stylet est détecté sur la
@@ -102,6 +115,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     paperSize,
     backgroundColor = "#ffffff",
     holdToSnapMs = DEFAULT_HOLD_TO_SNAP_MS,
+    debugHoldDetection = false,
     onActionComplete,
     onPenDoubleTap,
     onHistoryChange,
@@ -134,8 +148,26 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   const lastTap = useRef<{ x: number; y: number; time: number } | null>(null);
 
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdAnchorPos = useRef<{ x: number; y: number } | null>(null);
+  const holdAnchorTime = useRef<number>(0);
   const snappedPreview = useRef<ShapeDetectionResult>(null);
   const snapAnimation = useRef<SnapAnimation | null>(null);
+
+  const debugInfo = useRef({
+    pointerType: "—",
+    tool: "—",
+    elapsedMs: 0,
+    distanceFromAnchor: 0,
+    lastResult: "—",
+    holdCount: 0,
+  });
+  const [, setDebugTick] = useState(0);
+
+  useEffect(() => {
+    if (!debugHoldDetection) return;
+    const id = setInterval(() => setDebugTick((t) => t + 1), 100);
+    return () => clearInterval(id);
+  }, [debugHoldDetection]);
 
   useEffect(() => {
     strokesRef.current = strokes;
@@ -235,15 +267,48 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     }
   }
 
-  function startSnapAnimation(result: NonNullable<ShapeDetectionResult>) {
-    const stroke = currentStroke.current;
-    if (!stroke) return;
+  function startSnapAnimation(fromPoints: StrokePoint[], result: NonNullable<ShapeDetectionResult>) {
+    if (fromPoints.length === 0) return;
     snapAnimation.current = {
       startTime: performance.now(),
-      fromPoints: stroke.points.map((p) => ({ ...p })),
-      toPoints: computeSnapTargets(stroke.points, result),
+      fromPoints: fromPoints.map((p) => ({ ...p })),
+      toPoints: computeSnapTargets(fromPoints, result),
     };
     requestAnimationFrame(runSnapAnimation);
+  }
+
+  /** (Ré)arme le minuteur de maintien, ancré sur `pos`. Tant que le stylet
+   * reste dans le rayon de tolérance de gigue autour de cet ancrage, le
+   * minuteur n'est jamais réinitialisé — c'est ce qui lui permet de survivre
+   * jusqu'à `holdToSnapMs` en conditions réelles.
+   *
+   * On fige aussi un instantané des points du tracé à cet instant : les
+   * points ajoutés ensuite pendant l'attente (gigue du capteur pendant le
+   * maintien, souvent des dizaines de points quasi identiques) ne doivent
+   * pas fausser l'analyse de forme — sans quoi un cercle bien rond peut se
+   * faire mal classer à cause d'un amas de points parasites concentré à un
+   * seul endroit de son contour. */
+  function scheduleHoldCheck(pos: { x: number; y: number }) {
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdAnchorPos.current = pos;
+    holdAnchorTime.current = performance.now();
+    const snapshotPoints = currentStroke.current ? currentStroke.current.points.slice() : [];
+    holdTimer.current = setTimeout(() => {
+      if (debugHoldDetection) debugInfo.current.holdCount += 1;
+      if (snapshotPoints.length === 0) return;
+      const result = detectFreehandShape(snapshotPoints);
+      if (debugHoldDetection) {
+        debugInfo.current.lastResult = result
+          ? result.kind === "shape"
+            ? `shape:${result.shape.type}`
+            : "line"
+          : "aucun (tracé non reconnu)";
+      }
+      if (result) {
+        snappedPreview.current = result;
+        startSnapAnimation(snapshotPoints, result);
+      }
+    }, holdToSnapMs);
   }
 
   // Prépare le canvas (résolution physique = résolution logique * devicePixelRatio).
@@ -363,9 +428,13 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
 
     snappedPreview.current = null;
     snapAnimation.current = null;
+    holdAnchorPos.current = null;
     if (holdTimer.current) {
       clearTimeout(holdTimer.current);
       holdTimer.current = null;
+    }
+    if (debugHoldDetection) {
+      debugInfo.current = { ...debugInfo.current, pointerType: e.pointerType, tool, lastResult: "—" };
     }
 
     if (tool === "eraser") {
@@ -403,6 +472,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         size: penSize,
         points: [pos],
       };
+      scheduleHoldCheck(pos);
       scheduleRender();
     }
   }
@@ -439,18 +509,27 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     currentStroke.current.points.push(pos);
 
     if (tool === "pen") {
-      snappedPreview.current = null;
-      snapAnimation.current = null;
-      if (holdTimer.current) clearTimeout(holdTimer.current);
-      holdTimer.current = setTimeout(() => {
-        const points = currentStroke.current?.points;
-        if (!points) return;
-        const result = detectFreehandShape(points);
-        if (result) {
-          snappedPreview.current = result;
-          startSnapAnimation(result);
-        }
-      }, holdToSnapMs);
+      const anchor = holdAnchorPos.current;
+      const distanceFromAnchor = anchor ? Math.hypot(pos.x - anchor.x, pos.y - anchor.y) : Infinity;
+
+      if (debugHoldDetection) {
+        debugInfo.current = {
+          ...debugInfo.current,
+          pointerType: e.pointerType,
+          tool,
+          distanceFromAnchor: Math.round(distanceFromAnchor),
+          elapsedMs: anchor ? Math.round(performance.now() - holdAnchorTime.current) : 0,
+        };
+      }
+
+      if (distanceFromAnchor > HOLD_JITTER_TOLERANCE) {
+        // Mouvement réel (pas juste du bruit de capteur) : on repart de zéro.
+        snappedPreview.current = null;
+        snapAnimation.current = null;
+        scheduleHoldCheck(pos);
+      }
+      // Sinon, gigue tolérée : on laisse le minuteur déjà armé continuer sans
+      // le réinitialiser, pour qu'il puisse effectivement arriver à son terme.
     }
 
     scheduleRender();
@@ -461,6 +540,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       clearTimeout(holdTimer.current);
       holdTimer.current = null;
     }
+    holdAnchorPos.current = null;
 
     if (tool === "eraser") {
       const hasErasedStrokes = !!erasedStrokeIds.current && erasedStrokeIds.current.size > 0;
@@ -573,6 +653,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     shapeStartPos.current = null;
     snappedPreview.current = null;
     snapAnimation.current = null;
+    holdAnchorPos.current = null;
     erasedStrokeIds.current = null;
     erasedShapeIds.current = null;
     activePointerId.current = null;
@@ -582,22 +663,38 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   }
 
   return (
-    <canvas
-      ref={canvasRef}
-      style={{
-        width: "100%",
-        height: "auto",
-        aspectRatio: `${PAGE_WIDTH} / ${PAGE_HEIGHT}`,
-        touchAction: "none",
-        cursor: tool === "eraser" ? "cell" : "crosshair",
-        display: "block",
-      }}
-      className="rounded-xl border border-border bg-card shadow-[0_8px_30px_-12px_rgba(0,0,0,0.15)]"
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerCancel}
-      onPointerLeave={handlePointerCancel}
-    />
+    <div className="relative">
+      <canvas
+        ref={canvasRef}
+        style={{
+          width: "100%",
+          height: "auto",
+          aspectRatio: `${PAGE_WIDTH} / ${PAGE_HEIGHT}`,
+          touchAction: "none",
+          cursor: tool === "eraser" ? "cell" : "crosshair",
+          display: "block",
+        }}
+        className="rounded-xl border border-border bg-card shadow-[0_8px_30px_-12px_rgba(0,0,0,0.15)]"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
+        onPointerLeave={handlePointerCancel}
+      />
+      {debugHoldDetection && (
+        <div className="pointer-events-none absolute left-2 top-2 rounded-lg bg-black/80 px-3 py-2 font-mono text-[11px] leading-relaxed text-white">
+          <div>pointerType: {debugInfo.current.pointerType}</div>
+          <div>outil : {debugInfo.current.tool}</div>
+          <div>seuil de maintien : {holdToSnapMs}ms</div>
+          <div>
+            immobile depuis : {debugInfo.current.elapsedMs}ms (
+            {debugInfo.current.elapsedMs >= holdToSnapMs ? "déclenché" : "en cours"})
+          </div>
+          <div>écart / ancre : {debugInfo.current.distanceFromAnchor}px (tolérance {HOLD_JITTER_TOLERANCE}px)</div>
+          <div>dernier résultat : {debugInfo.current.lastResult}</div>
+          <div>nb. déclenchements : {debugInfo.current.holdCount}</div>
+        </div>
+      )}
+    </div>
   );
 });
