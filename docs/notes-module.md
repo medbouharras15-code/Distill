@@ -42,9 +42,31 @@ Code : `src/app/notes/`, `src/components/notes/`, `src/lib/notes/`.
       l'adaptation de couleur d'encre au mode nuit est explicitement prévue
       en phase 8 ("Confort visuel"), pas avant. En attendant, choisir une
       couleur de stylo claire via la palette complète.*
-- [ ] **Phase 3** — Marqueur (6 couleurs rapides + palette 64, rendu
-      "multiply"), formes géométriques + détection automatique, trait qui se
-      redresse automatiquement.
+- [x] **Phase 3 — Formes et trait auto** : le marqueur/surligneur (rendu
+      "multiply", couleurs rapides + palette complète) était déjà livré en
+      phase 1 (fusionné avec "surligneur" à la demande explicite). Ajouté
+      cette phase :
+      - **Outil Formes dédié** (`src/components/notes/icons.tsx` :
+        `ShapesIcon` + icônes par type) : cercle, rectangle, triangle,
+        ligne, dessinés par glisser-déposer (couleur + épaisseur de trait
+        au choix, 5 tailles). Rendu et détection de collision (gomme) dans
+        `canvasUtils.ts` (`drawShape`, `shapeHitTest`).
+      - **Détection automatique de formes** (`src/lib/notes/shapeDetection.ts`) :
+        en dessinant au stylo normal, si le tracé forme une boucle qui
+        ressemble à un cercle ou un rectangle ET que le stylet reste appuyé
+        ~500ms sans bouger à la fin, le trait à main levée se transforme en
+        forme propre (aperçu en direct pendant l'appui, validé au relâchement).
+      - **Trait qui se redresse automatiquement** : même mécanisme de
+        maintien, appliqué à un tracé qui n'est pas une boucle mais reste
+        proche d'un segment droit — se redresse en ligne parfaitement
+        droite, avec un léger magnétisme vers les angles à 45° quand on en
+        est déjà proche (horizontale, verticale, diagonales).
+      - Un tracé rapide sans maintien (griffonnage normal, écriture) n'est
+        jamais transformé — seul un maintien explicite déclenche la
+        reconnaissance, pour ne jamais interférer avec l'écriture normale.
+      - Undo/redo unifié : l'historique annuler/rétablir couvre maintenant
+        aussi bien les traits que les formes dans une seule pile de
+        snapshots (`Document = { strokes, shapes }` dans `NotesCanvas.tsx`).
 - [ ] **Phase 4** — Import de photos (redimensionnables), zoom/dézoom.
 - [ ] **Phase 5** — Outil texte "Tt" + clavier auto, outil lasso (sélection /
       déplacement / redimensionnement).
@@ -114,4 +136,12 @@ mémoire côté client (rien n'est encore sauvegardé).
   différence de taille réelle ne comptera qu'à l'export/impression (phase 9).
 - Gomme : suppression au niveau du trait entier (pas de gomme pixel) — un
   trait est retiré dès qu'un de ses segments passe à moins du rayon de
-  gomme choisi.
+  gomme choisi (fonctionne pareil pour les traits et les formes).
+- Détection de formes : heuristiques géométriques simples (pas de ML) —
+  variation du rayon par rapport au centroïde pour le cercle (faible et
+  stricte pour éviter de confondre avec un rectangle), adhérence aux 4
+  bords de la boîte englobante pour le rectangle (rectangle testé en
+  premier, car son critère est plus spécifique), écart maximal à la corde
+  départ→arrivée pour la ligne droite. Le "maintien" est un simple
+  debounce : le minuteur de detection se réarme à chaque `pointermove` et
+  ne se déclenche que si le stylet reste immobile ~500ms sans être relâché.

@@ -59,9 +59,11 @@ export interface ImageElement {
   src: string;
 }
 
+export type ShapeType = "circle" | "rectangle" | "triangle" | "line";
+
 export interface ShapeElement {
   id: string;
-  type: "circle" | "rectangle" | "triangle" | "line";
+  type: ShapeType;
   x: number;
   y: number;
   width: number;

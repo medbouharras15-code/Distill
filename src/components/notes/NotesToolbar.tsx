@@ -1,8 +1,20 @@
 "use client";
 
-import type { PenType } from "@/lib/notes/types";
+import type { ComponentType } from "react";
+import type { PenType, ShapeType } from "@/lib/notes/types";
 import type { NotesTool } from "./NotesCanvas";
-import { EraserIcon, HighlighterIcon, PenIcon, RedoIcon, UndoIcon } from "./icons";
+import {
+  CircleShapeIcon,
+  EraserIcon,
+  HighlighterIcon,
+  LineShapeIcon,
+  PenIcon,
+  RectangleShapeIcon,
+  RedoIcon,
+  ShapesIcon,
+  TriangleShapeIcon,
+  UndoIcon,
+} from "./icons";
 
 export const PEN_COLORS: { label: string; value: string }[] = [
   { label: "Noir", value: "#1f1b16" },
@@ -17,14 +29,28 @@ export const HIGHLIGHTER_COLORS: { label: string; value: string }[] = [
   { label: "Bleu", value: "#6fa0d6" },
 ];
 
+export const SHAPE_COLORS: { label: string; value: string }[] = [
+  { label: "Noir", value: "#1f1b16" },
+  { label: "Bleu", value: "#3d6fa8" },
+  { label: "Rouge", value: "#a83e35" },
+];
+
 export const PEN_SIZES = [1.5, 3, 4.5, 7, 10];
 export const HIGHLIGHTER_SIZES = [8, 14, 20, 28, 36];
 export const ERASER_SIZES = [6, 12, 18, 26, 36];
+export const SHAPE_STROKE_WIDTHS = [1.5, 3, 4.5, 7, 10];
 
 const PEN_TYPES: { label: string; value: PenType }[] = [
   { label: "Fine liner", value: "fineliner" },
   { label: "Stylo bille", value: "ballpoint" },
   { label: "Feutre pinceau", value: "brush" },
+];
+
+const SHAPE_TYPES: { value: ShapeType; label: string; Icon: ComponentType<{ className?: string }> }[] = [
+  { value: "rectangle", label: "Rectangle", Icon: RectangleShapeIcon },
+  { value: "circle", label: "Cercle", Icon: CircleShapeIcon },
+  { value: "triangle", label: "Triangle", Icon: TriangleShapeIcon },
+  { value: "line", label: "Ligne", Icon: LineShapeIcon },
 ];
 
 const RAINBOW_GRADIENT =
@@ -122,6 +148,7 @@ interface NotesToolbarProps {
   onSelectPen: () => void;
   onSelectHighlighter: () => void;
   onSelectEraser: () => void;
+  onSelectShapes: () => void;
   onPenDoubleClick: () => void;
 
   penColor: string;
@@ -139,6 +166,13 @@ interface NotesToolbarProps {
   eraserRadius: number;
   onEraserRadiusChange: (radius: number) => void;
 
+  shapeType: ShapeType;
+  onShapeTypeChange: (type: ShapeType) => void;
+  shapeColor: string;
+  onShapeColorChange: (color: string) => void;
+  shapeStrokeWidth: number;
+  onShapeStrokeWidthChange: (width: number) => void;
+
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
@@ -150,6 +184,7 @@ export function NotesToolbar({
   onSelectPen,
   onSelectHighlighter,
   onSelectEraser,
+  onSelectShapes,
   onPenDoubleClick,
   penColor,
   onPenColorChange,
@@ -163,6 +198,12 @@ export function NotesToolbar({
   onHighlighterSizeChange,
   eraserRadius,
   onEraserRadiusChange,
+  shapeType,
+  onShapeTypeChange,
+  shapeColor,
+  onShapeColorChange,
+  shapeStrokeWidth,
+  onShapeStrokeWidthChange,
   canUndo,
   canRedo,
   onUndo,
@@ -236,6 +277,19 @@ export function NotesToolbar({
         >
           <EraserIcon className="h-5 w-5" />
         </button>
+        <button
+          type="button"
+          onClick={onSelectShapes}
+          aria-pressed={tool === "shapes"}
+          title="Formes"
+          className={`grid h-9 w-9 shrink-0 place-items-center rounded-full border transition ${
+            tool === "shapes"
+              ? "border-accent bg-accent-light text-accent-dark"
+              : "border-border text-foreground hover:bg-background-alt"
+          }`}
+        >
+          <ShapesIcon className="h-5 w-5" />
+        </button>
       </div>
 
       <div className="h-8 w-px shrink-0 bg-border" />
@@ -267,6 +321,29 @@ export function NotesToolbar({
 
       {tool === "eraser" && (
         <SizeDotPicker sizes={ERASER_SIZES} value={eraserRadius} onChange={onEraserRadiusChange} />
+      )}
+
+      {tool === "shapes" && (
+        <div className="flex flex-nowrap items-center gap-3">
+          <div className="flex shrink-0 items-center gap-1 rounded-full border border-border bg-background-alt p-1">
+            {SHAPE_TYPES.map(({ value, label, Icon }) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => onShapeTypeChange(value)}
+                aria-pressed={shapeType === value}
+                title={label}
+                className={`grid h-7 w-7 shrink-0 place-items-center rounded-full transition ${
+                  shapeType === value ? "bg-card text-accent-dark shadow-sm" : "text-muted"
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+              </button>
+            ))}
+          </div>
+          <ColorRow colors={SHAPE_COLORS} value={shapeColor} onChange={onShapeColorChange} />
+          <SizeDotPicker sizes={SHAPE_STROKE_WIDTHS} value={shapeStrokeWidth} onChange={onShapeStrokeWidthChange} />
+        </div>
       )}
     </div>
   );

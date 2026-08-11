@@ -8,9 +8,10 @@ import {
   useRef,
   useState,
 } from "react";
-import type { PaperSize, PenType, SheetType, Stroke, StrokePoint } from "@/lib/notes/types";
-import { drawSheetPattern, drawStroke, strokeHitTest } from "@/lib/notes/canvasUtils";
+import type { PaperSize, PenType, ShapeElement, ShapeType, SheetType, Stroke, StrokePoint } from "@/lib/notes/types";
+import { drawShape, drawSheetPattern, drawStroke, shapeHitTest, strokeHitTest } from "@/lib/notes/canvasUtils";
 import { getPageDimensions } from "@/lib/notes/sheets";
+import { detectFreehandShape, type ShapeDetectionResult } from "@/lib/notes/shapeDetection";
 
 /** Durée pendant laquelle on ignore le tactile après une entrée stylet, pour
  * éviter que la paume de la main ne dessine pendant l'écriture. */
@@ -26,11 +27,21 @@ const TAP_MAX_DURATION_MS = 250;
 const DOUBLE_TAP_MAX_INTERVAL_MS = 350;
 const DOUBLE_TAP_MAX_DISTANCE = 30;
 
-export type NotesTool = "pen" | "highlighter" | "eraser";
+/** Durée d'immobilité du stylo (toujours appuyé) avant de tenter de
+ * reconnaître un cercle, un rectangle ou un trait droit dans le tracé en
+ * cours — "si on maintient l'appui", comme les Straight Lines de Notability. */
+const HOLD_TO_SNAP_MS = 500;
+
+export type NotesTool = "pen" | "highlighter" | "eraser" | "shapes";
 
 export interface NotesCanvasHandle {
   undo(): void;
   redo(): void;
+}
+
+interface Document {
+  strokes: Stroke[];
+  shapes: ShapeElement[];
 }
 
 interface NotesCanvasProps {
@@ -41,6 +52,9 @@ interface NotesCanvasProps {
   highlighterColor: string;
   highlighterSize: number;
   eraserRadius: number;
+  shapeType: ShapeType;
+  shapeColor: string;
+  shapeStrokeWidth: number;
   sheetType: SheetType;
   paperSize: PaperSize;
   backgroundColor?: string;
@@ -61,6 +75,9 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     highlighterColor,
     highlighterSize,
     eraserRadius,
+    shapeType,
+    shapeColor,
+    shapeStrokeWidth,
     sheetType,
     paperSize,
     backgroundColor = "#ffffff",
@@ -76,13 +93,18 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
 
   const [strokes, setStrokes] = useState<Stroke[]>([]);
+  const [shapes, setShapes] = useState<ShapeElement[]>([]);
   const strokesRef = useRef<Stroke[]>([]);
-  const undoStack = useRef<Stroke[][]>([]);
-  const redoStack = useRef<Stroke[][]>([]);
+  const shapesRef = useRef<ShapeElement[]>([]);
+  const undoStack = useRef<Document[]>([]);
+  const redoStack = useRef<Document[]>([]);
 
   const activePointerId = useRef<number | null>(null);
   const currentStroke = useRef<Stroke | null>(null);
-  const erasedIds = useRef<Set<string> | null>(null);
+  const currentShape = useRef<ShapeElement | null>(null);
+  const shapeStartPos = useRef<{ x: number; y: number } | null>(null);
+  const erasedStrokeIds = useRef<Set<string> | null>(null);
+  const erasedShapeIds = useRef<Set<string> | null>(null);
   const lastPenTime = useRef(0);
   const renderScheduled = useRef(false);
 
@@ -90,9 +112,16 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   const tapIsCandidate = useRef(false);
   const lastTap = useRef<{ x: number; y: number; time: number } | null>(null);
 
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const snappedPreview = useRef<ShapeDetectionResult>(null);
+
   useEffect(() => {
     strokesRef.current = strokes;
   }, [strokes]);
+
+  useEffect(() => {
+    shapesRef.current = shapes;
+  }, [shapes]);
 
   const notifyHistory = useCallback(() => {
     onHistoryChange?.(undoStack.current.length > 0, redoStack.current.length > 0);
@@ -109,10 +138,36 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     for (const stroke of strokesRef.current) {
       drawStroke(ctx, stroke);
     }
-    if (currentStroke.current) {
+    for (const shape of shapesRef.current) {
+      drawShape(ctx, shape);
+    }
+
+    if (snappedPreview.current) {
+      if (snappedPreview.current.kind === "shape") {
+        drawShape(ctx, {
+          id: "__preview__",
+          color: penColor,
+          strokeWidth: penSize,
+          ...snappedPreview.current.shape,
+        });
+      } else {
+        drawStroke(ctx, {
+          id: "__preview__",
+          tool: "pen",
+          penType,
+          color: penColor,
+          size: penSize,
+          points: snappedPreview.current.points,
+        });
+      }
+    } else if (currentStroke.current) {
       drawStroke(ctx, currentStroke.current);
     }
-  }, [backgroundColor, sheetType, PAGE_WIDTH, PAGE_HEIGHT]);
+
+    if (currentShape.current) {
+      drawShape(ctx, currentShape.current);
+    }
+  }, [backgroundColor, sheetType, PAGE_WIDTH, PAGE_HEIGHT, penColor, penSize, penType]);
 
   const scheduleRender = useCallback(() => {
     if (renderScheduled.current) return;
@@ -139,31 +194,37 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
 
   useEffect(() => {
     scheduleRender();
-  }, [strokes, backgroundColor, scheduleRender]);
+  }, [strokes, shapes, backgroundColor, scheduleRender]);
 
-  function commit(next: Stroke[]) {
-    undoStack.current.push(strokesRef.current);
+  function commitDoc(next: Document) {
+    undoStack.current.push({ strokes: strokesRef.current, shapes: shapesRef.current });
     redoStack.current = [];
-    strokesRef.current = next;
-    setStrokes(next);
+    strokesRef.current = next.strokes;
+    shapesRef.current = next.shapes;
+    setStrokes(next.strokes);
+    setShapes(next.shapes);
     notifyHistory();
   }
 
   const undo = useCallback(() => {
     if (undoStack.current.length === 0) return;
     const prev = undoStack.current.pop()!;
-    redoStack.current.push(strokesRef.current);
-    strokesRef.current = prev;
-    setStrokes(prev);
+    redoStack.current.push({ strokes: strokesRef.current, shapes: shapesRef.current });
+    strokesRef.current = prev.strokes;
+    shapesRef.current = prev.shapes;
+    setStrokes(prev.strokes);
+    setShapes(prev.shapes);
     notifyHistory();
   }, [notifyHistory]);
 
   const redo = useCallback(() => {
     if (redoStack.current.length === 0) return;
     const next = redoStack.current.pop()!;
-    undoStack.current.push(strokesRef.current);
-    strokesRef.current = next;
-    setStrokes(next);
+    undoStack.current.push({ strokes: strokesRef.current, shapes: shapesRef.current });
+    strokesRef.current = next.strokes;
+    shapesRef.current = next.shapes;
+    setStrokes(next.strokes);
+    setShapes(next.shapes);
     notifyHistory();
   }, [notifyHistory]);
 
@@ -182,17 +243,25 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   }
 
   function eraseAt(pos: StrokePoint) {
-    if (!erasedIds.current) return;
+    if (!erasedStrokeIds.current || !erasedShapeIds.current) return;
     let changed = false;
     for (const stroke of strokesRef.current) {
-      if (erasedIds.current.has(stroke.id)) continue;
+      if (erasedStrokeIds.current.has(stroke.id)) continue;
       if (strokeHitTest(stroke, pos.x, pos.y, eraserRadius)) {
-        erasedIds.current.add(stroke.id);
+        erasedStrokeIds.current.add(stroke.id);
+        changed = true;
+      }
+    }
+    for (const shape of shapesRef.current) {
+      if (erasedShapeIds.current.has(shape.id)) continue;
+      if (shapeHitTest(shape, pos.x, pos.y, eraserRadius)) {
+        erasedShapeIds.current.add(shape.id);
         changed = true;
       }
     }
     if (changed) {
-      strokesRef.current = strokesRef.current.filter((s) => !erasedIds.current!.has(s.id));
+      strokesRef.current = strokesRef.current.filter((s) => !erasedStrokeIds.current!.has(s.id));
+      shapesRef.current = shapesRef.current.filter((s) => !erasedShapeIds.current!.has(s.id));
       scheduleRender();
     }
   }
@@ -216,7 +285,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     activePointerId.current = e.pointerId;
     const pos = getPos(e);
 
-    if (e.pointerType === "pen" && tool !== "eraser") {
+    if (e.pointerType === "pen" && (tool === "pen" || tool === "highlighter")) {
       tapStartInfo.current = { x: pos.x, y: pos.y, time: Date.now() };
       tapIsCandidate.current = true;
     } else {
@@ -224,9 +293,29 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       tapIsCandidate.current = false;
     }
 
+    snappedPreview.current = null;
+    if (holdTimer.current) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
+
     if (tool === "eraser") {
-      erasedIds.current = new Set();
+      erasedStrokeIds.current = new Set();
+      erasedShapeIds.current = new Set();
       eraseAt(pos);
+    } else if (tool === "shapes") {
+      shapeStartPos.current = { x: pos.x, y: pos.y };
+      currentShape.current = {
+        id: crypto.randomUUID(),
+        type: shapeType,
+        x: pos.x,
+        y: pos.y,
+        width: 0,
+        height: 0,
+        color: shapeColor,
+        strokeWidth: shapeStrokeWidth,
+      };
+      scheduleRender();
     } else if (tool === "highlighter") {
       currentStroke.current = {
         id: crypto.randomUUID(),
@@ -265,19 +354,66 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
 
     if (tool === "eraser") {
       eraseAt(pos);
-    } else if (currentStroke.current) {
-      currentStroke.current.points.push(pos);
-      scheduleRender();
+      return;
     }
+
+    if (tool === "shapes") {
+      if (currentShape.current && shapeStartPos.current) {
+        currentShape.current.width = pos.x - shapeStartPos.current.x;
+        currentShape.current.height = pos.y - shapeStartPos.current.y;
+        scheduleRender();
+      }
+      return;
+    }
+
+    if (!currentStroke.current) return;
+    currentStroke.current.points.push(pos);
+
+    if (tool === "pen") {
+      snappedPreview.current = null;
+      if (holdTimer.current) clearTimeout(holdTimer.current);
+      holdTimer.current = setTimeout(() => {
+        const points = currentStroke.current?.points;
+        if (!points) return;
+        const result = detectFreehandShape(points);
+        if (result) {
+          snappedPreview.current = result;
+          scheduleRender();
+        }
+      }, HOLD_TO_SNAP_MS);
+    }
+
+    scheduleRender();
   }
 
   function endStroke() {
+    if (holdTimer.current) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
+
     if (tool === "eraser") {
-      if (erasedIds.current && erasedIds.current.size > 0) {
-        commit(strokesRef.current);
+      const hasErasedStrokes = !!erasedStrokeIds.current && erasedStrokeIds.current.size > 0;
+      const hasErasedShapes = !!erasedShapeIds.current && erasedShapeIds.current.size > 0;
+      if (hasErasedStrokes || hasErasedShapes) {
+        commitDoc({ strokes: strokesRef.current, shapes: shapesRef.current });
       }
-      erasedIds.current = null;
+      erasedStrokeIds.current = null;
+      erasedShapeIds.current = null;
       activePointerId.current = null;
+      scheduleRender();
+      onActionComplete?.();
+      return;
+    }
+
+    if (tool === "shapes") {
+      const shape = currentShape.current;
+      currentShape.current = null;
+      shapeStartPos.current = null;
+      activePointerId.current = null;
+      if (shape && Math.abs(shape.width) > 4 && Math.abs(shape.height) > 4) {
+        commitDoc({ strokes: strokesRef.current, shapes: [...shapesRef.current, shape] });
+      }
       scheduleRender();
       onActionComplete?.();
       return;
@@ -287,8 +423,33 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     currentStroke.current = null;
     activePointerId.current = null;
 
+    const snapped = snappedPreview.current;
+    snappedPreview.current = null;
+
     if (!finished) {
       scheduleRender();
+      return;
+    }
+
+    if (snapped) {
+      if (snapped.kind === "shape") {
+        const shape: ShapeElement = {
+          id: crypto.randomUUID(),
+          ...snapped.shape,
+          color: finished.color,
+          strokeWidth: finished.size,
+        };
+        commitDoc({ strokes: strokesRef.current, shapes: [...shapesRef.current, shape] });
+      } else {
+        commitDoc({
+          strokes: [...strokesRef.current, { ...finished, points: snapped.points }],
+          shapes: shapesRef.current,
+        });
+      }
+      tapStartInfo.current = null;
+      lastTap.current = null;
+      scheduleRender();
+      onActionComplete?.();
       return;
     }
 
@@ -319,7 +480,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     }
 
     if (finished.points.length > 0) {
-      commit([...strokesRef.current, finished]);
+      commitDoc({ strokes: [...strokesRef.current, finished], shapes: shapesRef.current });
     }
     scheduleRender();
     onActionComplete?.();
@@ -332,8 +493,16 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
 
   function handlePointerCancel(e: React.PointerEvent<HTMLCanvasElement>) {
     if (activePointerId.current !== e.pointerId) return;
+    if (holdTimer.current) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
     currentStroke.current = null;
-    erasedIds.current = null;
+    currentShape.current = null;
+    shapeStartPos.current = null;
+    snappedPreview.current = null;
+    erasedStrokeIds.current = null;
+    erasedShapeIds.current = null;
     activePointerId.current = null;
     tapStartInfo.current = null;
     tapIsCandidate.current = false;

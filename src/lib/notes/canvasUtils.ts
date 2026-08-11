@@ -1,4 +1,4 @@
-import type { SheetType, Stroke, StrokePoint } from "./types";
+import type { ShapeElement, SheetType, Stroke, StrokePoint } from "./types";
 
 /** Opacité du surligneur : suffisamment transparent pour rester lisible en
  * superposition, combiné à un mélange "multiply" pour l'effet d'encre qui
@@ -102,6 +102,120 @@ function distanceToSegment(a: StrokePoint, b: StrokePoint, x: number, y: number)
   const projX = a.x + t * dx;
   const projY = a.y + t * dy;
   return Math.hypot(x - projX, y - projY);
+}
+
+// ---------------------------------------------------------------------------
+// Formes géométriques
+// ---------------------------------------------------------------------------
+
+function distanceToSegmentXY(x1: number, y1: number, x2: number, y2: number, x: number, y: number): number {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const lengthSq = dx * dx + dy * dy;
+  if (lengthSq === 0) return Math.hypot(x - x1, y - y1);
+  let t = ((x - x1) * dx + (y - y1) * dy) / lengthSq;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(x - (x1 + t * dx), y - (y1 + t * dy));
+}
+
+function trianglePoints(shape: ShapeElement) {
+  const { x, y, width: w, height: h } = shape;
+  return [
+    { x: x + w / 2, y },
+    { x: x + w, y: y + h },
+    { x, y: y + h },
+  ] as const;
+}
+
+/** Dessine le contour d'une forme géométrique (jamais remplie, pour rester
+ * cohérent avec l'esprit "encre" des autres outils). */
+export function drawShape(ctx: CanvasRenderingContext2D, shape: ShapeElement) {
+  ctx.save();
+  ctx.strokeStyle = shape.color;
+  ctx.lineWidth = shape.strokeWidth;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+
+  const { x, y, width: w, height: h } = shape;
+
+  switch (shape.type) {
+    case "rectangle": {
+      const radius = Math.min(Math.abs(w), Math.abs(h)) * 0.05;
+      ctx.beginPath();
+      if (typeof ctx.roundRect === "function") {
+        ctx.roundRect(x, y, w, h, radius);
+      } else {
+        ctx.rect(x, y, w, h);
+      }
+      ctx.stroke();
+      break;
+    }
+    case "circle": {
+      ctx.beginPath();
+      ctx.ellipse(x + w / 2, y + h / 2, Math.abs(w) / 2, Math.abs(h) / 2, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      break;
+    }
+    case "triangle": {
+      const [p1, p2, p3] = trianglePoints(shape);
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.lineTo(p3.x, p3.y);
+      ctx.closePath();
+      ctx.stroke();
+      break;
+    }
+    case "line": {
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + w, y + h);
+      ctx.stroke();
+      break;
+    }
+  }
+
+  ctx.restore();
+}
+
+/** Vrai si le point (x, y) passe à moins de `radius` du contour de la forme. */
+export function shapeHitTest(shape: ShapeElement, x: number, y: number, radius: number): boolean {
+  const pad = radius + shape.strokeWidth / 2;
+  const bx = shape.x;
+  const by = shape.y;
+  const bw = shape.width;
+  const bh = shape.height;
+
+  switch (shape.type) {
+    case "rectangle": {
+      const x0 = Math.min(bx, bx + bw);
+      const x1 = Math.max(bx, bx + bw);
+      const y0 = Math.min(by, by + bh);
+      const y1 = Math.max(by, by + bh);
+      return (
+        distanceToSegmentXY(x0, y0, x1, y0, x, y) <= pad ||
+        distanceToSegmentXY(x1, y0, x1, y1, x, y) <= pad ||
+        distanceToSegmentXY(x1, y1, x0, y1, x, y) <= pad ||
+        distanceToSegmentXY(x0, y1, x0, y0, x, y) <= pad
+      );
+    }
+    case "circle": {
+      const cx = bx + bw / 2;
+      const cy = by + bh / 2;
+      const avgR = (Math.abs(bw) + Math.abs(bh)) / 4;
+      return Math.abs(Math.hypot(x - cx, y - cy) - avgR) <= pad;
+    }
+    case "triangle": {
+      const [p1, p2, p3] = trianglePoints(shape);
+      return (
+        distanceToSegmentXY(p1.x, p1.y, p2.x, p2.y, x, y) <= pad ||
+        distanceToSegmentXY(p2.x, p2.y, p3.x, p3.y, x, y) <= pad ||
+        distanceToSegmentXY(p3.x, p3.y, p1.x, p1.y, x, y) <= pad
+      );
+    }
+    case "line":
+      return distanceToSegmentXY(bx, by, bx + bw, by + bh, x, y) <= pad;
+  }
 }
 
 // ---------------------------------------------------------------------------

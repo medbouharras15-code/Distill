@@ -9,10 +9,12 @@ import {
   NotesToolbar,
   PEN_COLORS,
   PEN_SIZES,
+  SHAPE_COLORS,
+  SHAPE_STROKE_WIDTHS,
 } from "@/components/notes/NotesToolbar";
 import { SheetSelector } from "@/components/notes/SheetSelector";
 import { BACKGROUND_COLORS, PAPER_SIZES, SHEET_TYPES } from "@/lib/notes/sheets";
-import type { PaperSize, PenType, SheetType } from "@/lib/notes/types";
+import type { PaperSize, PenType, ShapeType, SheetType } from "@/lib/notes/types";
 
 export default function NotesPage() {
   const canvasHandle = useRef<NotesCanvasHandle | null>(null);
@@ -36,6 +38,10 @@ export default function NotesPage() {
 
   const [eraserRadius, setEraserRadius] = useState(18);
 
+  const [shapeType, setShapeType] = useState<ShapeType>("rectangle");
+  const [shapeColor, setShapeColor] = useState(SHAPE_COLORS[0].value);
+  const [shapeStrokeWidth, setShapeStrokeWidth] = useState(SHAPE_STROKE_WIDTHS[2]);
+
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
@@ -51,6 +57,11 @@ export default function NotesPage() {
 
   function selectEraser() {
     setTool("eraser");
+    setTempEraser(false);
+  }
+
+  function selectShapes() {
+    setTool("shapes");
     setTempEraser(false);
   }
 
@@ -128,6 +139,7 @@ export default function NotesPage() {
         onSelectPen={selectPen}
         onSelectHighlighter={selectHighlighter}
         onSelectEraser={selectEraser}
+        onSelectShapes={selectShapes}
         onPenDoubleClick={activateTempEraser}
         penColor={penColor}
         onPenColorChange={setPenColor}
@@ -141,6 +153,12 @@ export default function NotesPage() {
         onHighlighterSizeChange={setHighlighterSize}
         eraserRadius={eraserRadius}
         onEraserRadiusChange={setEraserRadius}
+        shapeType={shapeType}
+        onShapeTypeChange={setShapeType}
+        shapeColor={shapeColor}
+        onShapeColorChange={setShapeColor}
+        shapeStrokeWidth={shapeStrokeWidth}
+        onShapeStrokeWidthChange={setShapeStrokeWidth}
         canUndo={canUndo}
         canRedo={canRedo}
         onUndo={() => canvasHandle.current?.undo()}
@@ -157,6 +175,9 @@ export default function NotesPage() {
           highlighterColor={highlighterColor}
           highlighterSize={highlighterSize}
           eraserRadius={eraserRadius}
+          shapeType={shapeType}
+          shapeColor={shapeColor}
+          shapeStrokeWidth={shapeStrokeWidth}
           sheetType={sheetType}
           paperSize={paperSize}
           backgroundColor={backgroundColor}
