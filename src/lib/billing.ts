@@ -3,8 +3,8 @@ import type { Profile } from "@/lib/types";
 /** Nombre de générations gratuites offertes à vie, avant de devoir s'abonner. */
 export const FREE_GENERATIONS_LIMIT = 3;
 
-/** Statuts PayPal qui donnent un accès illimité à l'outil. */
-const ACTIVE_STATUSES = new Set(["ACTIVE"]);
+/** Statuts Lemon Squeezy qui donnent un accès illimité à l'outil. */
+const ACTIVE_STATUSES = new Set(["active"]);
 
 export function isSubscribed(profile: Pick<Profile, "subscription_status">): boolean {
   return ACTIVE_STATUSES.has(profile.subscription_status);

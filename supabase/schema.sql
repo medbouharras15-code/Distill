@@ -1,4 +1,4 @@
--- Schéma Distill : comptes utilisateurs + abonnement PayPal
+-- Schéma Distill : comptes utilisateurs + abonnement Lemon Squeezy
 -- À exécuter une fois dans Supabase : Dashboard > SQL Editor > New query > coller > Run
 
 -- 1. Table de profil, une ligne par utilisateur (liée à auth.users géré par Supabase Auth)
@@ -6,12 +6,24 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   email text,
   generations_used integer not null default 0,
-  paypal_subscription_id text unique,
-  -- 'free' tant que l'utilisateur n'a jamais souscrit, sinon le statut PayPal
-  -- brut ('APPROVAL_PENDING', 'ACTIVE', 'SUSPENDED', 'CANCELLED', 'EXPIRED').
+  lemonsqueezy_subscription_id text unique,
+  -- 'free' tant que l'utilisateur n'a jamais souscrit, sinon le statut Lemon
+  -- Squeezy brut ('on_trial', 'active', 'paused', 'past_due', 'unpaid',
+  -- 'cancelled', 'expired').
   subscription_status text not null default 'free',
   created_at timestamptz not null default now()
 );
+
+-- Migration : si la table existait déjà avec l'ancienne colonne PayPal, on la renomme.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'profiles' and column_name = 'paypal_subscription_id'
+  ) then
+    alter table public.profiles rename column paypal_subscription_id to lemonsqueezy_subscription_id;
+  end if;
+end $$;
 
 -- 2. Sécurité au niveau des lignes : chaque utilisateur ne voit / ne modifie
 -- que sa propre ligne. Les écritures sensibles (compteur d'usage, statut

@@ -3,8 +3,8 @@
 Distill transforme vos notes de cours (texte, photo manuscrite ou PDF) en un
 **résumé structuré** et des **flashcards de révision**, grâce à l'API Claude
 d'Anthropic. Les utilisateurs créent un compte (Supabase), ont droit à 3
-générations gratuites, puis peuvent s'abonner (9,99€/mois via PayPal
-Subscriptions) pour un accès illimité.
+générations gratuites, puis peuvent s'abonner (9,99€/mois via Lemon Squeezy)
+pour un accès illimité.
 
 ## Démarrer le projet en local
 
@@ -24,11 +24,10 @@ NEXT_PUBLIC_SUPABASE_URL=https://xxxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
 
-PAYPAL_ENV=sandbox
-PAYPAL_CLIENT_ID=...
-PAYPAL_CLIENT_SECRET=...
-PAYPAL_PLAN_ID=P-...
-PAYPAL_WEBHOOK_ID=...
+LEMONSQUEEZY_API_KEY=...
+LEMONSQUEEZY_STORE_ID=...
+LEMONSQUEEZY_VARIANT_ID=...
+LEMONSQUEEZY_WEBHOOK_SECRET=...
 ```
 
 Ce fichier n'est jamais envoyé sur GitHub (ignoré par `.gitignore`) : vos
@@ -58,11 +57,12 @@ Ouvrez ensuite [http://localhost:3000](http://localhost:3000).
 - **Génération** (`src/app/api/distill/route.ts`) : vérifie que
   l'utilisateur est connecté, vérifie sa limite gratuite, appelle l'API
   Claude, puis incrémente son compteur.
-- **Abonnement PayPal** : `src/app/api/paypal/subscribe` crée l'abonnement
-  et renvoie le lien vers la page hébergée par PayPal (la carte bancaire n'y
-  transite jamais par notre serveur), `src/app/api/paypal/cancel` annule
-  l'abonnement, et `src/app/api/paypal/webhook` reçoit les événements PayPal
-  (activation, suspension, annulation, ...) pour mettre à jour Supabase.
+- **Abonnement Lemon Squeezy** : `src/app/api/lemonsqueezy/checkout` crée un
+  checkout et renvoie le lien vers la page hébergée par Lemon Squeezy (la
+  carte bancaire n'y transite jamais par notre serveur),
+  `src/app/api/lemonsqueezy/cancel` annule l'abonnement, et
+  `src/app/api/lemonsqueezy/webhook` reçoit les événements Lemon Squeezy
+  (création, mise à jour, annulation, ...) pour mettre à jour Supabase.
 - **Interface** (`src/components/DistillApp.tsx`) : formulaire de
   distillation, compteur de générations restantes, bouton d'abonnement,
   résultat en onglets Résumé / Flashcards.

@@ -25,10 +25,10 @@ export interface Profile {
   id: string;
   email: string | null;
   generations_used: number;
-  paypal_subscription_id: string | null;
+  lemonsqueezy_subscription_id: string | null;
   /** "free" tant que l'utilisateur n'a jamais souscrit, sinon le statut
-   * PayPal brut ("APPROVAL_PENDING", "ACTIVE", "SUSPENDED", "CANCELLED",
-   * "EXPIRED"). */
+   * Lemon Squeezy brut ("on_trial", "active", "paused", "past_due",
+   * "unpaid", "cancelled", "expired"). */
   subscription_status: string;
   created_at: string;
 }

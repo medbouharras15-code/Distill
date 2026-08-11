@@ -223,7 +223,7 @@ export default function DistillApp({
     setBillingLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/paypal/subscribe", { method: "POST" });
+      const res = await fetch("/api/lemonsqueezy/checkout", { method: "POST" });
       const payload = await parseJsonResponse(res);
       if (!res.ok || typeof payload.url !== "string") {
         throw new Error(
@@ -232,8 +232,8 @@ export default function DistillApp({
             : "Impossible de démarrer le paiement.",
         );
       }
-      // Redirige vers la page hébergée par PayPal : la carte bancaire y est
-      // saisie directement, elle ne transite jamais par notre serveur.
+      // Redirige vers la page hébergée par Lemon Squeezy : la carte bancaire
+      // y est saisie directement, elle ne transite jamais par notre serveur.
       window.location.href = payload.url;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Une erreur est survenue.");
@@ -249,7 +249,7 @@ export default function DistillApp({
     setBillingLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/paypal/cancel", { method: "POST" });
+      const res = await fetch("/api/lemonsqueezy/cancel", { method: "POST" });
       const payload = await parseJsonResponse(res);
       if (!res.ok) {
         throw new Error(
