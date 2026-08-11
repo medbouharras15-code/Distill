@@ -92,6 +92,15 @@ function tryRectangle(points: StrokePoint[], box: ReturnType<typeof boundingBox>
   };
 }
 
+/** Redresse un trait à main levée en ligne parfaitement droite (et l'aligne
+ * sur les angles à 45° si on en est déjà proche) dès lors qu'il s'en
+ * approchait suffisamment — utilisé à chaque lever de stylet, sans geste de
+ * maintien requis, pour souligner du texte à la volée comme dans Notability. */
+export function detectStraightLine(points: StrokePoint[]): ShapeDetectionResult {
+  if (points.length < 3) return null;
+  return tryStraightLine(points);
+}
+
 function tryStraightLine(points: StrokePoint[]): ShapeDetectionResult {
   const first = points[0];
   const last = points[points.length - 1];

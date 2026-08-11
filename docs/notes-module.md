@@ -56,14 +56,23 @@ Code : `src/app/notes/`, `src/components/notes/`, `src/lib/notes/`.
         ressemble à un cercle ou un rectangle ET que le stylet reste appuyé
         ~500ms sans bouger à la fin, le trait à main levée se transforme en
         forme propre (aperçu en direct pendant l'appui, validé au relâchement).
-      - **Trait qui se redresse automatiquement** : même mécanisme de
-        maintien, appliqué à un tracé qui n'est pas une boucle mais reste
-        proche d'un segment droit — se redresse en ligne parfaitement
-        droite, avec un léger magnétisme vers les angles à 45° quand on en
-        est déjà proche (horizontale, verticale, diagonales).
-      - Un tracé rapide sans maintien (griffonnage normal, écriture) n'est
-        jamais transformé — seul un maintien explicite déclenche la
-        reconnaissance, pour ne jamais interférer avec l'écriture normale.
+      - **Trait qui se redresse automatiquement** : contrairement au
+        cercle/rectangle, ne nécessite **aucun maintien** — se vérifie à
+        chaque lever de stylet (`detectStraightLine` dans
+        `shapeDetection.ts`). Un tracé à main levée qui reste assez proche
+        d'un segment droit (même légèrement imprécis) se redresse
+        instantanément en ligne parfaite dès qu'on lève le stylet, avec un
+        léger magnétisme vers les angles à 45° quand on en est déjà proche
+        (horizontale, verticale, diagonales) — pensé en premier lieu pour
+        souligner du texte d'un geste rapide, comme dans Notability.
+      - Le cercle et le rectangle, eux, nécessitent toujours un maintien
+        explicite (~500ms sans bouger) avant relâchement, pour ne pas
+        transformer un griffonnage fermé par accident.
+      - *Compromis assumé : comme la ligne se redresse sur simple lever de
+        stylet (pas de maintien), un trait de lettre très rectiligne
+        ("l", "1", "-", "/"…) peut lui aussi se faire redresser en écrivant
+        normalement — c'est le prix de la détection instantanée demandée
+        pour le soulignement. À revoir si ça gêne l'écriture au quotidien.*
       - Undo/redo unifié : l'historique annuler/rétablir couvre maintenant
         aussi bien les traits que les formes dans une seule pile de
         snapshots (`Document = { strokes, shapes }` dans `NotesCanvas.tsx`).

@@ -11,7 +11,7 @@ import {
 import type { PaperSize, PenType, ShapeElement, ShapeType, SheetType, Stroke, StrokePoint } from "@/lib/notes/types";
 import { drawShape, drawSheetPattern, drawStroke, shapeHitTest, strokeHitTest } from "@/lib/notes/canvasUtils";
 import { getPageDimensions } from "@/lib/notes/sheets";
-import { detectFreehandShape, type ShapeDetectionResult } from "@/lib/notes/shapeDetection";
+import { detectFreehandShape, detectStraightLine, type ShapeDetectionResult } from "@/lib/notes/shapeDetection";
 
 /** Durée pendant laquelle on ignore le tactile après une entrée stylet, pour
  * éviter que la paume de la main ne dessine pendant l'écriture. */
@@ -423,12 +423,20 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     currentStroke.current = null;
     activePointerId.current = null;
 
-    const snapped = snappedPreview.current;
+    let snapped = snappedPreview.current;
     snappedPreview.current = null;
 
     if (!finished) {
       scheduleRender();
       return;
+    }
+
+    // Le redressement en ligne droite s'applique à chaque lever de stylet,
+    // sans geste de maintien requis (contrairement au cercle/rectangle) :
+    // c'est ce qui permet de souligner du texte à la volée d'un geste rapide,
+    // comme dans Notability.
+    if (!snapped && tool === "pen") {
+      snapped = detectStraightLine(finished.points);
     }
 
     if (snapped) {
