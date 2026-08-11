@@ -69,7 +69,11 @@ function tryCircle(points: StrokePoint[], box: ReturnType<typeof boundingBox>): 
 
 function tryRectangle(points: StrokePoint[], box: ReturnType<typeof boundingBox>): ShapeDetectionResult {
   if (box.width < 18 || box.height < 18) return null;
-  const tolerance = Math.max(10, Math.max(box.width, box.height) * 0.12);
+  // Tolérance et seuil volontairement stricts : un cercle bien rond a près
+  // des trois quarts de ses points à moins de ~12% de la taille de sa boîte
+  // englobante (les points proches des 4 points de tangence), donc une
+  // tolérance/seuil trop permissifs le feraient passer pour un rectangle.
+  const tolerance = Math.max(10, Math.max(box.width, box.height) * 0.08);
 
   const edges: [number, number, number, number][] = [
     [box.minX, box.minY, box.maxX, box.minY],
@@ -84,7 +88,7 @@ function tryRectangle(points: StrokePoint[], box: ReturnType<typeof boundingBox>
     if (closest <= tolerance) onEdge++;
   }
 
-  if (onEdge / points.length < 0.82) return null;
+  if (onEdge / points.length < 0.92) return null;
 
   return {
     kind: "shape",
@@ -137,4 +141,64 @@ export function detectFreehandShape(points: StrokePoint[]): ShapeDetectionResult
     return tryRectangle(points, box) ?? tryCircle(points, box);
   }
   return tryStraightLine(points);
+}
+
+function clamp(v: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, v));
+}
+
+function nearestPointOnRect(left: number, top: number, right: number, bottom: number, p: StrokePoint) {
+  const candidates = [
+    { x: clamp(p.x, left, right), y: top },
+    { x: clamp(p.x, left, right), y: bottom },
+    { x: left, y: clamp(p.y, top, bottom) },
+    { x: right, y: clamp(p.y, top, bottom) },
+  ];
+  let best = candidates[0];
+  let bestDist = Infinity;
+  for (const c of candidates) {
+    const d = Math.hypot(c.x - p.x, c.y - p.y);
+    if (d < bestDist) {
+      bestDist = d;
+      best = c;
+    }
+  }
+  return best;
+}
+
+/** Calcule, pour chaque point du tracé à main levée d'origine, sa position
+ * cible sur la forme propre détectée — utilisé pour animer une transition
+ * fluide (chaque point migre vers sa cible) plutôt qu'un remplacement
+ * instantané. Garde le même nombre de points en entrée qu'en sortie, dans
+ * le même ordre, pour permettre une interpolation point à point. */
+export function computeSnapTargets(points: StrokePoint[], result: ShapeDetectionResult): StrokePoint[] {
+  if (!result || points.length === 0) return points;
+
+  if (result.kind === "line") {
+    const [start, end] = result.points;
+    const n = points.length;
+    return points.map((p, i) => {
+      const t = n === 1 ? 0 : i / (n - 1);
+      return { x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t, pressure: p.pressure };
+    });
+  }
+
+  const { shape } = result;
+  if (shape.type === "circle") {
+    const cx = shape.x + shape.width / 2;
+    const cy = shape.y + shape.height / 2;
+    const rx = Math.abs(shape.width) / 2;
+    const ry = Math.abs(shape.height) / 2;
+    return points.map((p) => {
+      const angle = Math.atan2(p.y - cy, p.x - cx);
+      return { x: cx + Math.cos(angle) * rx, y: cy + Math.sin(angle) * ry, pressure: p.pressure };
+    });
+  }
+
+  // rectangle
+  const left = Math.min(shape.x, shape.x + shape.width);
+  const right = Math.max(shape.x, shape.x + shape.width);
+  const top = Math.min(shape.y, shape.y + shape.height);
+  const bottom = Math.max(shape.y, shape.y + shape.height);
+  return points.map((p) => ({ ...nearestPointOnRect(left, top, right, bottom, p), pressure: p.pressure }));
 }

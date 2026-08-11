@@ -51,31 +51,40 @@ Code : `src/app/notes/`, `src/components/notes/`, `src/lib/notes/`.
         ligne, dessinés par glisser-déposer (couleur + épaisseur de trait
         au choix, 5 tailles). Rendu et détection de collision (gomme) dans
         `canvasUtils.ts` (`drawShape`, `shapeHitTest`).
-      - **Détection automatique de formes** (`src/lib/notes/shapeDetection.ts`) :
-        en dessinant au stylo normal, si le tracé forme une boucle qui
-        ressemble à un cercle ou un rectangle ET que le stylet reste appuyé
-        ~500ms sans bouger à la fin, le trait à main levée se transforme en
-        forme propre (aperçu en direct pendant l'appui, validé au relâchement).
-      - **Trait qui se redresse automatiquement** : même mécanisme de
-        maintien que le cercle/rectangle (~500ms sans bouger, stylet
-        toujours appuyé) — un tracé qui n'est pas une boucle mais reste
-        proche d'un segment droit se redresse en ligne parfaitement droite
-        au relâchement, avec un léger magnétisme vers les angles à 45°
-        quand on en est déjà proche (horizontale, verticale, diagonales).
-        Si on lève le stylet tout de suite sans maintenir, le trait reste
-        à main levée tel quel — y compris pour souligner du texte : un
+      - **Détection automatique de formes façon PencilKit** (`src/lib/notes/shapeDetection.ts`) :
+        en dessinant au stylo normal, si le tracé ressemble à un cercle, un
+        rectangle ou une ligne droite ET que le stylet reste immobile
+        ~600ms sans être levé, le trait à main levée se redresse en forme
+        propre. Si on lève le stylet avant ce délai, le trait reste à main
+        levée tel quel — y compris pour souligner du texte : un
         soulignement rapide sans pause n'est jamais redressé, il faut
         marquer un temps d'arrêt à la fin du geste. *(Une version qui
-        redressait sur simple lever de stylet, sans maintien, a été
-        essayée puis retirée à la demande explicite : le risque de
+        redressait la ligne sur simple lever de stylet, sans maintien, a
+        été essayée puis retirée à la demande explicite : le risque de
         redresser des traits de lettres normales pendant l'écriture
-        n'était pas acceptable.)*
+        n'était pas acceptable — le comportement final applique donc le
+        même geste de maintien aux trois formes.)*
+      - Le délai d'immobilité (`DEFAULT_HOLD_TO_SNAP_MS`, 600ms) est
+        exposé comme prop `holdToSnapMs` sur `NotesCanvas` pour rester
+        ajustable sans toucher au moteur de détection.
+      - **Animation de transition** (`SNAP_ANIMATION_MS`, 220ms, ease-out
+        cubique) : au lieu d'un remplacement brutal, chaque point du tracé
+        à main levée migre en douceur vers sa position sur la forme propre
+        (`computeSnapTargets` — projection par angle sur l'ellipse pour le
+        cercle, projection sur le bord le plus proche pour le rectangle,
+        répartition uniforme le long du segment pour la ligne), pendant que
+        le stylet est encore maintenu appuyé.
       - Un tracé rapide sans maintien (griffonnage normal, écriture) n'est
         jamais transformé — seul un maintien explicite déclenche la
         reconnaissance, pour ne jamais interférer avec l'écriture normale.
       - Undo/redo unifié : l'historique annuler/rétablir couvre maintenant
         aussi bien les traits que les formes dans une seule pile de
         snapshots (`Document = { strokes, shapes }` dans `NotesCanvas.tsx`).
+      - *Bug trouvé et corrigé pendant les tests de l'animation* : un
+        cercle assez grand et bien rond pouvait être classé à tort comme
+        rectangle (tolérance/seuil du test de rectangle trop permissifs à
+        grande échelle) — resserré (`tolerance` 12%→8% de la taille,
+        seuil d'adhérence aux bords 82%→92%).
 - [ ] **Phase 4** — Import de photos (redimensionnables), zoom/dézoom.
 - [ ] **Phase 5** — Outil texte "Tt" + clavier auto, outil lasso (sélection /
       déplacement / redimensionnement).

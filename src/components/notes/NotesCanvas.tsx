@@ -11,7 +11,7 @@ import {
 import type { PaperSize, PenType, ShapeElement, ShapeType, SheetType, Stroke, StrokePoint } from "@/lib/notes/types";
 import { drawShape, drawSheetPattern, drawStroke, shapeHitTest, strokeHitTest } from "@/lib/notes/canvasUtils";
 import { getPageDimensions } from "@/lib/notes/sheets";
-import { detectFreehandShape, type ShapeDetectionResult } from "@/lib/notes/shapeDetection";
+import { computeSnapTargets, detectFreehandShape, type ShapeDetectionResult } from "@/lib/notes/shapeDetection";
 
 /** Durée pendant laquelle on ignore le tactile après une entrée stylet, pour
  * éviter que la paume de la main ne dessine pendant l'écriture. */
@@ -27,10 +27,27 @@ const TAP_MAX_DURATION_MS = 250;
 const DOUBLE_TAP_MAX_INTERVAL_MS = 350;
 const DOUBLE_TAP_MAX_DISTANCE = 30;
 
-/** Durée d'immobilité du stylo (toujours appuyé) avant de tenter de
- * reconnaître un cercle, un rectangle ou un trait droit dans le tracé en
- * cours — "si on maintient l'appui", comme les Straight Lines de Notability. */
-const HOLD_TO_SNAP_MS = 500;
+/** Durée d'immobilité du stylo par défaut (toujours appuyé) avant de tenter
+ * de reconnaître un cercle, un rectangle ou un trait droit dans le tracé en
+ * cours — "si on maintient l'appui", comme les Straight Lines de Notability
+ * ou la correction de forme de PencilKit (Apple Notes). Configurable via la
+ * prop `holdToSnapMs`. */
+const DEFAULT_HOLD_TO_SNAP_MS = 600;
+
+/** Durée de l'animation de transition quand un tracé se redresse : chaque
+ * point du trait à main levée migre en douceur vers sa position sur la
+ * forme propre, plutôt qu'un remplacement brutal. */
+const SNAP_ANIMATION_MS = 220;
+
+function easeOutCubic(t: number): number {
+  return 1 - (1 - t) ** 3;
+}
+
+interface SnapAnimation {
+  startTime: number;
+  fromPoints: StrokePoint[];
+  toPoints: StrokePoint[];
+}
 
 export type NotesTool = "pen" | "highlighter" | "eraser" | "shapes";
 
@@ -58,6 +75,9 @@ interface NotesCanvasProps {
   sheetType: SheetType;
   paperSize: PaperSize;
   backgroundColor?: string;
+  /** Durée d'immobilité (ms, stylet toujours appuyé) avant la détection de
+   * forme automatique. Défaut 600ms. */
+  holdToSnapMs?: number;
   /** Appelé après chaque trait terminé (dessiné ou effacé). */
   onActionComplete?: () => void;
   /** Appelé quand un double-tap de la pointe du stylet est détecté sur la
@@ -81,6 +101,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     sheetType,
     paperSize,
     backgroundColor = "#ffffff",
+    holdToSnapMs = DEFAULT_HOLD_TO_SNAP_MS,
     onActionComplete,
     onPenDoubleTap,
     onHistoryChange,
@@ -114,6 +135,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
 
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const snappedPreview = useRef<ShapeDetectionResult>(null);
+  const snapAnimation = useRef<SnapAnimation | null>(null);
 
   useEffect(() => {
     strokesRef.current = strokes;
@@ -142,7 +164,27 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       drawShape(ctx, shape);
     }
 
-    if (snappedPreview.current) {
+    if (snapAnimation.current) {
+      const { startTime, fromPoints, toPoints } = snapAnimation.current;
+      const t = Math.min(1, (performance.now() - startTime) / SNAP_ANIMATION_MS);
+      const eased = easeOutCubic(t);
+      const interpolated = fromPoints.map((p, i) => {
+        const target = toPoints[i] ?? p;
+        return {
+          x: p.x + (target.x - p.x) * eased,
+          y: p.y + (target.y - p.y) * eased,
+          pressure: p.pressure,
+        };
+      });
+      drawStroke(ctx, {
+        id: "__snap-anim__",
+        tool: "pen",
+        penType,
+        color: penColor,
+        size: penSize,
+        points: interpolated,
+      });
+    } else if (snappedPreview.current) {
       if (snappedPreview.current.kind === "shape") {
         drawShape(ctx, {
           id: "__preview__",
@@ -177,6 +219,32 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       renderAll();
     });
   }, [renderAll]);
+
+  /** Anime la transition entre le tracé à main levée et la forme propre
+   * détectée : chaque point migre en douceur vers sa cible plutôt que de se
+   * remplacer d'un coup. */
+  function runSnapAnimation() {
+    if (!snapAnimation.current) return;
+    const elapsed = performance.now() - snapAnimation.current.startTime;
+    scheduleRender();
+    if (elapsed < SNAP_ANIMATION_MS) {
+      requestAnimationFrame(runSnapAnimation);
+    } else {
+      snapAnimation.current = null;
+      scheduleRender();
+    }
+  }
+
+  function startSnapAnimation(result: NonNullable<ShapeDetectionResult>) {
+    const stroke = currentStroke.current;
+    if (!stroke) return;
+    snapAnimation.current = {
+      startTime: performance.now(),
+      fromPoints: stroke.points.map((p) => ({ ...p })),
+      toPoints: computeSnapTargets(stroke.points, result),
+    };
+    requestAnimationFrame(runSnapAnimation);
+  }
 
   // Prépare le canvas (résolution physique = résolution logique * devicePixelRatio).
   useEffect(() => {
@@ -294,6 +362,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     }
 
     snappedPreview.current = null;
+    snapAnimation.current = null;
     if (holdTimer.current) {
       clearTimeout(holdTimer.current);
       holdTimer.current = null;
@@ -371,6 +440,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
 
     if (tool === "pen") {
       snappedPreview.current = null;
+      snapAnimation.current = null;
       if (holdTimer.current) clearTimeout(holdTimer.current);
       holdTimer.current = setTimeout(() => {
         const points = currentStroke.current?.points;
@@ -378,9 +448,9 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         const result = detectFreehandShape(points);
         if (result) {
           snappedPreview.current = result;
-          scheduleRender();
+          startSnapAnimation(result);
         }
-      }, HOLD_TO_SNAP_MS);
+      }, holdToSnapMs);
     }
 
     scheduleRender();
@@ -425,6 +495,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
 
     const snapped = snappedPreview.current;
     snappedPreview.current = null;
+    snapAnimation.current = null;
 
     if (!finished) {
       scheduleRender();
@@ -501,6 +572,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     currentShape.current = null;
     shapeStartPos.current = null;
     snappedPreview.current = null;
+    snapAnimation.current = null;
     erasedStrokeIds.current = null;
     erasedShapeIds.current = null;
     activePointerId.current = null;
