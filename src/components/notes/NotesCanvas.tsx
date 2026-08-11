@@ -18,7 +18,7 @@ export const PAGE_HEIGHT = 1100;
  * éviter que la paume de la main ne dessine pendant l'écriture. */
 const PALM_REJECTION_MS = 750;
 
-export type NotesTool = "pen" | "eraser";
+export type NotesTool = "pen" | "highlighter" | "eraser";
 
 export interface NotesCanvasHandle {
   undo(): void;
@@ -30,6 +30,8 @@ interface NotesCanvasProps {
   penColor: string;
   penSize: number;
   penType: PenType;
+  highlighterColor: string;
+  highlighterSize: number;
   eraserRadius: number;
   backgroundColor?: string;
   /** Appelé après chaque trait terminé (dessiné ou effacé). */
@@ -38,7 +40,18 @@ interface NotesCanvasProps {
 }
 
 export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(function NotesCanvas(
-  { tool, penColor, penSize, penType, eraserRadius, backgroundColor = "#ffffff", onActionComplete, onHistoryChange },
+  {
+    tool,
+    penColor,
+    penSize,
+    penType,
+    highlighterColor,
+    highlighterSize,
+    eraserRadius,
+    backgroundColor = "#ffffff",
+    onActionComplete,
+    onHistoryChange,
+  },
   ref,
 ) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -177,6 +190,15 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     if (tool === "eraser") {
       erasedIds.current = new Set();
       eraseAt(pos);
+    } else if (tool === "highlighter") {
+      currentStroke.current = {
+        id: crypto.randomUUID(),
+        tool: "highlighter",
+        color: highlighterColor,
+        size: highlighterSize,
+        points: [pos],
+      };
+      scheduleRender();
     } else {
       currentStroke.current = {
         id: crypto.randomUUID(),

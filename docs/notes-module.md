@@ -11,10 +11,19 @@ Code : `src/app/notes/`, `src/components/notes/`, `src/lib/notes/`.
 
 - [x] **Phase 1 — Canvas de base** : canvas HTML5 (Pointer Events, souris /
       tactile / stylet + pression), traits stockés en vecteurs, stylo (3
-      couleurs, 3 tailles, 3 types dont un feutre pinceau sensible à la
-      pression), gomme (bouton dédié + double-clic sur le stylo pour bascule
-      rapide avec retour automatique à l'outil précédent), annuler/rétablir,
+      pastilles rapides + palette complète via color picker natif, 3 types
+      dont un feutre pinceau sensible à la pression), surligneur séparé
+      (rendu semi-transparent "multiply", 4 couleurs rapides + palette
+      complète), gomme avec icône dédiée (bouton + double-clic sur le stylo
+      pour bascule rapide avec retour automatique à l'outil précédent),
+      système de 5 tailles en pastilles visuelles (stylo, surligneur, gomme),
+      icônes SVG maison (`src/components/notes/icons.tsx`), barre d'outils
+      sur une seule ligne (scroll horizontal si nécessaire), annuler/rétablir,
       rejet de paume (~750 ms après une entrée stylet), `touchAction: none`.
+      *Note : le bouton latéral de l'Apple Pencil n'est pas exposé aux pages
+      web par Safari/WebKit (API `UIPencilInteraction` réservée aux apps
+      natives) — non implémenté, en attente d'une décision produit sur le
+      geste de repli à utiliser à la place.*
 - [ ] **Phase 2** — Sélecteur de types de feuilles (16 types), taille de
       papier, couleur de fond.
 - [ ] **Phase 3** — Marqueur (6 couleurs rapides + palette 64, rendu

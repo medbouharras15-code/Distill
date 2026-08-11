@@ -6,10 +6,13 @@ export interface StrokePoint {
 
 export type PenType = "fineliner" | "ballpoint" | "brush";
 
+export type InkTool = "pen" | "highlighter";
+
 export interface Stroke {
   id: string;
-  tool: "pen";
-  penType: PenType;
+  tool: InkTool;
+  /** Utilisé uniquement quand tool === "pen". */
+  penType?: PenType;
   color: string;
   /** Épaisseur de base en pixels logiques (avant modulation par la pression). */
   size: number;

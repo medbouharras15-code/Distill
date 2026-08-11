@@ -1,34 +1,49 @@
 import type { Stroke, StrokePoint } from "./types";
 
-/** Épaisseur effective d'un point de trait : les feutres fins et stylos bille
- * gardent une épaisseur constante, seul le feutre pinceau réagit à la
- * pression (comme un vrai pinceau). */
-export function effectiveWidth(stroke: Pick<Stroke, "penType" | "size">, pressure: number): number {
-  if (stroke.penType !== "brush") return stroke.size;
+/** Opacité du surligneur : suffisamment transparent pour rester lisible en
+ * superposition, combiné à un mélange "multiply" pour l'effet d'encre qui
+ * s'accumule là où les traits se croisent (comme un vrai surligneur). */
+const HIGHLIGHTER_ALPHA = 0.38;
+
+/** Épaisseur effective d'un point de trait : les feutres fins, stylos bille
+ * et le surligneur gardent une épaisseur constante, seul le feutre pinceau
+ * réagit à la pression (comme un vrai pinceau). */
+export function effectiveWidth(stroke: Pick<Stroke, "tool" | "penType" | "size">, pressure: number): number {
+  if (stroke.tool !== "pen" || stroke.penType !== "brush") return stroke.size;
   const factor = 0.5 + pressure * 1.1;
   return stroke.size * factor;
 }
 
 /** Dessine un trait lissé (courbes quadratiques entre points médians), avec
- * épaisseur variable point à point pour le feutre pinceau. */
+ * épaisseur variable point à point pour le feutre pinceau, et un rendu
+ * semi-transparent en mode "multiply" pour le surligneur. */
 export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   const { points } = stroke;
   if (points.length === 0) return;
 
+  const isHighlighter = stroke.tool === "highlighter";
+  const isBrush = stroke.tool === "pen" && stroke.penType === "brush";
+
+  ctx.save();
+  if (isHighlighter) {
+    ctx.globalAlpha = HIGHLIGHTER_ALPHA;
+    ctx.globalCompositeOperation = "multiply";
+  }
   ctx.strokeStyle = stroke.color;
+  ctx.fillStyle = stroke.color;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 
   if (points.length === 1) {
     const p = points[0];
     ctx.beginPath();
-    ctx.fillStyle = stroke.color;
     ctx.arc(p.x, p.y, effectiveWidth(stroke, p.pressure) / 2, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
     return;
   }
 
-  if (stroke.penType !== "brush") {
+  if (!isBrush) {
     ctx.lineWidth = stroke.size;
     ctx.beginPath();
     ctx.moveTo(points[0].x, points[0].y);
@@ -38,6 +53,7 @@ export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
     }
     ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
     ctx.stroke();
+    ctx.restore();
     return;
   }
 
@@ -52,6 +68,7 @@ export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
     ctx.lineTo(b.x, b.y);
     ctx.stroke();
   }
+  ctx.restore();
 }
 
 function midpoint(a: StrokePoint, b: StrokePoint) {

@@ -3,7 +3,13 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { NotesCanvas, type NotesCanvasHandle, type NotesTool } from "@/components/notes/NotesCanvas";
-import { NotesToolbar, PEN_COLORS } from "@/components/notes/NotesToolbar";
+import {
+  HIGHLIGHTER_COLORS,
+  HIGHLIGHTER_SIZES,
+  NotesToolbar,
+  PEN_COLORS,
+  PEN_SIZES,
+} from "@/components/notes/NotesToolbar";
 import type { PenType } from "@/lib/notes/types";
 
 export default function NotesPage() {
@@ -14,15 +20,24 @@ export default function NotesPage() {
   const [tempEraser, setTempEraser] = useState(false);
 
   const [penColor, setPenColor] = useState(PEN_COLORS[0].value);
-  const [penSize, setPenSize] = useState(4.5);
+  const [penSize, setPenSize] = useState(PEN_SIZES[2]);
   const [penType, setPenType] = useState<PenType>("fineliner");
-  const [eraserRadius, setEraserRadius] = useState(12);
+
+  const [highlighterColor, setHighlighterColor] = useState(HIGHLIGHTER_COLORS[0].value);
+  const [highlighterSize, setHighlighterSize] = useState(HIGHLIGHTER_SIZES[2]);
+
+  const [eraserRadius, setEraserRadius] = useState(18);
 
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
   function selectPen() {
     setTool("pen");
+    setTempEraser(false);
+  }
+
+  function selectHighlighter() {
+    setTool("highlighter");
     setTempEraser(false);
   }
 
@@ -59,6 +74,7 @@ export default function NotesPage() {
       <NotesToolbar
         tool={tool}
         onSelectPen={selectPen}
+        onSelectHighlighter={selectHighlighter}
         onSelectEraser={selectEraser}
         onPenDoubleClick={handlePenDoubleClick}
         penColor={penColor}
@@ -67,6 +83,10 @@ export default function NotesPage() {
         onPenSizeChange={setPenSize}
         penType={penType}
         onPenTypeChange={setPenType}
+        highlighterColor={highlighterColor}
+        onHighlighterColorChange={setHighlighterColor}
+        highlighterSize={highlighterSize}
+        onHighlighterSizeChange={setHighlighterSize}
         eraserRadius={eraserRadius}
         onEraserRadiusChange={setEraserRadius}
         canUndo={canUndo}
@@ -82,6 +102,8 @@ export default function NotesPage() {
           penColor={penColor}
           penSize={penSize}
           penType={penType}
+          highlighterColor={highlighterColor}
+          highlighterSize={highlighterSize}
           eraserRadius={eraserRadius}
           onActionComplete={handleActionComplete}
           onHistoryChange={(undo, redo) => {

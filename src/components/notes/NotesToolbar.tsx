@@ -2,6 +2,7 @@
 
 import type { PenType } from "@/lib/notes/types";
 import type { NotesTool } from "./NotesCanvas";
+import { EraserIcon, HighlighterIcon, PenIcon, RedoIcon, UndoIcon } from "./icons";
 
 export const PEN_COLORS: { label: string; value: string }[] = [
   { label: "Noir", value: "#1f1b16" },
@@ -9,11 +10,16 @@ export const PEN_COLORS: { label: string; value: string }[] = [
   { label: "Rouge", value: "#a83e35" },
 ];
 
-const PEN_SIZES: { label: string; value: number }[] = [
-  { label: "Fine", value: 2 },
-  { label: "Normale", value: 4.5 },
-  { label: "Grande", value: 8 },
+export const HIGHLIGHTER_COLORS: { label: string; value: string }[] = [
+  { label: "Jaune", value: "#e2c14d" },
+  { label: "Vert", value: "#7bb06a" },
+  { label: "Rose", value: "#d98bb0" },
+  { label: "Bleu", value: "#6fa0d6" },
 ];
+
+export const PEN_SIZES = [1.5, 3, 4.5, 7, 10];
+export const HIGHLIGHTER_SIZES = [8, 14, 20, 28, 36];
+export const ERASER_SIZES = [6, 12, 18, 26, 36];
 
 const PEN_TYPES: { label: string; value: PenType }[] = [
   { label: "Fine liner", value: "fineliner" },
@@ -21,16 +27,100 @@ const PEN_TYPES: { label: string; value: PenType }[] = [
   { label: "Feutre pinceau", value: "brush" },
 ];
 
-const ERASER_SIZES: { label: string; value: number }[] = [
-  { label: "Fine", value: 6 },
-  { label: "Moyenne", value: 12 },
-  { label: "Grande", value: 20 },
-  { label: "Très grande", value: 32 },
-];
+const RAINBOW_GRADIENT =
+  "conic-gradient(from 90deg, #a83e35, #d4a13a, #2f6b4f, #3d6fa8, #7451a8, #a83e35)";
+
+function ColorRow({
+  colors,
+  value,
+  onChange,
+}: {
+  colors: { label: string; value: string }[];
+  value: string;
+  onChange: (color: string) => void;
+}) {
+  const isCustom = !colors.some((c) => c.value === value);
+  return (
+    <div className="flex items-center gap-1.5">
+      {colors.map((c) => (
+        <button
+          key={c.value}
+          type="button"
+          onClick={() => onChange(c.value)}
+          aria-label={c.label}
+          title={c.label}
+          className={`h-7 w-7 shrink-0 rounded-full border-2 transition ${
+            value === c.value ? "border-accent scale-110" : "border-border"
+          }`}
+          style={{ backgroundColor: c.value }}
+        />
+      ))}
+
+      <span className="relative h-7 w-7 shrink-0" title="Palette complète">
+        <input
+          type="color"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          aria-label="Choisir une couleur personnalisée"
+          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+        />
+        <span
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-0 rounded-full border-2 transition ${
+            isCustom ? "border-accent scale-110" : "border-border"
+          }`}
+          style={{ background: isCustom ? value : RAINBOW_GRADIENT }}
+        />
+      </span>
+    </div>
+  );
+}
+
+function SizeDotPicker({
+  sizes,
+  value,
+  onChange,
+}: {
+  sizes: number[];
+  value: number;
+  onChange: (size: number) => void;
+}) {
+  const min = Math.min(...sizes);
+  const max = Math.max(...sizes);
+  const minDot = 5;
+  const maxDot = 19;
+
+  return (
+    <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-border bg-background-alt px-1.5 py-1.5">
+      {sizes.map((s, i) => {
+        const dot = max === min ? maxDot : minDot + ((s - min) / (max - min)) * (maxDot - minDot);
+        const active = value === s;
+        return (
+          <button
+            key={s}
+            type="button"
+            onClick={() => onChange(s)}
+            aria-pressed={active}
+            aria-label={`Taille ${i + 1} sur ${sizes.length}`}
+            className={`grid h-8 w-8 shrink-0 place-items-center rounded-full transition ${
+              active ? "bg-card shadow-sm ring-1 ring-accent" : ""
+            }`}
+          >
+            <span
+              className="rounded-full bg-foreground"
+              style={{ width: dot, height: dot }}
+            />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 interface NotesToolbarProps {
   tool: NotesTool;
   onSelectPen: () => void;
+  onSelectHighlighter: () => void;
   onSelectEraser: () => void;
   onPenDoubleClick: () => void;
 
@@ -40,6 +130,11 @@ interface NotesToolbarProps {
   onPenSizeChange: (size: number) => void;
   penType: PenType;
   onPenTypeChange: (type: PenType) => void;
+
+  highlighterColor: string;
+  onHighlighterColorChange: (color: string) => void;
+  highlighterSize: number;
+  onHighlighterSizeChange: (size: number) => void;
 
   eraserRadius: number;
   onEraserRadiusChange: (radius: number) => void;
@@ -53,6 +148,7 @@ interface NotesToolbarProps {
 export function NotesToolbar({
   tool,
   onSelectPen,
+  onSelectHighlighter,
   onSelectEraser,
   onPenDoubleClick,
   penColor,
@@ -61,6 +157,10 @@ export function NotesToolbar({
   onPenSizeChange,
   penType,
   onPenTypeChange,
+  highlighterColor,
+  onHighlighterColorChange,
+  highlighterSize,
+  onHighlighterSizeChange,
   eraserRadius,
   onEraserRadiusChange,
   canUndo,
@@ -68,20 +168,18 @@ export function NotesToolbar({
   onUndo,
   onRedo,
 }: NotesToolbarProps) {
-  const isCustomColor = !PEN_COLORS.some((c) => c.value === penColor);
-
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3 shadow-sm">
-      <div className="flex items-center gap-1.5">
+    <div className="flex flex-nowrap items-center gap-3 overflow-x-auto rounded-2xl border border-border bg-card px-4 py-3 shadow-sm">
+      <div className="flex shrink-0 items-center gap-1.5">
         <button
           type="button"
           onClick={onUndo}
           disabled={!canUndo}
           aria-label="Annuler"
           title="Annuler"
-          className="grid h-9 w-9 place-items-center rounded-full border border-border text-foreground transition hover:bg-background-alt disabled:opacity-30"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-border text-foreground transition hover:bg-background-alt disabled:opacity-30"
         >
-          ↺
+          <UndoIcon className="h-5 w-5" />
         </button>
         <button
           type="button"
@@ -89,105 +187,67 @@ export function NotesToolbar({
           disabled={!canRedo}
           aria-label="Rétablir"
           title="Rétablir"
-          className="grid h-9 w-9 place-items-center rounded-full border border-border text-foreground transition hover:bg-background-alt disabled:opacity-30"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-border text-foreground transition hover:bg-background-alt disabled:opacity-30"
         >
-          ↻
+          <RedoIcon className="h-5 w-5" />
         </button>
       </div>
 
-      <div className="h-8 w-px bg-border" />
+      <div className="h-8 w-px shrink-0 bg-border" />
 
-      <div className="flex items-center gap-1.5">
+      <div className="flex shrink-0 items-center gap-1.5">
         <button
           type="button"
           onClick={onSelectPen}
           onDoubleClick={onPenDoubleClick}
           aria-pressed={tool === "pen"}
           title="Stylo (double-clic : gomme rapide)"
-          className={`grid h-9 w-9 place-items-center rounded-full border text-lg transition ${
+          className={`grid h-9 w-9 shrink-0 place-items-center rounded-full border transition ${
             tool === "pen"
               ? "border-accent bg-accent-light text-accent-dark"
               : "border-border text-foreground hover:bg-background-alt"
           }`}
         >
-          ✎
+          <PenIcon className="h-5 w-5" />
+        </button>
+        <button
+          type="button"
+          onClick={onSelectHighlighter}
+          aria-pressed={tool === "highlighter"}
+          title="Surligneur"
+          className={`grid h-9 w-9 shrink-0 place-items-center rounded-full border transition ${
+            tool === "highlighter"
+              ? "border-accent bg-accent-light text-accent-dark"
+              : "border-border text-foreground hover:bg-background-alt"
+          }`}
+        >
+          <HighlighterIcon className="h-5 w-5" />
         </button>
         <button
           type="button"
           onClick={onSelectEraser}
           aria-pressed={tool === "eraser"}
           title="Gomme"
-          className={`grid h-9 w-9 place-items-center rounded-full border text-lg transition ${
+          className={`grid h-9 w-9 shrink-0 place-items-center rounded-full border transition ${
             tool === "eraser"
               ? "border-accent bg-accent-light text-accent-dark"
               : "border-border text-foreground hover:bg-background-alt"
           }`}
         >
-          ⌫
+          <EraserIcon className="h-5 w-5" />
         </button>
       </div>
 
-      <div className="h-8 w-px bg-border" />
+      <div className="h-8 w-px shrink-0 bg-border" />
 
-      {tool === "pen" ? (
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-1.5">
-            {PEN_COLORS.map((c) => (
-              <button
-                key={c.value}
-                type="button"
-                onClick={() => onPenColorChange(c.value)}
-                aria-label={c.label}
-                title={c.label}
-                className={`h-7 w-7 rounded-full border-2 transition ${
-                  penColor === c.value ? "border-accent scale-110" : "border-border"
-                }`}
-                style={{ backgroundColor: c.value }}
-              />
-            ))}
-
-            <span className="relative h-7 w-7" title="Palette complète">
-              <input
-                type="color"
-                value={penColor}
-                onChange={(e) => onPenColorChange(e.target.value)}
-                aria-label="Choisir une couleur personnalisée"
-                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-              />
-              <span
-                aria-hidden="true"
-                className={`pointer-events-none absolute inset-0 grid place-items-center rounded-full border-2 transition ${
-                  isCustomColor ? "border-accent scale-110" : "border-border"
-                }`}
-                style={{
-                  background: isCustomColor
-                    ? penColor
-                    : "conic-gradient(from 90deg, #a83e35, #d4a13a, #2f6b4f, #3d6fa8, #7451a8, #a83e35)",
-                }}
-              />
-            </span>
-          </div>
-
-          <div className="flex items-center gap-1 rounded-full border border-border bg-background-alt p-1">
-            {PEN_SIZES.map((s) => (
-              <button
-                key={s.label}
-                type="button"
-                onClick={() => onPenSizeChange(s.value)}
-                title={s.label}
-                className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
-                  penSize === s.value ? "bg-card text-accent-dark shadow-sm" : "text-muted"
-                }`}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-
+      {tool === "pen" && (
+        <div className="flex flex-nowrap items-center gap-3">
+          <ColorRow colors={PEN_COLORS} value={penColor} onChange={onPenColorChange} />
+          <SizeDotPicker sizes={PEN_SIZES} value={penSize} onChange={onPenSizeChange} />
           <select
             value={penType}
             onChange={(e) => onPenTypeChange(e.target.value as PenType)}
-            className="rounded-full border border-border bg-background-alt px-3 py-1.5 text-xs font-medium text-foreground"
+            className="shrink-0 rounded-full border border-border bg-background-alt px-3 py-1.5 text-xs font-medium text-foreground"
           >
             {PEN_TYPES.map((t) => (
               <option key={t.value} value={t.value}>
@@ -196,22 +256,17 @@ export function NotesToolbar({
             ))}
           </select>
         </div>
-      ) : (
-        <div className="flex items-center gap-1 rounded-full border border-border bg-background-alt p-1">
-          {ERASER_SIZES.map((s) => (
-            <button
-              key={s.label}
-              type="button"
-              onClick={() => onEraserRadiusChange(s.value)}
-              title={s.label}
-              className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
-                eraserRadius === s.value ? "bg-card text-accent-dark shadow-sm" : "text-muted"
-              }`}
-            >
-              {s.label}
-            </button>
-          ))}
+      )}
+
+      {tool === "highlighter" && (
+        <div className="flex flex-nowrap items-center gap-3">
+          <ColorRow colors={HIGHLIGHTER_COLORS} value={highlighterColor} onChange={onHighlighterColorChange} />
+          <SizeDotPicker sizes={HIGHLIGHTER_SIZES} value={highlighterSize} onChange={onHighlighterSizeChange} />
         </div>
+      )}
+
+      {tool === "eraser" && (
+        <SizeDotPicker sizes={ERASER_SIZES} value={eraserRadius} onChange={onEraserRadiusChange} />
       )}
     </div>
   );
