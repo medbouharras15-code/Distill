@@ -20,10 +20,15 @@ Code : `src/app/notes/`, `src/components/notes/`, `src/lib/notes/`.
       icônes SVG maison (`src/components/notes/icons.tsx`), barre d'outils
       sur une seule ligne (scroll horizontal si nécessaire), annuler/rétablir,
       rejet de paume (~750 ms après une entrée stylet), `touchAction: none`.
-      *Note : le bouton latéral de l'Apple Pencil n'est pas exposé aux pages
-      web par Safari/WebKit (API `UIPencilInteraction` réservée aux apps
-      natives) — non implémenté, en attente d'une décision produit sur le
-      geste de repli à utiliser à la place.*
+      Bascule rapide vers la gomme par trois voies équivalentes : bouton
+      dédié dans la barre d'outils, double-clic sur l'icône stylo, ou
+      double-tap de la pointe du stylet directement sur la feuille (un tap
+      isolé reste un simple point d'encre ; retour automatique à l'outil
+      précédent après une gomme). *Note : le bouton **latéral** de l'Apple
+      Pencil (pression/squeeze) reste hors de portée d'une page web —
+      Safari/WebKit n'expose pas l'API `UIPencilInteraction` aux sites,
+      réservée aux apps natives ; le double-tap de la pointe est
+      l'équivalent le plus proche accessible depuis le navigateur.*
 - [ ] **Phase 2** — Sélecteur de types de feuilles (16 types), taille de
       papier, couleur de fond.
 - [ ] **Phase 3** — Marqueur (6 couleurs rapides + palette 64, rendu

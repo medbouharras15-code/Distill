@@ -18,6 +18,16 @@ export const PAGE_HEIGHT = 1100;
  * éviter que la paume de la main ne dessine pendant l'écriture. */
 const PALM_REJECTION_MS = 750;
 
+/** Détection d'un "double-tap" de la pointe du stylet sur la feuille, qui
+ * bascule vers la gomme — équivalent au double-clic sur l'icône stylo,
+ * pensé pour ne jamais quitter la feuille des yeux. Un simple tap isolé
+ * reste une tenue de trait normale (un petit point) ; seul un second tap
+ * rapproché dans le temps et l'espace déclenche le geste. */
+const TAP_MAX_MOVEMENT = 10;
+const TAP_MAX_DURATION_MS = 250;
+const DOUBLE_TAP_MAX_INTERVAL_MS = 350;
+const DOUBLE_TAP_MAX_DISTANCE = 30;
+
 export type NotesTool = "pen" | "highlighter" | "eraser";
 
 export interface NotesCanvasHandle {
@@ -36,6 +46,9 @@ interface NotesCanvasProps {
   backgroundColor?: string;
   /** Appelé après chaque trait terminé (dessiné ou effacé). */
   onActionComplete?: () => void;
+  /** Appelé quand un double-tap de la pointe du stylet est détecté sur la
+   * feuille (bascule rapide vers la gomme). */
+  onPenDoubleTap?: () => void;
   onHistoryChange?: (canUndo: boolean, canRedo: boolean) => void;
 }
 
@@ -50,6 +63,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     eraserRadius,
     backgroundColor = "#ffffff",
     onActionComplete,
+    onPenDoubleTap,
     onHistoryChange,
   },
   ref,
@@ -67,6 +81,10 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   const erasedIds = useRef<Set<string> | null>(null);
   const lastPenTime = useRef(0);
   const renderScheduled = useRef(false);
+
+  const tapStartInfo = useRef<{ x: number; y: number; time: number } | null>(null);
+  const tapIsCandidate = useRef(false);
+  const lastTap = useRef<{ x: number; y: number; time: number } | null>(null);
 
   useEffect(() => {
     strokesRef.current = strokes;
@@ -183,9 +201,23 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       lastPenTime.current = Date.now();
     }
 
-    e.currentTarget.setPointerCapture(e.pointerId);
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // Certains environnements (tests automatisés, pointeurs synthétiques)
+      // n'ont pas de pointeur actif à capturer — le dessin fonctionne quand
+      // même sans capture, on continue simplement.
+    }
     activePointerId.current = e.pointerId;
     const pos = getPos(e);
+
+    if (e.pointerType === "pen" && tool !== "eraser") {
+      tapStartInfo.current = { x: pos.x, y: pos.y, time: Date.now() };
+      tapIsCandidate.current = true;
+    } else {
+      tapStartInfo.current = null;
+      tapIsCandidate.current = false;
+    }
 
     if (tool === "eraser") {
       erasedIds.current = new Set();
@@ -219,6 +251,13 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     }
     const pos = getPos(e);
 
+    if (tapIsCandidate.current && tapStartInfo.current) {
+      const start = tapStartInfo.current;
+      if (Math.hypot(pos.x - start.x, pos.y - start.y) > TAP_MAX_MOVEMENT) {
+        tapIsCandidate.current = false;
+      }
+    }
+
     if (tool === "eraser") {
       eraseAt(pos);
     } else if (currentStroke.current) {
@@ -233,14 +272,50 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         commit(strokesRef.current);
       }
       erasedIds.current = null;
-    } else if (currentStroke.current) {
-      const finished = currentStroke.current;
-      currentStroke.current = null;
-      if (finished.points.length > 0) {
-        commit([...strokesRef.current, finished]);
-      }
+      activePointerId.current = null;
+      scheduleRender();
+      onActionComplete?.();
+      return;
     }
+
+    const finished = currentStroke.current;
+    currentStroke.current = null;
     activePointerId.current = null;
+
+    if (!finished) {
+      scheduleRender();
+      return;
+    }
+
+    const start = tapStartInfo.current;
+    const duration = start ? Date.now() - start.time : Infinity;
+    const isTap = tapIsCandidate.current && start !== null && duration <= TAP_MAX_DURATION_MS;
+    tapStartInfo.current = null;
+
+    if (isTap && start) {
+      const last = lastTap.current;
+      const isDoubleTap =
+        last !== null &&
+        Date.now() - last.time <= DOUBLE_TAP_MAX_INTERVAL_MS &&
+        Math.hypot(start.x - last.x, start.y - last.y) <= DOUBLE_TAP_MAX_DISTANCE;
+
+      if (isDoubleTap) {
+        // Double-tap détecté : on annule ce tout petit trait (le point qui
+        // aurait été laissé par ce second tap) et on déclenche la bascule
+        // vers la gomme plutôt que de committer un trait.
+        lastTap.current = null;
+        scheduleRender();
+        onPenDoubleTap?.();
+        return;
+      }
+      lastTap.current = { x: start.x, y: start.y, time: Date.now() };
+    } else {
+      lastTap.current = null;
+    }
+
+    if (finished.points.length > 0) {
+      commit([...strokesRef.current, finished]);
+    }
     scheduleRender();
     onActionComplete?.();
   }
@@ -255,6 +330,8 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     currentStroke.current = null;
     erasedIds.current = null;
     activePointerId.current = null;
+    tapStartInfo.current = null;
+    tapIsCandidate.current = false;
     scheduleRender();
   }
 

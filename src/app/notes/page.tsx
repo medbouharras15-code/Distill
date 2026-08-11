@@ -46,7 +46,10 @@ export default function NotesPage() {
     setTempEraser(false);
   }
 
-  function handlePenDoubleClick() {
+  /** Bascule rapide vers la gomme, avec retour automatique à l'outil
+   * précédent après usage — déclenchée par le double-clic sur l'icône
+   * stylo ou par un double-tap de la pointe du stylet sur la feuille. */
+  function activateTempEraser() {
     if (tool !== "eraser") {
       setPreviousTool(tool);
     }
@@ -76,7 +79,7 @@ export default function NotesPage() {
         onSelectPen={selectPen}
         onSelectHighlighter={selectHighlighter}
         onSelectEraser={selectEraser}
-        onPenDoubleClick={handlePenDoubleClick}
+        onPenDoubleClick={activateTempEraser}
         penColor={penColor}
         onPenColorChange={setPenColor}
         penSize={penSize}
@@ -106,6 +109,7 @@ export default function NotesPage() {
           highlighterSize={highlighterSize}
           eraserRadius={eraserRadius}
           onActionComplete={handleActionComplete}
+          onPenDoubleTap={activateTempEraser}
           onHistoryChange={(undo, redo) => {
             setCanUndo(undo);
             setCanRedo(redo);
