@@ -351,6 +351,24 @@ Code : `src/app/notes/`, `src/components/notes/`, `src/lib/notes/`.
           déploiement, penser aussi au cache agressif de Safari iOS
           (recharger en navigation privée ou vider le cache du site avant
           de conclure à un bug de code).
+      - **Fond de page volontairement réintroduit sous 100% de zoom** :
+        précision demandée après le fix ci-dessus — le plein écran à 100%
+        au chargement doit être conservé (aucun fond visible), mais un
+        dézoom volontaire (pincement ou bouton -) doit au contraire laisser
+        réapparaître le fond de la page tout autour de la feuille, pour
+        qu'on voie clairement où elle s'arrête. Le canvas est désormais
+        centré horizontalement (`mx-auto`) au lieu d'être collé au bord
+        gauche : à 100% (ou plus), `margin: auto` se résout à 0 (aucun
+        changement, toujours plein écran) ; en dessous de 100%, il centre
+        la feuille, révélant le fond de page à parts égales de chaque
+        côté. `zoomAtPoint` prend en compte ce décalage de centrage dans
+        son calcul du point visé (sinon un pincement en dessous de 100%
+        viserait un point translaté de la largeur de la marge). Vérifié :
+        à 100% les bords touchent toujours exactement la fenêtre ; en
+        dessous, la feuille reste centrée avec des marges strictement
+        égales des deux côtés, y compris en zoomant/dézoomant plusieurs
+        fois par pincement ; le retour à 100% (bouton de réinitialisation)
+        redonne bien un plein écran sans marge.
 - [ ] **Phase 5** — Outil texte "Tt" + clavier auto, outil lasso (sélection /
       déplacement / redimensionnement).
 - [ ] **Phase 6** — Historique et sauvegarde : persistance Supabase,

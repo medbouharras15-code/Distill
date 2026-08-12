@@ -588,17 +588,27 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       const rect = container.getBoundingClientRect();
       const pointerX = clientX - rect.left;
       const pointerY = clientY - rect.top;
-      const oldCanvasWidth = container.clientWidth * currentZoom;
+      const containerWidth = container.clientWidth;
+      const oldCanvasWidth = containerWidth * currentZoom;
       const oldCanvasHeight = oldCanvasWidth * (PAGE_HEIGHT / PAGE_WIDTH);
-      const contentX = container.scrollLeft + pointerX;
+      // En dessous de 100%, le canvas est centré horizontalement
+      // (`mx-auto`) plutôt que collé au bord gauche — pour que le fond de
+      // page redevienne visible tout autour dès qu'on dézoome
+      // volontairement, et qu'on voie clairement où la feuille s'arrête. Il
+      // faut donc décaler d'autant le calcul du point de contenu visé (sans
+      // ce décalage, un pincement en dessous de 100% viserait un point
+      // erroné, translaté de la largeur de la marge de centrage).
+      const oldOffsetX = Math.max(0, (containerWidth - oldCanvasWidth) / 2);
+      const contentX = container.scrollLeft + pointerX - oldOffsetX;
       const contentY = container.scrollTop + pointerY;
       const fracX = oldCanvasWidth > 0 ? contentX / oldCanvasWidth : 0.5;
       const fracY = oldCanvasHeight > 0 ? contentY / oldCanvasHeight : 0.5;
 
-      const newCanvasWidth = container.clientWidth * clamped;
+      const newCanvasWidth = containerWidth * clamped;
       const newCanvasHeight = newCanvasWidth * (PAGE_HEIGHT / PAGE_WIDTH);
+      const newOffsetX = Math.max(0, (containerWidth - newCanvasWidth) / 2);
       canvas.style.width = `${clamped * 100}%`;
-      container.scrollLeft = fracX * newCanvasWidth - pointerX;
+      container.scrollLeft = fracX * newCanvasWidth - pointerX + newOffsetX;
       container.scrollTop = fracY * newCanvasHeight - pointerY;
 
       if (debugHoldDetection) {
@@ -1333,7 +1343,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
             userSelect: "none",
             WebkitTapHighlightColor: "transparent",
           }}
-          className="bg-card"
+          className="mx-auto bg-card"
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
