@@ -168,6 +168,9 @@ export interface NotesCanvasHandle {
   undo(): void;
   redo(): void;
   importPhotos(files: FileList | File[]): void;
+  /** Revient instantanément au zoom 100% plein écran (sans marge),
+   * quel que soit le zoom/défilement courant. */
+  fitToScreen(): void;
 }
 
 interface Document {
@@ -619,6 +622,19 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     [PAGE_WIDTH, PAGE_HEIGHT, debugHoldDetection],
   );
 
+  /** Revient instantanément au zoom 100% plein écran, sans marge — bouton
+   * dédié dans la barre d'outils (`fitToScreen` sur le handle impératif) et
+   * bouton "%" flottant sur le canvas, tous deux appellent cette même
+   * fonction. */
+  const resetZoom = useCallback(() => {
+    applyZoom(1);
+    const container = containerRef.current;
+    if (container) {
+      container.scrollLeft = 0;
+      container.scrollTop = 0;
+    }
+  }, []);
+
   // Mesures affichées dans le panneau de debug — mises à jour à chaque
   // rendu (le tick périodique du panneau, voir plus haut, force ces
   // re-lectures même quand rien d'autre ne change).
@@ -738,7 +754,11 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     [PAGE_WIDTH, PAGE_HEIGHT, commitDoc],
   );
 
-  useImperativeHandle(ref, () => ({ undo, redo, importPhotos }), [undo, redo, importPhotos]);
+  useImperativeHandle(
+    ref,
+    () => ({ undo, redo, importPhotos, fitToScreen: resetZoom }),
+    [undo, redo, importPhotos, resetZoom],
+  );
 
   function getPos(e: React.PointerEvent<HTMLCanvasElement>): StrokePoint {
     const canvas = canvasRef.current!;
@@ -1295,15 +1315,6 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     }
     const rect = container.getBoundingClientRect();
     zoomAtPoint(zoomRef.current + delta, rect.left + rect.width / 2, rect.top + rect.height / 2);
-  }
-
-  function resetZoom() {
-    applyZoom(1);
-    const container = containerRef.current;
-    if (container) {
-      container.scrollLeft = 0;
-      container.scrollTop = 0;
-    }
   }
 
   return (

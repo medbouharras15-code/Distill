@@ -7,6 +7,7 @@ import { useRef } from "react";
 import {
   CircleShapeIcon,
   EraserIcon,
+  FitScreenIcon,
   HighlighterIcon,
   LineShapeIcon,
   PanIcon,
@@ -183,6 +184,7 @@ interface NotesToolbarProps {
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  onFitToScreen: () => void;
 }
 
 export function NotesToolbar({
@@ -217,6 +219,7 @@ export function NotesToolbar({
   canRedo,
   onUndo,
   onRedo,
+  onFitToScreen,
 }: NotesToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -257,6 +260,19 @@ export function NotesToolbar({
           <RedoIcon className="h-5 w-5" />
         </button>
       </div>
+
+      <div className="h-8 w-px shrink-0 bg-border" />
+
+      <button
+        type="button"
+        onClick={onFitToScreen}
+        aria-label="Ajuster à l'écran (zoom 100%)"
+        title="Ajuster à l'écran (zoom 100%)"
+        className="flex shrink-0 items-center gap-1.5 rounded-full border border-accent bg-accent-light px-3 py-1.5 text-xs font-semibold text-accent-dark transition hover:brightness-95"
+      >
+        <FitScreenIcon className="h-4 w-4" />
+        100%
+      </button>
 
       <div className="h-8 w-px shrink-0 bg-border" />
 

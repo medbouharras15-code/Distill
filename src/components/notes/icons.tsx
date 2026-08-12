@@ -205,3 +205,16 @@ export function PanIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+/** Quatre coins de cadre ("plein écran") : bouton "Ajuster à l'écran" —
+ * revient au zoom 100% plein écran, sans marge. */
+export function FitScreenIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M20 9V5.5A1.5 1.5 0 0 0 18.5 4H15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20H9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}

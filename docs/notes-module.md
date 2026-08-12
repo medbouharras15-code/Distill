@@ -369,6 +369,17 @@ Code : `src/app/notes/`, `src/components/notes/`, `src/lib/notes/`.
         égales des deux côtés, y compris en zoomant/dézoomant plusieurs
         fois par pincement ; le retour à 100% (bouton de réinitialisation)
         redonne bien un plein écran sans marge.
+      - **Bouton "100% / plein écran" ajouté dans la barre d'outils**
+        (`FitScreenIcon` dans `icons.tsx`, juste après Annuler/Rétablir) :
+        pastille distincte (fond accent, icône de cadre + libellé "100%")
+        pour rester facilement identifiable parmi les icônes d'outils, et
+        toujours visible en début de barre (pas besoin de défiler
+        horizontalement). Ramène instantanément au zoom 100% plein écran
+        depuis n'importe quel zoom/défilement courant — même fonction que
+        le petit bouton "%" déjà présent en superposition sur le canvas
+        (conservé pour l'ajustement fin pendant le dessin), désormais
+        exposée aussi via `NotesCanvasHandle.fitToScreen()` pour que la
+        barre d'outils puisse l'appeler comme `undo`/`redo`/`importPhotos`.
 - [ ] **Phase 5** — Outil texte "Tt" + clavier auto, outil lasso (sélection /
       déplacement / redimensionnement).
 - [ ] **Phase 6** — Historique et sauvegarde : persistance Supabase,

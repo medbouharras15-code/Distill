@@ -196,6 +196,7 @@ export default function NotesPage() {
           canRedo={canRedo}
           onUndo={() => canvasHandle.current?.undo()}
           onRedo={() => canvasHandle.current?.redo()}
+          onFitToScreen={() => canvasHandle.current?.fitToScreen()}
         />
       </div>
 
