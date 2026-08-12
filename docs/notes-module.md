@@ -239,6 +239,67 @@ Code : `src/app/notes/`, `src/components/notes/`, `src/lib/notes/`.
         d'encre sur le canvas après un glisser avec cet outil, pile
         d'annulation inchangée, dessin à nouveau opérationnel après retour
         à l'outil stylo.
+      - *Signalé sur iPad réel après coup, non reproduit dans les tests
+        automatisés initiaux* : (1) le zoom se recentrait très loin du
+        point pincé/cliqué ; (2) la feuille restait entourée de bandes
+        vides à l'ouverture au lieu de remplir l'écran. Deux causes
+        distinctes, corrigées ensemble :
+        - **Décalage de zoom** : `zoomAtPoint` calculait le point visé
+          (fraction du contenu sous le doigt) à partir de l'état React
+          (`zoom`, puis correction du défilement dans un `useLayoutEffect`
+          différé). Un vrai pincement envoie des `pointermove` beaucoup
+          plus vite que React ne peut re-rendre entre deux — les tests
+          automatisés, qui espaçaient artificiellement chaque événement
+          simulé, laissaient toujours le temps à React de se stabiliser et
+          ne révélaient donc rien. En rafale réelle, plusieurs appels
+          s'enchaînent avant qu'aucun ne soit peint : le calcul se basait
+          sur une largeur de canvas "prévue" mais jamais rendue, pendant
+          que `scrollLeft` restait bloqué sur la dernière valeur réellement
+          peinte — le point visé et le point réellement gardé sous le
+          doigt divergeaient au fil du geste. Corrigé en appliquant la
+          largeur du canvas *et* le défilement corrigé de façon synchrone,
+          en DOM direct (`canvas.style.width`, `container.scrollLeft/Top`),
+          dans la même passe que le calcul — `zoom` (état React) ne sert
+          plus qu'à synchroniser l'étiquette de %, jamais de source de
+          vérité pendant le geste. Reproduit et vérifié par un test
+          Playwright qui enchaîne les événements de pincement/molette
+          *sans délai* entre eux (contrairement aux premiers tests) : le
+          point ciblé reste désormais à moins de 0.5% de sa position
+          voulue même sous cette rafale, contre un écart massif avant
+          correction.
+        - **Bandes vides au chargement** : l'ajustement automatique à
+          l'écran ne se calculait qu'une seule fois, à la première mesure
+          du conteneur par `ResizeObserver`. Sur un vrai appareil, la
+          taille disponible peut encore changer juste après ce premier
+          rendu (barre d'adresse Safari qui se rétracte, polices qui
+          finissent de charger et modifient la hauteur de la barre
+          d'outils...) — une mesure précoce pouvait figer un zoom bien
+          trop petit. Corrigé en continuant de recalculer l'ajustement à
+          chaque redimensionnement du conteneur tant que l'utilisateur n'a
+          pas zoomé lui-même (`hasUserZoomed`), au lieu de ne le faire
+          qu'une fois.
+        - **Fix défensif complémentaire** : `touch-action: none` ajouté
+          aussi au conteneur du canvas (pas seulement au canvas lui-même),
+          et export `viewport` (`maximumScale: 1, userScalable: false`)
+          scopé à `/notes` (`src/app/notes/layout.tsx`) — sans ça, un doigt
+          posé légèrement en dehors du canvas (dans la marge du
+          conteneur) pouvait laisser Safari déclencher *en plus* son propre
+          zoom natif de page en même temps que notre zoom JS, les deux se
+          disputant les mêmes coordonnées d'écran.
+        - **Panneau de debug étendu** (`?debug=1`) : affiche désormais
+          aussi une section "Zoom" (zoom actuel, zoom ajusté à l'écran
+          calculé, si l'utilisateur a zoomé manuellement, taille mesurée du
+          conteneur et du canvas affiché, dernier point d'ancrage de
+          zoom) — pour diagnostiquer un éventuel écart résiduel sur
+          appareil réel sans accès à la console.
+        - *Limite honnête* : je n'ai pas d'iPad physique dans cet
+          environnement pour reproduire les deux symptômes exactement tels
+          que décrits ; le décalage de zoom a été reproduit et corrigé de
+          façon fiable (rafale d'événements sans délai), mais les bandes
+          vides reposent sur une hypothèse de cause raisonnée (course entre
+          la première mesure du conteneur et un réajustement tardif de la
+          mise en page), pas sur une reproduction directe. À vérifier avec
+          `?debug=1` sur l'appareil réel si le problème persiste.
 - [ ] **Phase 5** — Outil texte "Tt" + clavier auto, outil lasso (sélection /
       déplacement / redimensionnement).
 - [ ] **Phase 6** — Historique et sauvegarde : persistance Supabase,

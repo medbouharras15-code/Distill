@@ -5,7 +5,6 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
-  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -269,28 +268,50 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   const dragPreview = useRef<ImageElement | null>(null);
 
   const [zoom, setZoom] = useState(1);
+  /** Miroir synchrone de `zoom`, lu par les gestes haute fréquence (pincement,
+   * molette) pour calculer le point d'ancrage du zoom suivant. Un simple
+   * `useEffect` qui recopie `zoom` dans une ref serait décalé d'un cycle de
+   * rendu : de vrais événements tactiles peuvent arriver plus vite que React
+   * ne s'exécute (contrairement aux tests automatisés, où chaque événement a
+   * le temps d'être traité avant le suivant), donc `applyZoom` met à jour
+   * cette ref *en même temps* que l'état, jamais après — sans quoi le calcul
+   * du point suivant se base sur un zoom périmé et le zoom part loin du
+   * point visé, un décalage d'autant plus visible que le geste est rapide. */
   const zoomRef = useRef(zoom);
-  useEffect(() => {
-    zoomRef.current = zoom;
-  }, [zoom]);
+  function applyZoom(newZoom: number) {
+    zoomRef.current = newZoom;
+    setZoom(newZoom);
+  }
   const touchPoints = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinchState = useRef<{ initialDistance: number; initialZoom: number } | null>(null);
-  /** Zoom initial calculé pour que la feuille remplisse l'écran disponible
-   * sans déborder ni laisser d'espace vide ("fit to screen") — mémorisé
-   * pour que le bouton de réinitialisation du zoom y revienne, plutôt que
-   * de toujours revenir à un 100% arbitraire. */
+  /** Zoom "à l'écran" le plus récemment calculé pour que la feuille remplisse
+   * l'espace disponible sans déborder ni laisser d'espace vide ("fit to
+   * screen") — mémorisé pour que le bouton de réinitialisation du zoom y
+   * revienne, plutôt que de toujours revenir à un 100% arbitraire. */
   const fitZoomRef = useRef(1);
-  const hasAutoFitted = useRef(false);
-  /** Point de la feuille (en fraction 0–1 de la largeur/hauteur affichées)
-   * sur lequel un changement de zoom doit rester centré, posé juste avant
-   * `setZoom` et consommé par l'effet de layout qui ajuste le défilement
-   * une fois le nouveau zoom appliqué au DOM. */
-  const pendingZoomAnchor = useRef<{
-    fracX: number;
-    fracY: number;
-    pointerX: number;
-    pointerY: number;
-  } | null>(null);
+  /** Tant que l'utilisateur n'a pas zoomé manuellement, on continue de
+   * recalculer l'ajustement à l'écran à chaque changement de taille du
+   * conteneur (pas seulement une fois au montage) : sur un vrai appareil, la
+   * taille disponible peut encore bouger juste après le premier rendu
+   * (barre d'adresse Safari qui se rétracte, polices qui finissent de
+   * charger et changent la hauteur de la barre d'outils, etc.) — se fier à
+   * une unique mesure précoce produisait une feuille bien trop petite,
+   * entourée de bandes vides, sur iPad réel alors que les tests
+   * automatisés (rendu déterministe, sans ces réajustements tardifs) ne
+   * révélaient rien. */
+  const hasUserZoomed = useRef(false);
+  /** Instantané des dernières mesures de zoom/ajustement, affiché dans le
+   * panneau de debug (`?debug=1`) pour diagnostiquer un écart en conditions
+   * réelles (iPad) sans avoir accès à la console. */
+  const zoomDebug = useRef({
+    containerW: 0,
+    containerH: 0,
+    canvasW: 0,
+    canvasH: 0,
+    fitZoom: 1,
+    hasUserZoomed: false,
+    lastAnchor: "—",
+  });
 
   /** Outil "Déplacement" (main) : fait défiler la feuille au glisser, sans
    * jamais dessiner ni modifier le contenu — équivalent de l'outil main de
@@ -538,57 +559,74 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
 
   /** Change le zoom en gardant fixe, à l'écran, le point de contenu qui se
    * trouve sous (clientX, clientY) — pincement à deux doigts, molette
-   * Ctrl+, ou boutons +/- (centrés sur le milieu de la zone visible). On
-   * enregistre la fraction du contenu affiché sous ce point *avant*
-   * d'appliquer le nouveau zoom ; l'effet de layout ci-dessous recale
-   * ensuite le défilement une fois le DOM redessiné à la nouvelle taille. */
+   * Ctrl+, ou boutons +/- (centrés sur le milieu de la zone visible).
+   *
+   * Applique la largeur du canvas ET le défilement corrigé de façon
+   * *synchrone*, en DOM direct, plutôt que de laisser React re-rendre puis
+   * corriger le défilement dans un `useLayoutEffect` ultérieur. C'est
+   * essentiel : un vrai pincement tactile envoie des `pointermove` bien
+   * plus vite que React ne peut re-rendre entre deux. Avec l'ancienne
+   * version (état React + effet différé), plusieurs appels pouvaient
+   * s'enchaîner avant qu'aucun ne soit réellement peint — le calcul du
+   * point suivant se basait alors sur une largeur de canvas "prévue" mais
+   * jamais rendue, pendant que `scrollLeft` restait lui bloqué sur la
+   * toute dernière valeur réellement peinte : le point de contenu visé et
+   * le point réellement gardé sous le doigt divergeaient au fil du geste,
+   * produisant un grand écart. En écrivant `canvas.style.width` et
+   * `container.scrollLeft` nous-mêmes, dans la même passe, chaque appel
+   * repart d'un état garanti cohérent (le nôtre), qu'il ait ou non été
+   * repeint par le navigateur entre-temps. `setZoom` ne sert plus alors
+   * qu'à synchroniser l'état React (étiquette de %, re-rendu éventuel),
+   * jamais comme source de vérité pendant le geste. Invisible dans des
+   * tests avec un délai entre chaque événement (le rendu a toujours le
+   * temps de se faire), mais déterminant sur un vrai écran tactile. */
   const zoomAtPoint = useCallback(
     (newZoomRaw: number, clientX: number, clientY: number) => {
+      hasUserZoomed.current = true;
       const clamped = clamp(newZoomRaw, MIN_ZOOM, MAX_ZOOM);
       const container = containerRef.current;
+      const canvas = canvasRef.current;
       const currentZoom = zoomRef.current;
-      if (!container || clamped === currentZoom) {
-        setZoom(clamped);
+      if (!container || !canvas) {
+        applyZoom(clamped);
         return;
       }
+
       const rect = container.getBoundingClientRect();
       const pointerX = clientX - rect.left;
       const pointerY = clientY - rect.top;
-      const canvasWidth = container.clientWidth * currentZoom;
-      const canvasHeight = canvasWidth * (PAGE_HEIGHT / PAGE_WIDTH);
+      const oldCanvasWidth = container.clientWidth * currentZoom;
+      const oldCanvasHeight = oldCanvasWidth * (PAGE_HEIGHT / PAGE_WIDTH);
       const contentX = container.scrollLeft + pointerX;
       const contentY = container.scrollTop + pointerY;
-      pendingZoomAnchor.current = {
-        fracX: canvasWidth > 0 ? contentX / canvasWidth : 0.5,
-        fracY: canvasHeight > 0 ? contentY / canvasHeight : 0.5,
-        pointerX,
-        pointerY,
-      };
-      setZoom(clamped);
-    },
-    [PAGE_WIDTH, PAGE_HEIGHT],
-  );
+      const fracX = oldCanvasWidth > 0 ? contentX / oldCanvasWidth : 0.5;
+      const fracY = oldCanvasHeight > 0 ? contentY / oldCanvasHeight : 0.5;
 
-  // Une fois le zoom appliqué et le DOM redessiné à la nouvelle taille, on
-  // recale le défilement pour que le point visé par zoomAtPoint reste
-  // exactement sous le doigt/curseur plutôt que de laisser le zoom recentrer
-  // ailleurs (comportement attendu façon Google Maps/Photos).
-  useLayoutEffect(() => {
-    const anchor = pendingZoomAnchor.current;
-    const container = containerRef.current;
-    if (!anchor || !container) return;
-    pendingZoomAnchor.current = null;
-    const newCanvasWidth = container.clientWidth * zoom;
-    const newCanvasHeight = newCanvasWidth * (PAGE_HEIGHT / PAGE_WIDTH);
-    container.scrollLeft = anchor.fracX * newCanvasWidth - anchor.pointerX;
-    container.scrollTop = anchor.fracY * newCanvasHeight - anchor.pointerY;
-  }, [zoom, PAGE_WIDTH, PAGE_HEIGHT]);
+      const newCanvasWidth = container.clientWidth * clamped;
+      const newCanvasHeight = newCanvasWidth * (PAGE_HEIGHT / PAGE_WIDTH);
+      canvas.style.width = `${clamped * 100}%`;
+      container.scrollLeft = fracX * newCanvasWidth - pointerX;
+      container.scrollTop = fracY * newCanvasHeight - pointerY;
+
+      if (debugHoldDetection) {
+        zoomDebug.current.lastAnchor = `frac(${fracX.toFixed(2)}, ${fracY.toFixed(2)}) pointer(${Math.round(pointerX)}, ${Math.round(pointerY)}) zoom ${Math.round(currentZoom * 100)}→${Math.round(clamped * 100)}%`;
+      }
+      applyZoom(clamped);
+    },
+    [PAGE_WIDTH, PAGE_HEIGHT, debugHoldDetection],
+  );
 
   // Zoom initial "à l'écran" : dès l'arrivée sur la page, la feuille doit
   // remplir tout l'espace disponible sans déborder ni laisser de marges
-  // vides, quelle que soit la taille de l'écran (iPad compris). On ne le
-  // calcule qu'une seule fois (hasAutoFitted) : une fois cet affichage de
-  // départ posé, tout zoom ultérieur est entièrement manuel.
+  // vides, quelle que soit la taille de l'écran (iPad compris). On continue
+  // de recalculer cet ajustement à chaque redimensionnement du conteneur
+  // tant que l'utilisateur n'a pas zoomé lui-même (hasUserZoomed) : sur un
+  // vrai appareil, la taille disponible peut encore changer juste après le
+  // premier rendu (barre d'adresse Safari qui se rétracte, polices qui
+  // finissent de charger et modifient la hauteur de la barre d'outils...) —
+  // une seule mesure précoce, comme avant ce correctif, pouvait figer un
+  // zoom bien trop petit et laisser des bandes vides tout autour de la
+  // feuille.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -596,15 +634,33 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       const entry = entries[0];
       if (!entry) return;
       const { width, height } = entry.contentRect;
-      if (width <= 0 || height <= 0 || hasAutoFitted.current) return;
-      hasAutoFitted.current = true;
+      if (debugHoldDetection) {
+        zoomDebug.current.containerW = Math.round(width);
+        zoomDebug.current.containerH = Math.round(height);
+      }
+      if (width <= 0 || height <= 0 || hasUserZoomed.current) return;
       const fitZoom = clamp(Math.min(1, (height * PAGE_WIDTH) / (width * PAGE_HEIGHT)), MIN_ZOOM, MAX_ZOOM);
       fitZoomRef.current = fitZoom;
-      setZoom(fitZoom);
+      if (debugHoldDetection) zoomDebug.current.fitZoom = fitZoom;
+      applyZoom(fitZoom);
     });
     ro.observe(container);
     return () => ro.disconnect();
-  }, [PAGE_WIDTH, PAGE_HEIGHT]);
+  }, [PAGE_WIDTH, PAGE_HEIGHT, debugHoldDetection]);
+
+  // Mesures affichées dans le panneau de debug — mises à jour à chaque
+  // rendu (le tick périodique du panneau, voir plus haut, force ces
+  // re-lectures même quand rien d'autre ne change).
+  useEffect(() => {
+    if (!debugHoldDetection) return;
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const rect = canvas.getBoundingClientRect();
+      zoomDebug.current.canvasW = Math.round(rect.width);
+      zoomDebug.current.canvasH = Math.round(rect.height);
+    }
+    zoomDebug.current.hasUserZoomed = hasUserZoomed.current;
+  });
 
   // Empêche le geste natif de pinch-to-zoom du navigateur/Safari sur le
   // canvas (déjà largement neutralisé par touchAction: "none") tout en
@@ -1259,7 +1315,8 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   function zoomByButton(delta: number) {
     const container = containerRef.current;
     if (!container) {
-      setZoom((z) => clamp(z + delta, MIN_ZOOM, MAX_ZOOM));
+      hasUserZoomed.current = true;
+      applyZoom(clamp(zoomRef.current + delta, MIN_ZOOM, MAX_ZOOM));
       return;
     }
     const rect = container.getBoundingClientRect();
@@ -1267,7 +1324,8 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   }
 
   function resetZoom() {
-    setZoom(fitZoomRef.current);
+    hasUserZoomed.current = true;
+    applyZoom(fitZoomRef.current);
     const container = containerRef.current;
     if (container) {
       container.scrollLeft = 0;
@@ -1284,7 +1342,11 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         userSelect: "none",
       }}
     >
-      <div ref={containerRef} className="h-full w-full overflow-auto">
+      <div
+        ref={containerRef}
+        className="h-full w-full overflow-auto"
+        style={{ touchAction: "none" }}
+      >
         <canvas
           ref={canvasRef}
           style={{
@@ -1363,6 +1425,17 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
           <div>écart / ancre : {debugInfo.current.distanceFromAnchor}px (tolérance {HOLD_JITTER_TOLERANCE}px)</div>
           <div>dernier résultat : {debugInfo.current.lastResult}</div>
           <div>nb. déclenchements : {debugInfo.current.holdCount}</div>
+          <div className="mt-2 border-t border-white/20 pt-2">— Zoom —</div>
+          <div>zoom actuel : {Math.round(zoom * 100)}%</div>
+          <div>zoom ajusté à l&apos;écran (calculé) : {Math.round(zoomDebug.current.fitZoom * 100)}%</div>
+          <div>zoomé manuellement : {zoomDebug.current.hasUserZoomed ? "oui" : "non"}</div>
+          <div>
+            conteneur : {zoomDebug.current.containerW}×{zoomDebug.current.containerH}px
+          </div>
+          <div>
+            canvas affiché : {zoomDebug.current.canvasW}×{zoomDebug.current.canvasH}px
+          </div>
+          <div>dernier ancrage : {zoomDebug.current.lastAnchor}</div>
         </div>
       )}
     </div>
