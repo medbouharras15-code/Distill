@@ -145,3 +145,40 @@ export function LineShapeIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+/** Cadre avec montagne et soleil : outil "Photo" (import d'image). */
+export function PhotoIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <rect x="3" y="4.5" width="18" height="15" rx="2" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="8.5" cy="9.5" r="1.6" stroke="currentColor" strokeWidth="1.6" />
+      <path
+        d="m4.5 17 5-5 3.5 3.5L17 11l3 3.5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export function ZoomInIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M20 20 15.2 15.2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M10.5 7.5v6M7.5 10.5h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function ZoomOutIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M20 20 15.2 15.2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M7.5 10.5h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}

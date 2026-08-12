@@ -145,7 +145,65 @@ Code : `src/app/notes/`, `src/components/notes/`, `src/lib/notes/`.
         accessible facilement. À retirer une fois le module stabilisé
         (`debugHoldDetection` sur `NotesCanvas`, lu depuis l'URL dans
         `src/app/notes/page.tsx`).
-- [ ] **Phase 4** — Import de photos (redimensionnables), zoom/dézoom.
+- [x] **Phase 4 — Photos et zoom** :
+      - **Import de photos** depuis la galerie : nouvel outil "Photo"
+        (`PhotoIcon`) dans la barre d'outils, bouton "Ajouter une photo" qui
+        ouvre un `<input type="file" accept="image/*" multiple>` caché
+        (plusieurs photos importables d'un coup). Chaque fichier est lu en
+        data URL (`FileReader`), ses dimensions naturelles sont mesurées via
+        une `Image()` temporaire, puis mise à l'échelle pour tenir dans
+        ~45%×35% de la page (jamais agrandie au-delà de sa taille d'origine)
+        — `importPhotos` dans `NotesCanvas.tsx`, exposée via
+        `useImperativeHandle` comme `undo`/`redo`. Import placé au centre de
+        la feuille, avec un léger décalage en cascade si plusieurs photos
+        sont importées ensemble.
+      - **Déplacement et redimensionnement libres** : avec l'outil Photo
+        actif, cliquer/toucher une photo la sélectionne (contour en
+        pointillés + 4 poignées de coin, `drawImageSelection` dans
+        `canvasUtils.ts`) ; glisser son intérieur la déplace, glisser une
+        poignée la redimensionne (taille minimale 20px, pas de conservation
+        forcée du ratio — redimensionnement libre comme demandé). Un tap en
+        dehors de toute photo désélectionne.
+      - **Gomme étendue aux photos** : l'outil gomme peut désormais aussi
+        supprimer une photo entière (hit-test sur son rectangle,
+        `imageHitTest` dans `canvasUtils.ts`), au même titre que les traits
+        et les formes.
+      - **Zoom/dézoom** : boutons +/- flottants (bas-droite, `position:
+        sticky` pour rester visibles même quand le zoom agrandit la feuille
+        bien au-delà de l'écran), molette + Ctrl (trackpad pinch, listener
+        natif non-passif pour que `preventDefault` fonctionne), et vrai
+        pincement à deux doigts sur écran tactile (suivi de deux pointeurs
+        tactiles simultanés, `touchPoints`/`pinchState` dans
+        `NotesCanvas.tsx` — interrompt proprement tout tracé/geste en cours
+        dès qu'un deuxième doigt touche l'écran). Zoom borné 50%–300%,
+        implémenté en redimensionnant le canvas en CSS (`width: {zoom*100}%`)
+        plutôt qu'en modifiant sa résolution logique — `getPos()` continue de
+        fonctionner sans changement car il se base déjà sur
+        `getBoundingClientRect()`. Le conteneur du canvas défile
+        horizontalement (`overflow-x-auto`) pour permettre le panoramique
+        latéral une fois zoomé ; le défilement vertical utilise le défilement
+        normal de la page.
+      - Undo/redo étendu aux photos : `Document = { strokes, shapes, images }`
+        dans `NotesCanvas.tsx`, toujours une seule pile de snapshots partagée.
+      - *Bug trouvé et corrigé pendant les tests* : l'annulation après un
+        déplacement/redimensionnement de photo (ou après un effacement,
+        y compris pour les traits et formes déjà livrés en phases 1–3) ne
+        restaurait rien — un clic sur "Annuler" ne se voyait pas à l'écran.
+        Cause : `eraseAt` et la logique de glisser-déposer des photos
+        mutaient directement `strokesRef.current`/`shapesRef.current`/
+        `imagesRef.current` *avant* d'appeler `commitDoc`, qui capture
+        pourtant l'état "avant" en lisant ces mêmes refs au moment de
+        l'appel — l'instantané poussé sur la pile d'annulation était donc
+        déjà l'état "après", rendant l'undo inopérant. Corrigé en ne
+        touchant plus ces refs qu'au moment du commit final : `eraseAt` se
+        contente de marquer les identifiants effacés (masqués à l'affichage
+        dans `renderAll`) sans filtrer les tableaux, et le glisser-déposer
+        de photo écrit sa géométrie "live" dans une ref d'aperçu séparée
+        (`dragPreview`, utilisée uniquement par le rendu) au lieu de modifier
+        `imagesRef.current` en direct. Vérifié par des tests Playwright
+        dédiés : import → déplacement → annuler (repositionne bien la photo)
+        → annuler (la retire) ; et dessin → effacement → annuler (le trait
+        réapparaît) → rétablir (il redisparaît).
 - [ ] **Phase 5** — Outil texte "Tt" + clavier auto, outil lasso (sélection /
       déplacement / redimensionnement).
 - [ ] **Phase 6** — Historique et sauvegarde : persistance Supabase,

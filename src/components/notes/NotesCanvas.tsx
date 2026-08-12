@@ -8,10 +8,58 @@ import {
   useRef,
   useState,
 } from "react";
-import type { PaperSize, PenType, ShapeElement, ShapeType, SheetType, Stroke, StrokePoint } from "@/lib/notes/types";
-import { drawShape, drawSheetPattern, drawStroke, shapeHitTest, strokeHitTest } from "@/lib/notes/canvasUtils";
+import type {
+  ImageElement,
+  PaperSize,
+  PenType,
+  ShapeElement,
+  ShapeType,
+  SheetType,
+  Stroke,
+  StrokePoint,
+} from "@/lib/notes/types";
+import {
+  drawImageElement,
+  drawImageSelection,
+  drawShape,
+  drawSheetPattern,
+  drawStroke,
+  imageHandleHitTest,
+  imageHitTest,
+  shapeHitTest,
+  strokeHitTest,
+  type ImageHandle,
+} from "@/lib/notes/canvasUtils";
 import { getPageDimensions } from "@/lib/notes/sheets";
 import { computeSnapTargets, detectFreehandShape, type ShapeDetectionResult } from "@/lib/notes/shapeDetection";
+import { ZoomInIcon, ZoomOutIcon } from "./icons";
+
+function clamp(v: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, v));
+}
+
+function readFileAsDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImageDimensions(src: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+    img.onerror = () => reject(new Error("Échec du chargement de l'image"));
+    img.src = src;
+  });
+}
+
+/** Zoom minimum/maximum autorisé sur la feuille (pinch-to-zoom, molette
+ * Ctrl+, boutons +/-). */
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 3;
 
 /** Durée pendant laquelle on ignore le tactile après une entrée stylet, pour
  * éviter que la paume de la main ne dessine pendant l'écriture. */
@@ -114,16 +162,18 @@ function deriveLockedSnap(
   };
 }
 
-export type NotesTool = "pen" | "highlighter" | "eraser" | "shapes";
+export type NotesTool = "pen" | "highlighter" | "eraser" | "shapes" | "photo";
 
 export interface NotesCanvasHandle {
   undo(): void;
   redo(): void;
+  importPhotos(files: FileList | File[]): void;
 }
 
 interface Document {
   strokes: Stroke[];
   shapes: ShapeElement[];
+  images: ImageElement[];
 }
 
 interface NotesCanvasProps {
@@ -185,8 +235,10 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
 
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [shapes, setShapes] = useState<ShapeElement[]>([]);
+  const [images, setImages] = useState<ImageElement[]>([]);
   const strokesRef = useRef<Stroke[]>([]);
   const shapesRef = useRef<ShapeElement[]>([]);
+  const imagesRef = useRef<ImageElement[]>([]);
   const undoStack = useRef<Document[]>([]);
   const redoStack = useRef<Document[]>([]);
 
@@ -196,8 +248,40 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   const shapeStartPos = useRef<{ x: number; y: number } | null>(null);
   const erasedStrokeIds = useRef<Set<string> | null>(null);
   const erasedShapeIds = useRef<Set<string> | null>(null);
+  const erasedImageIds = useRef<Set<string> | null>(null);
   const lastPenTime = useRef(0);
   const renderScheduled = useRef(false);
+
+  const imageCache = useRef<Map<string, HTMLImageElement>>(new Map());
+  const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
+  const imageDragMode = useRef<{
+    id: string;
+    mode: "move" | ImageHandle;
+    startPos: { x: number; y: number };
+    startElement: ImageElement;
+  } | null>(null);
+  /** Géométrie "live" de l'image en cours de déplacement/redimensionnement,
+   * utilisée uniquement pour l'aperçu pendant le geste — `imagesRef.current`
+   * lui-même n'est modifié qu'au moment du commit (relâchement), pour que
+   * l'instantané "avant" poussé sur la pile d'annulation reste correct. */
+  const dragPreview = useRef<ImageElement | null>(null);
+
+  const [zoom, setZoom] = useState(1);
+  const touchPoints = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchState = useRef<{ initialDistance: number; initialZoom: number } | null>(null);
+
+  /** Récupère (en la mettant en cache) l'image HTML correspondant à une
+   * source donnée — ne retourne l'image que si elle est déjà chargée ;
+   * déclenche un nouveau rendu dès que le chargement se termine. */
+  function getOrLoadImage(src: string): HTMLImageElement | null {
+    const cached = imageCache.current.get(src);
+    if (cached) return cached.complete && cached.naturalWidth > 0 ? cached : null;
+    const img = new Image();
+    img.onload = () => scheduleRender();
+    img.src = src;
+    imageCache.current.set(src, img);
+    return null;
+  }
 
   const tapStartInfo = useRef<{ x: number; y: number; time: number } | null>(null);
   const tapIsCandidate = useRef(false);
@@ -233,6 +317,10 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     shapesRef.current = shapes;
   }, [shapes]);
 
+  useEffect(() => {
+    imagesRef.current = images;
+  }, [images]);
+
   const notifyHistory = useCallback(() => {
     onHistoryChange?.(undoStack.current.length > 0, redoStack.current.length > 0);
   }, [onHistoryChange]);
@@ -245,10 +333,18 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     ctx.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
     drawSheetPattern(ctx, sheetType, PAGE_WIDTH, PAGE_HEIGHT, backgroundColor);
 
+    for (const imageEl of imagesRef.current) {
+      if (erasedImageIds.current?.has(imageEl.id)) continue;
+      const preview = dragPreview.current?.id === imageEl.id ? dragPreview.current : imageEl;
+      const img = getOrLoadImage(preview.src);
+      if (img) drawImageElement(ctx, preview, img);
+    }
     for (const stroke of strokesRef.current) {
+      if (erasedStrokeIds.current?.has(stroke.id)) continue;
       drawStroke(ctx, stroke);
     }
     for (const shape of shapesRef.current) {
+      if (erasedShapeIds.current?.has(shape.id)) continue;
       drawShape(ctx, shape);
     }
 
@@ -308,7 +404,18 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     if (currentShape.current) {
       drawShape(ctx, currentShape.current);
     }
-  }, [backgroundColor, sheetType, PAGE_WIDTH, PAGE_HEIGHT, penColor, penSize, penType]);
+
+    if (tool === "photo" && selectedImageId) {
+      const selected = imagesRef.current.find((img) => img.id === selectedImageId);
+      const previewSelected = dragPreview.current?.id === selectedImageId ? dragPreview.current : selected;
+      if (previewSelected) drawImageSelection(ctx, previewSelected);
+    }
+    // getOrLoadImage volontairement omis des dépendances : il appelle
+    // scheduleRender, défini juste après renderAll (référence circulaire),
+    // mais ne dépend lui-même que de refs stables (imageCache) donc son
+    // identité entre deux rendus n'a aucune incidence sur le comportement.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backgroundColor, sheetType, PAGE_WIDTH, PAGE_HEIGHT, penColor, penSize, penType, tool, selectedImageId]);
 
   const scheduleRender = useCallback(() => {
     if (renderScheduled.current) return;
@@ -394,41 +501,110 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
 
   useEffect(() => {
     scheduleRender();
-  }, [strokes, shapes, backgroundColor, scheduleRender]);
+  }, [strokes, shapes, images, backgroundColor, scheduleRender]);
 
-  function commitDoc(next: Document) {
-    undoStack.current.push({ strokes: strokesRef.current, shapes: shapesRef.current });
-    redoStack.current = [];
-    strokesRef.current = next.strokes;
-    shapesRef.current = next.shapes;
-    setStrokes(next.strokes);
-    setShapes(next.shapes);
-    notifyHistory();
-  }
+  // Empêche le geste natif de pinch-to-zoom du navigateur/Safari sur le
+  // canvas (déjà largement neutralisé par touchAction: "none") tout en
+  // écoutant le zoom au trackpad (molette + Ctrl), qui doit rester possible
+  // même avec touch-action désactivé — d'où un listener natif non passif
+  // plutôt que la prop React onWheel (dont le comportement passif par
+  // défaut empêcherait preventDefault de fonctionner de façon fiable).
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    function onWheel(e: WheelEvent) {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      setZoom((z) => clamp(z - e.deltaY * 0.01, MIN_ZOOM, MAX_ZOOM));
+    }
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", onWheel);
+  }, []);
+
+  const commitDoc = useCallback(
+    (next: Document) => {
+      undoStack.current.push({ strokes: strokesRef.current, shapes: shapesRef.current, images: imagesRef.current });
+      redoStack.current = [];
+      strokesRef.current = next.strokes;
+      shapesRef.current = next.shapes;
+      imagesRef.current = next.images;
+      setStrokes(next.strokes);
+      setShapes(next.shapes);
+      setImages(next.images);
+      notifyHistory();
+    },
+    [notifyHistory],
+  );
 
   const undo = useCallback(() => {
     if (undoStack.current.length === 0) return;
     const prev = undoStack.current.pop()!;
-    redoStack.current.push({ strokes: strokesRef.current, shapes: shapesRef.current });
+    redoStack.current.push({ strokes: strokesRef.current, shapes: shapesRef.current, images: imagesRef.current });
     strokesRef.current = prev.strokes;
     shapesRef.current = prev.shapes;
+    imagesRef.current = prev.images;
     setStrokes(prev.strokes);
     setShapes(prev.shapes);
+    setImages(prev.images);
     notifyHistory();
   }, [notifyHistory]);
 
   const redo = useCallback(() => {
     if (redoStack.current.length === 0) return;
     const next = redoStack.current.pop()!;
-    undoStack.current.push({ strokes: strokesRef.current, shapes: shapesRef.current });
+    undoStack.current.push({ strokes: strokesRef.current, shapes: shapesRef.current, images: imagesRef.current });
     strokesRef.current = next.strokes;
     shapesRef.current = next.shapes;
+    imagesRef.current = next.images;
     setStrokes(next.strokes);
     setShapes(next.shapes);
+    setImages(next.images);
     notifyHistory();
   }, [notifyHistory]);
 
-  useImperativeHandle(ref, () => ({ undo, redo }), [undo, redo]);
+  /** Importe une ou plusieurs photos depuis la galerie sur la feuille : lues
+   * en data URL, dimensionnées pour tenir dans la page (échelle réduite si
+   * besoin, jamais agrandie au-delà de la taille d'origine), et disposées en
+   * cascade légère si plusieurs photos sont importées d'un coup. */
+  const importPhotos = useCallback(
+    async (files: FileList | File[]) => {
+      const fileArray = Array.from(files).filter((f) => f.type.startsWith("image/"));
+      if (fileArray.length === 0) return;
+
+      const newImages: ImageElement[] = [];
+      const maxW = PAGE_WIDTH * 0.45;
+      const maxH = PAGE_HEIGHT * 0.35;
+
+      for (let i = 0; i < fileArray.length; i++) {
+        try {
+          const src = await readFileAsDataURL(fileArray[i]);
+          const natural = await loadImageDimensions(src);
+          const scale = Math.min(1, maxW / natural.width, maxH / natural.height);
+          const width = natural.width * scale;
+          const height = natural.height * scale;
+          const offset = (newImages.length + imagesRef.current.length) * 24;
+          newImages.push({
+            id: crypto.randomUUID(),
+            x: clamp(PAGE_WIDTH / 2 - width / 2 + offset, 0, Math.max(0, PAGE_WIDTH - width)),
+            y: clamp(PAGE_HEIGHT / 2 - height / 2 + offset, 0, Math.max(0, PAGE_HEIGHT - height)),
+            width,
+            height,
+            src,
+          });
+        } catch {
+          // Fichier illisible ou corrompu : on l'ignore et on continue avec les autres.
+        }
+      }
+
+      if (newImages.length === 0) return;
+      const nextImages = [...imagesRef.current, ...newImages];
+      commitDoc({ strokes: strokesRef.current, shapes: shapesRef.current, images: nextImages });
+      setSelectedImageId(newImages[newImages.length - 1].id);
+    },
+    [PAGE_WIDTH, PAGE_HEIGHT, commitDoc],
+  );
+
+  useImperativeHandle(ref, () => ({ undo, redo, importPhotos }), [undo, redo, importPhotos]);
 
   function getPos(e: React.PointerEvent<HTMLCanvasElement>): StrokePoint {
     const canvas = canvasRef.current!;
@@ -443,7 +619,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   }
 
   function eraseAt(pos: StrokePoint) {
-    if (!erasedStrokeIds.current || !erasedShapeIds.current) return;
+    if (!erasedStrokeIds.current || !erasedShapeIds.current || !erasedImageIds.current) return;
     let changed = false;
     for (const stroke of strokesRef.current) {
       if (erasedStrokeIds.current.has(stroke.id)) continue;
@@ -459,14 +635,59 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         changed = true;
       }
     }
+    for (const imageEl of imagesRef.current) {
+      if (erasedImageIds.current.has(imageEl.id)) continue;
+      if (imageHitTest(imageEl, pos.x, pos.y, eraserRadius)) {
+        erasedImageIds.current.add(imageEl.id);
+        changed = true;
+      }
+    }
+    // On ne retire les éléments effacés de strokesRef/shapesRef/imagesRef
+    // qu'au commit final (endStroke) — pas ici — afin que ces refs
+    // conservent l'état "avant effacement" jusque-là : commitDoc s'en sert
+    // pour construire l'instantané que l'annulation doit restaurer. Le
+    // rendu masque déjà les éléments marqués comme effacés (voir renderAll),
+    // donc l'aperçu visuel reste correct sans cette mutation anticipée.
     if (changed) {
-      strokesRef.current = strokesRef.current.filter((s) => !erasedStrokeIds.current!.has(s.id));
-      shapesRef.current = shapesRef.current.filter((s) => !erasedShapeIds.current!.has(s.id));
       scheduleRender();
     }
   }
 
   function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (e.pointerType === "touch") {
+      touchPoints.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touchPoints.current.size >= 2) {
+        // Geste de pincement à deux doigts : on interrompt tout tracé en
+        // cours et on bascule en mode zoom, quel que soit l'outil actif —
+        // ce geste doit rester possible même pendant l'écriture au stylet.
+        if (activePointerId.current !== null) {
+          try {
+            e.currentTarget.releasePointerCapture(activePointerId.current);
+          } catch {
+            // Capture absente en environnement de test synthétique — sans conséquence.
+          }
+        }
+        currentStroke.current = null;
+        currentShape.current = null;
+        shapeStartPos.current = null;
+        lockedSnap.current = null;
+        snapAnimation.current = null;
+        holdAnchorPos.current = null;
+        imageDragMode.current = null;
+        dragPreview.current = null;
+        if (holdTimer.current) {
+          clearTimeout(holdTimer.current);
+          holdTimer.current = null;
+        }
+        activePointerId.current = null;
+        const pts = Array.from(touchPoints.current.values());
+        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        pinchState.current = { initialDistance: dist || 1, initialZoom: zoom };
+        scheduleRender();
+        return;
+      }
+    }
+
     if (e.pointerType === "touch" && Date.now() - lastPenTime.current < PALM_REJECTION_MS) {
       // Rejet de paume : on ignore ce contact tactile pendant l'écriture au stylet.
       return;
@@ -507,6 +728,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     if (tool === "eraser") {
       erasedStrokeIds.current = new Set();
       erasedShapeIds.current = new Set();
+      erasedImageIds.current = new Set();
       eraseAt(pos);
     } else if (tool === "shapes") {
       shapeStartPos.current = { x: pos.x, y: pos.y };
@@ -520,6 +742,49 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         color: shapeColor,
         strokeWidth: shapeStrokeWidth,
       };
+      scheduleRender();
+    } else if (tool === "photo") {
+      const list = imagesRef.current;
+      let handled = false;
+
+      // On teste d'abord les poignées de l'image déjà sélectionnée (elles
+      // doivent rester prioritaires même si elles chevauchent une autre photo).
+      if (selectedImageId) {
+        const selected = list.find((img) => img.id === selectedImageId);
+        if (selected) {
+          const handle = imageHandleHitTest(selected, pos.x, pos.y);
+          if (handle) {
+            imageDragMode.current = {
+              id: selected.id,
+              mode: handle,
+              startPos: { x: pos.x, y: pos.y },
+              startElement: { ...selected },
+            };
+            handled = true;
+          }
+        }
+      }
+
+      if (!handled) {
+        for (let i = list.length - 1; i >= 0; i--) {
+          if (imageHitTest(list[i], pos.x, pos.y, 4)) {
+            setSelectedImageId(list[i].id);
+            imageDragMode.current = {
+              id: list[i].id,
+              mode: "move",
+              startPos: { x: pos.x, y: pos.y },
+              startElement: { ...list[i] },
+            };
+            handled = true;
+            break;
+          }
+        }
+      }
+
+      if (!handled) {
+        setSelectedImageId(null);
+        imageDragMode.current = null;
+      }
       scheduleRender();
     } else if (tool === "highlighter") {
       currentStroke.current = {
@@ -545,6 +810,17 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   }
 
   function handlePointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (e.pointerType === "touch" && touchPoints.current.has(e.pointerId)) {
+      touchPoints.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinchState.current && touchPoints.current.size >= 2) {
+        const pts = Array.from(touchPoints.current.values());
+        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        const ratio = dist / pinchState.current.initialDistance;
+        setZoom(clamp(pinchState.current.initialZoom * ratio, MIN_ZOOM, MAX_ZOOM));
+        return;
+      }
+    }
+
     if (activePointerId.current !== e.pointerId) return;
     if (e.pointerType === "pen") {
       lastPenTime.current = Date.now();
@@ -567,6 +843,49 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       if (currentShape.current && shapeStartPos.current) {
         currentShape.current.width = pos.x - shapeStartPos.current.x;
         currentShape.current.height = pos.y - shapeStartPos.current.y;
+        scheduleRender();
+      }
+      return;
+    }
+
+    if (tool === "photo") {
+      if (imageDragMode.current) {
+        const { id, mode, startPos, startElement } = imageDragMode.current;
+        const dx = pos.x - startPos.x;
+        const dy = pos.y - startPos.y;
+
+        let next: ImageElement;
+        if (mode === "move") {
+          next = { ...startElement, x: startElement.x + dx, y: startElement.y + dy };
+        } else {
+          const x1 = startElement.x + startElement.width;
+          const y1 = startElement.y + startElement.height;
+          let { x, y, width, height } = startElement;
+          if (mode === "nw") {
+            x = startElement.x + dx;
+            y = startElement.y + dy;
+            width = x1 - x;
+            height = y1 - y;
+          } else if (mode === "ne") {
+            y = startElement.y + dy;
+            width = startElement.width + dx;
+            height = y1 - y;
+          } else if (mode === "sw") {
+            x = startElement.x + dx;
+            width = x1 - x;
+            height = startElement.height + dy;
+          } else if (mode === "se") {
+            width = startElement.width + dx;
+            height = startElement.height + dy;
+          }
+          next = { ...startElement, x, y, width: Math.max(20, width), height: Math.max(20, height) };
+        }
+
+        // On ne touche pas encore imagesRef.current ici (voir dragPreview) :
+        // seul le commit final au relâchement doit modifier la référence,
+        // sans quoi l'instantané "avant" de l'annulation serait déjà pollué
+        // par le déplacement en cours (même bug que l'ancienne gomme).
+        dragPreview.current = { ...next, id };
         scheduleRender();
       }
       return;
@@ -622,11 +941,27 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     if (tool === "eraser") {
       const hasErasedStrokes = !!erasedStrokeIds.current && erasedStrokeIds.current.size > 0;
       const hasErasedShapes = !!erasedShapeIds.current && erasedShapeIds.current.size > 0;
-      if (hasErasedStrokes || hasErasedShapes) {
-        commitDoc({ strokes: strokesRef.current, shapes: shapesRef.current });
+      const hasErasedImages = !!erasedImageIds.current && erasedImageIds.current.size > 0;
+      if (hasErasedStrokes || hasErasedShapes || hasErasedImages) {
+        // strokesRef/shapesRef/imagesRef sont encore l'état "avant
+        // effacement" à ce stade (eraseAt ne les mutait pas) : on calcule
+        // les tableaux filtrés ici, pour committer, sans jamais avoir
+        // modifié les refs avant que commitDoc n'y lise son instantané
+        // "avant" pour la pile d'annulation.
+        const nextStrokes = hasErasedStrokes
+          ? strokesRef.current.filter((s) => !erasedStrokeIds.current!.has(s.id))
+          : strokesRef.current;
+        const nextShapes = hasErasedShapes
+          ? shapesRef.current.filter((s) => !erasedShapeIds.current!.has(s.id))
+          : shapesRef.current;
+        const nextImages = hasErasedImages
+          ? imagesRef.current.filter((i) => !erasedImageIds.current!.has(i.id))
+          : imagesRef.current;
+        commitDoc({ strokes: nextStrokes, shapes: nextShapes, images: nextImages });
       }
       erasedStrokeIds.current = null;
       erasedShapeIds.current = null;
+      erasedImageIds.current = null;
       activePointerId.current = null;
       scheduleRender();
       onActionComplete?.();
@@ -639,7 +974,21 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       shapeStartPos.current = null;
       activePointerId.current = null;
       if (shape && Math.abs(shape.width) > 4 && Math.abs(shape.height) > 4) {
-        commitDoc({ strokes: strokesRef.current, shapes: [...shapesRef.current, shape] });
+        commitDoc({ strokes: strokesRef.current, shapes: [...shapesRef.current, shape], images: imagesRef.current });
+      }
+      scheduleRender();
+      onActionComplete?.();
+      return;
+    }
+
+    if (tool === "photo") {
+      const preview = dragPreview.current;
+      imageDragMode.current = null;
+      dragPreview.current = null;
+      activePointerId.current = null;
+      if (preview) {
+        const nextImages = imagesRef.current.map((img) => (img.id === preview.id ? preview : img));
+        commitDoc({ strokes: strokesRef.current, shapes: shapesRef.current, images: nextImages });
       }
       scheduleRender();
       onActionComplete?.();
@@ -667,7 +1016,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
             { x: locked.current.x, y: locked.current.y, pressure: 0.5 },
           ],
         };
-        commitDoc({ strokes: [...strokesRef.current, stroke], shapes: shapesRef.current });
+        commitDoc({ strokes: [...strokesRef.current, stroke], shapes: shapesRef.current, images: imagesRef.current });
       } else if (locked.shapeType) {
         const shape: ShapeElement = {
           id: crypto.randomUUID(),
@@ -679,7 +1028,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
           color: locked.color,
           strokeWidth: locked.size,
         };
-        commitDoc({ strokes: strokesRef.current, shapes: [...shapesRef.current, shape] });
+        commitDoc({ strokes: strokesRef.current, shapes: [...shapesRef.current, shape], images: imagesRef.current });
       }
       tapStartInfo.current = null;
       lastTap.current = null;
@@ -720,18 +1069,25 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     }
 
     if (finished.points.length > 0) {
-      commitDoc({ strokes: [...strokesRef.current, finished], shapes: shapesRef.current });
+      commitDoc({ strokes: [...strokesRef.current, finished], shapes: shapesRef.current, images: imagesRef.current });
     }
     scheduleRender();
     onActionComplete?.();
   }
 
+  function endPinchIfDone(pointerId: number) {
+    touchPoints.current.delete(pointerId);
+    if (touchPoints.current.size < 2) pinchState.current = null;
+  }
+
   function handlePointerUp(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (e.pointerType === "touch") endPinchIfDone(e.pointerId);
     if (activePointerId.current !== e.pointerId) return;
     endStroke();
   }
 
   function handlePointerCancel(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (e.pointerType === "touch") endPinchIfDone(e.pointerId);
     if (activePointerId.current !== e.pointerId) return;
     if (holdTimer.current) {
       clearTimeout(holdTimer.current);
@@ -745,6 +1101,9 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     holdAnchorPos.current = null;
     erasedStrokeIds.current = null;
     erasedShapeIds.current = null;
+    erasedImageIds.current = null;
+    imageDragMode.current = null;
+    dragPreview.current = null;
     activePointerId.current = null;
     tapStartInfo.current = null;
     tapIsCandidate.current = false;
@@ -760,28 +1119,65 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         userSelect: "none",
       }}
     >
-      <canvas
-        ref={canvasRef}
-        style={{
-          width: "100%",
-          height: "auto",
-          aspectRatio: `${PAGE_WIDTH} / ${PAGE_HEIGHT}`,
-          touchAction: "none",
-          cursor: tool === "eraser" ? "cell" : "crosshair",
-          display: "block",
-          WebkitTouchCallout: "none",
-          WebkitUserSelect: "none",
-          userSelect: "none",
-          WebkitTapHighlightColor: "transparent",
-        }}
-        className="rounded-xl border border-border bg-card shadow-[0_8px_30px_-12px_rgba(0,0,0,0.15)]"
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerCancel}
-        onPointerLeave={handlePointerCancel}
-        onContextMenu={(e) => e.preventDefault()}
-      />
+      <div className="overflow-x-auto">
+        <canvas
+          ref={canvasRef}
+          style={{
+            width: `${zoom * 100}%`,
+            height: "auto",
+            aspectRatio: `${PAGE_WIDTH} / ${PAGE_HEIGHT}`,
+            touchAction: "none",
+            cursor: tool === "eraser" ? "cell" : tool === "photo" ? "default" : "crosshair",
+            display: "block",
+            WebkitTouchCallout: "none",
+            WebkitUserSelect: "none",
+            userSelect: "none",
+            WebkitTapHighlightColor: "transparent",
+          }}
+          className="rounded-xl border border-border bg-card shadow-[0_8px_30px_-12px_rgba(0,0,0,0.15)]"
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerCancel}
+          onPointerLeave={handlePointerCancel}
+          onContextMenu={(e) => e.preventDefault()}
+        />
+      </div>
+
+      {/* `sticky` plutôt que `absolute` : quand le zoom agrandit la feuille
+          au-delà de la hauteur de l'écran, les contrôles doivent rester
+          visibles pendant le défilement plutôt que de suivre le bas (très
+          lointain) du canvas zoomé. */}
+      <div className="pointer-events-none sticky bottom-3 z-10 ml-auto flex w-fit items-center gap-1 rounded-full border border-border bg-card/95 px-1.5 py-1 shadow-sm">
+        <button
+          type="button"
+          onClick={() => setZoom((z) => clamp(z - 0.25, MIN_ZOOM, MAX_ZOOM))}
+          aria-label="Zoom arrière"
+          title="Zoom arrière"
+          className="pointer-events-auto grid h-7 w-7 place-items-center rounded-full text-foreground transition hover:bg-background-alt"
+        >
+          <ZoomOutIcon className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setZoom(1)}
+          aria-label="Réinitialiser le zoom"
+          title="Réinitialiser le zoom"
+          className="pointer-events-auto min-w-[3rem] rounded-full px-1 text-center text-[11px] font-medium text-muted transition hover:bg-background-alt hover:text-foreground"
+        >
+          {Math.round(zoom * 100)}%
+        </button>
+        <button
+          type="button"
+          onClick={() => setZoom((z) => clamp(z + 0.25, MIN_ZOOM, MAX_ZOOM))}
+          aria-label="Zoom avant"
+          title="Zoom avant"
+          className="pointer-events-auto grid h-7 w-7 place-items-center rounded-full text-foreground transition hover:bg-background-alt"
+        >
+          <ZoomInIcon className="h-4 w-4" />
+        </button>
+      </div>
+
       {debugHoldDetection && (
         <div className="pointer-events-none absolute left-2 top-2 rounded-lg bg-black/80 px-3 py-2 font-mono text-[11px] leading-relaxed text-white">
           <div>pointerType: {debugInfo.current.pointerType}</div>

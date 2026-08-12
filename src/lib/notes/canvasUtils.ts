@@ -1,4 +1,4 @@
-import type { ShapeElement, SheetType, Stroke, StrokePoint } from "./types";
+import type { ImageElement, ShapeElement, SheetType, Stroke, StrokePoint } from "./types";
 
 /** Opacité du surligneur : suffisamment transparent pour rester lisible en
  * superposition, combiné à un mélange "multiply" pour l'effet d'encre qui
@@ -216,6 +216,95 @@ export function shapeHitTest(shape: ShapeElement, x: number, y: number, radius: 
     case "line":
       return distanceToSegmentXY(bx, by, bx + bw, by + bh, x, y) <= pad;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Photos importées
+// ---------------------------------------------------------------------------
+
+/** Dessine une image importée à sa position/taille courante, avec des coins
+ * légèrement arrondis pour rester visuellement cohérent avec le reste de
+ * l'interface (comme les rectangles). */
+export function drawImageElement(ctx: CanvasRenderingContext2D, element: ImageElement, img: HTMLImageElement) {
+  const { x, y, width: w, height: h } = element;
+  const radius = Math.min(Math.abs(w), Math.abs(h)) * 0.03;
+
+  ctx.save();
+  ctx.beginPath();
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(x, y, w, h, radius);
+  } else {
+    ctx.rect(x, y, w, h);
+  }
+  ctx.clip();
+  ctx.drawImage(img, x, y, w, h);
+  ctx.restore();
+}
+
+/** Vrai si le point (x, y) tombe dans le rectangle de l'image (avec une
+ * marge `radius` pour rester tolérant au doigt/stylet). */
+export function imageHitTest(element: ImageElement, x: number, y: number, radius: number): boolean {
+  const x0 = Math.min(element.x, element.x + element.width) - radius;
+  const x1 = Math.max(element.x, element.x + element.width) + radius;
+  const y0 = Math.min(element.y, element.y + element.height) - radius;
+  const y1 = Math.max(element.y, element.y + element.height) + radius;
+  return x >= x0 && x <= x1 && y >= y0 && y <= y1;
+}
+
+/** Rayon (en pixels logiques) des poignées de redimensionnement affichées
+ * aux 4 coins d'une image sélectionnée. */
+export const IMAGE_HANDLE_RADIUS = 9;
+
+export type ImageHandle = "nw" | "ne" | "se" | "sw";
+
+function imageCorners(element: ImageElement): Record<ImageHandle, { x: number; y: number }> {
+  const x0 = Math.min(element.x, element.x + element.width);
+  const x1 = Math.max(element.x, element.x + element.width);
+  const y0 = Math.min(element.y, element.y + element.height);
+  const y1 = Math.max(element.y, element.y + element.height);
+  return {
+    nw: { x: x0, y: y0 },
+    ne: { x: x1, y: y0 },
+    se: { x: x1, y: y1 },
+    sw: { x: x0, y: y1 },
+  };
+}
+
+/** Retourne la poignée de coin sous (x, y), s'il y en a une. */
+export function imageHandleHitTest(element: ImageElement, x: number, y: number): ImageHandle | null {
+  const corners = imageCorners(element);
+  for (const handle of Object.keys(corners) as ImageHandle[]) {
+    const c = corners[handle];
+    if (Math.hypot(c.x - x, c.y - y) <= IMAGE_HANDLE_RADIUS + 6) return handle;
+  }
+  return null;
+}
+
+/** Dessine le contour de sélection en pointillés + les poignées de coin
+ * d'une image sélectionnée, par-dessus le rendu normal. */
+export function drawImageSelection(ctx: CanvasRenderingContext2D, element: ImageElement) {
+  const x0 = Math.min(element.x, element.x + element.width);
+  const x1 = Math.max(element.x, element.x + element.width);
+  const y0 = Math.min(element.y, element.y + element.height);
+  const y1 = Math.max(element.y, element.y + element.height);
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(176, 138, 78, 0.9)";
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 4]);
+  ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = "#ffffff";
+  const corners = imageCorners(element);
+  for (const handle of Object.keys(corners) as ImageHandle[]) {
+    const c = corners[handle];
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, IMAGE_HANDLE_RADIUS / 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 // ---------------------------------------------------------------------------

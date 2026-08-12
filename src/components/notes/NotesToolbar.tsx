@@ -3,12 +3,14 @@
 import type { ComponentType } from "react";
 import type { PenType, ShapeType } from "@/lib/notes/types";
 import type { NotesTool } from "./NotesCanvas";
+import { useRef } from "react";
 import {
   CircleShapeIcon,
   EraserIcon,
   HighlighterIcon,
   LineShapeIcon,
   PenIcon,
+  PhotoIcon,
   RectangleShapeIcon,
   RedoIcon,
   ShapesIcon,
@@ -149,7 +151,9 @@ interface NotesToolbarProps {
   onSelectHighlighter: () => void;
   onSelectEraser: () => void;
   onSelectShapes: () => void;
+  onSelectPhoto: () => void;
   onPenDoubleClick: () => void;
+  onImportPhotos: (files: FileList) => void;
 
   penColor: string;
   onPenColorChange: (color: string) => void;
@@ -185,7 +189,9 @@ export function NotesToolbar({
   onSelectHighlighter,
   onSelectEraser,
   onSelectShapes,
+  onSelectPhoto,
   onPenDoubleClick,
+  onImportPhotos,
   penColor,
   onPenColorChange,
   penSize,
@@ -209,8 +215,23 @@ export function NotesToolbar({
   onUndo,
   onRedo,
 }: NotesToolbarProps) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
   return (
     <div className="flex flex-nowrap items-center gap-3 overflow-x-auto rounded-2xl border border-border bg-card px-4 py-3 shadow-sm">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            onImportPhotos(e.target.files);
+          }
+          e.target.value = "";
+        }}
+      />
       <div className="flex shrink-0 items-center gap-1.5">
         <button
           type="button"
@@ -290,6 +311,19 @@ export function NotesToolbar({
         >
           <ShapesIcon className="h-5 w-5" />
         </button>
+        <button
+          type="button"
+          onClick={onSelectPhoto}
+          aria-pressed={tool === "photo"}
+          title="Photo"
+          className={`grid h-9 w-9 shrink-0 place-items-center rounded-full border transition ${
+            tool === "photo"
+              ? "border-accent bg-accent-light text-accent-dark"
+              : "border-border text-foreground hover:bg-background-alt"
+          }`}
+        >
+          <PhotoIcon className="h-5 w-5" />
+        </button>
       </div>
 
       <div className="h-8 w-px shrink-0 bg-border" />
@@ -344,6 +378,17 @@ export function NotesToolbar({
           <ColorRow colors={SHAPE_COLORS} value={shapeColor} onChange={onShapeColorChange} />
           <SizeDotPicker sizes={SHAPE_STROKE_WIDTHS} value={shapeStrokeWidth} onChange={onShapeStrokeWidthChange} />
         </div>
+      )}
+
+      {tool === "photo" && (
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="flex shrink-0 items-center gap-2 rounded-full border border-border bg-background-alt px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-card"
+        >
+          <PhotoIcon className="h-4 w-4" />
+          Ajouter une photo
+        </button>
       )}
     </div>
   );
