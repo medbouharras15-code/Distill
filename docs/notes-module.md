@@ -267,17 +267,6 @@ Code : `src/app/notes/`, `src/components/notes/`, `src/lib/notes/`.
           point ciblé reste désormais à moins de 0.5% de sa position
           voulue même sous cette rafale, contre un écart massif avant
           correction.
-        - **Bandes vides au chargement** : l'ajustement automatique à
-          l'écran ne se calculait qu'une seule fois, à la première mesure
-          du conteneur par `ResizeObserver`. Sur un vrai appareil, la
-          taille disponible peut encore changer juste après ce premier
-          rendu (barre d'adresse Safari qui se rétracte, polices qui
-          finissent de charger et modifient la hauteur de la barre
-          d'outils...) — une mesure précoce pouvait figer un zoom bien
-          trop petit. Corrigé en continuant de recalculer l'ajustement à
-          chaque redimensionnement du conteneur tant que l'utilisateur n'a
-          pas zoomé lui-même (`hasUserZoomed`), au lieu de ne le faire
-          qu'une fois.
         - **Fix défensif complémentaire** : `touch-action: none` ajouté
           aussi au conteneur du canvas (pas seulement au canvas lui-même),
           et export `viewport` (`maximumScale: 1, userScalable: false`)
@@ -287,19 +276,38 @@ Code : `src/app/notes/`, `src/components/notes/`, `src/lib/notes/`.
           zoom natif de page en même temps que notre zoom JS, les deux se
           disputant les mêmes coordonnées d'écran.
         - **Panneau de debug étendu** (`?debug=1`) : affiche désormais
-          aussi une section "Zoom" (zoom actuel, zoom ajusté à l'écran
-          calculé, si l'utilisateur a zoomé manuellement, taille mesurée du
-          conteneur et du canvas affiché, dernier point d'ancrage de
-          zoom) — pour diagnostiquer un éventuel écart résiduel sur
-          appareil réel sans accès à la console.
-        - *Limite honnête* : je n'ai pas d'iPad physique dans cet
-          environnement pour reproduire les deux symptômes exactement tels
-          que décrits ; le décalage de zoom a été reproduit et corrigé de
-          façon fiable (rafale d'événements sans délai), mais les bandes
-          vides reposent sur une hypothèse de cause raisonnée (course entre
-          la première mesure du conteneur et un réajustement tardif de la
-          mise en page), pas sur une reproduction directe. À vérifier avec
-          `?debug=1` sur l'appareil réel si le problème persiste.
+          aussi une section "Zoom" (zoom actuel, taille mesurée du
+          conteneur et du canvas affiché, dernier point d'ancrage de zoom)
+          — pour diagnostiquer un éventuel écart résiduel sur appareil réel
+          sans accès à la console. C'est ce panneau qui a permis de trouver
+          la vraie cause des bandes vides ci-dessous : chiffres à l'appui
+          (conteneur 848×552, canvas affiché 427×552 à un zoom "ajusté"
+          calculé à 50%), la largeur du canvas faisait bien la moitié de
+          celle du conteneur — le calcul n'était pas en cause, c'était son
+          principe même qui ne correspondait pas à l'attente.
+        - **Bandes vides au chargement — cause réelle, différente de la
+          première hypothèse** : le calcul d'origine choisissait un zoom
+          "contenu" (`min(ratio largeur, ratio hauteur)`), qui peut
+          légitimement tomber bien en dessous de 100% dès que le conteneur
+          est nettement plus large que haut (écran en paysage, où la barre
+          d'outils/l'en-tête et le chrome de Safari réduisent beaucoup la
+          hauteur disponible) — une feuille au format portrait, une fois
+          contrainte par la hauteur, devient alors bien plus étroite que le
+          conteneur, ce qui EST le comportement voulu par ce calcul mais
+          PAS celui attendu par l'utilisateur ("la largeur devrait
+          correspondre"). Corrigé en abandonnant le calcul d'ajustement :
+          le zoom initial est désormais toujours 100% (= la largeur du
+          canvas correspond toujours exactement à celle du conteneur, sans
+          aucun calcul), à la manière de la plupart des lecteurs/éditeurs
+          de document (Notability, GoodNotes, Google Docs mobile...). Si la
+          page est plus haute que l'écran une fois à cette largeur, le
+          surplus se consulte par défilement vertical dans le conteneur —
+          normal pour un document, pas un défaut. Toute la mécanique
+          `ResizeObserver`/`hasUserZoomed`/`fitZoomRef` de la première
+          tentative a été retirée, devenue inutile. Vérifié avec un
+          conteneur reproduisant la géométrie signalée (large et court,
+          type paysage) : la largeur du canvas correspond désormais
+          exactement à celle du conteneur, sans aucune marge latérale.
 - [ ] **Phase 5** — Outil texte "Tt" + clavier auto, outil lasso (sélection /
       déplacement / redimensionnement).
 - [ ] **Phase 6** — Historique et sauvegarde : persistance Supabase,

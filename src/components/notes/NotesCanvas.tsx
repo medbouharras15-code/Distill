@@ -267,6 +267,18 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
    * l'instantané "avant" poussé sur la pile d'annulation reste correct. */
   const dragPreview = useRef<ImageElement | null>(null);
 
+  /** 1 = 100% = la largeur du canvas correspond exactement à la largeur du
+   * conteneur (le zoom est défini en % de la largeur du conteneur, voir le
+   * style du canvas plus bas) — la feuille remplit donc tout l'écran en
+   * largeur dès l'ouverture, sans calcul, sans marge vide sur les côtés,
+   * comme dans la plupart des lecteurs/éditeurs de document ("fit to
+   * width"). Si la page est plus haute que l'écran une fois à cette
+   * largeur, le surplus se consulte par défilement vertical dans le
+   * conteneur (normal pour un document) plutôt que d'être rétréci pour
+   * tout faire tenir d'un coup — une version précédente calculait un zoom
+   * initial plus petit pour éviter tout défilement vertical, mais cela
+   * laissait de larges bandes vides à gauche/droite dès que le conteneur
+   * était plus large que haut (écran en paysage, iPad compris). */
   const [zoom, setZoom] = useState(1);
   /** Miroir synchrone de `zoom`, lu par les gestes haute fréquence (pincement,
    * molette) pour calculer le point d'ancrage du zoom suivant. Un simple
@@ -284,32 +296,14 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   }
   const touchPoints = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinchState = useRef<{ initialDistance: number; initialZoom: number } | null>(null);
-  /** Zoom "à l'écran" le plus récemment calculé pour que la feuille remplisse
-   * l'espace disponible sans déborder ni laisser d'espace vide ("fit to
-   * screen") — mémorisé pour que le bouton de réinitialisation du zoom y
-   * revienne, plutôt que de toujours revenir à un 100% arbitraire. */
-  const fitZoomRef = useRef(1);
-  /** Tant que l'utilisateur n'a pas zoomé manuellement, on continue de
-   * recalculer l'ajustement à l'écran à chaque changement de taille du
-   * conteneur (pas seulement une fois au montage) : sur un vrai appareil, la
-   * taille disponible peut encore bouger juste après le premier rendu
-   * (barre d'adresse Safari qui se rétracte, polices qui finissent de
-   * charger et changent la hauteur de la barre d'outils, etc.) — se fier à
-   * une unique mesure précoce produisait une feuille bien trop petite,
-   * entourée de bandes vides, sur iPad réel alors que les tests
-   * automatisés (rendu déterministe, sans ces réajustements tardifs) ne
-   * révélaient rien. */
-  const hasUserZoomed = useRef(false);
-  /** Instantané des dernières mesures de zoom/ajustement, affiché dans le
-   * panneau de debug (`?debug=1`) pour diagnostiquer un écart en conditions
-   * réelles (iPad) sans avoir accès à la console. */
+  /** Instantané des dernières mesures de zoom, affiché dans le panneau de
+   * debug (`?debug=1`) pour diagnostiquer un écart en conditions réelles
+   * (iPad) sans avoir accès à la console. */
   const zoomDebug = useRef({
     containerW: 0,
     containerH: 0,
     canvasW: 0,
     canvasH: 0,
-    fitZoom: 1,
-    hasUserZoomed: false,
     lastAnchor: "—",
   });
 
@@ -582,7 +576,6 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
    * temps de se faire), mais déterminant sur un vrai écran tactile. */
   const zoomAtPoint = useCallback(
     (newZoomRaw: number, clientX: number, clientY: number) => {
-      hasUserZoomed.current = true;
       const clamped = clamp(newZoomRaw, MIN_ZOOM, MAX_ZOOM);
       const container = containerRef.current;
       const canvas = canvasRef.current;
@@ -616,50 +609,22 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     [PAGE_WIDTH, PAGE_HEIGHT, debugHoldDetection],
   );
 
-  // Zoom initial "à l'écran" : dès l'arrivée sur la page, la feuille doit
-  // remplir tout l'espace disponible sans déborder ni laisser de marges
-  // vides, quelle que soit la taille de l'écran (iPad compris). On continue
-  // de recalculer cet ajustement à chaque redimensionnement du conteneur
-  // tant que l'utilisateur n'a pas zoomé lui-même (hasUserZoomed) : sur un
-  // vrai appareil, la taille disponible peut encore changer juste après le
-  // premier rendu (barre d'adresse Safari qui se rétracte, polices qui
-  // finissent de charger et modifient la hauteur de la barre d'outils...) —
-  // une seule mesure précoce, comme avant ce correctif, pouvait figer un
-  // zoom bien trop petit et laisser des bandes vides tout autour de la
-  // feuille.
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const ro = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (!entry) return;
-      const { width, height } = entry.contentRect;
-      if (debugHoldDetection) {
-        zoomDebug.current.containerW = Math.round(width);
-        zoomDebug.current.containerH = Math.round(height);
-      }
-      if (width <= 0 || height <= 0 || hasUserZoomed.current) return;
-      const fitZoom = clamp(Math.min(1, (height * PAGE_WIDTH) / (width * PAGE_HEIGHT)), MIN_ZOOM, MAX_ZOOM);
-      fitZoomRef.current = fitZoom;
-      if (debugHoldDetection) zoomDebug.current.fitZoom = fitZoom;
-      applyZoom(fitZoom);
-    });
-    ro.observe(container);
-    return () => ro.disconnect();
-  }, [PAGE_WIDTH, PAGE_HEIGHT, debugHoldDetection]);
-
   // Mesures affichées dans le panneau de debug — mises à jour à chaque
   // rendu (le tick périodique du panneau, voir plus haut, force ces
   // re-lectures même quand rien d'autre ne change).
   useEffect(() => {
     if (!debugHoldDetection) return;
+    const container = containerRef.current;
+    if (container) {
+      zoomDebug.current.containerW = Math.round(container.clientWidth);
+      zoomDebug.current.containerH = Math.round(container.clientHeight);
+    }
     const canvas = canvasRef.current;
     if (canvas) {
       const rect = canvas.getBoundingClientRect();
       zoomDebug.current.canvasW = Math.round(rect.width);
       zoomDebug.current.canvasH = Math.round(rect.height);
     }
-    zoomDebug.current.hasUserZoomed = hasUserZoomed.current;
   });
 
   // Empêche le geste natif de pinch-to-zoom du navigateur/Safari sur le
@@ -1315,7 +1280,6 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   function zoomByButton(delta: number) {
     const container = containerRef.current;
     if (!container) {
-      hasUserZoomed.current = true;
       applyZoom(clamp(zoomRef.current + delta, MIN_ZOOM, MAX_ZOOM));
       return;
     }
@@ -1324,8 +1288,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   }
 
   function resetZoom() {
-    hasUserZoomed.current = true;
-    applyZoom(fitZoomRef.current);
+    applyZoom(1);
     const container = containerRef.current;
     if (container) {
       container.scrollLeft = 0;
@@ -1397,7 +1360,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
           type="button"
           onClick={resetZoom}
           aria-label="Réinitialiser le zoom"
-          title="Réinitialiser le zoom (ajuster à l'écran)"
+          title="Réinitialiser le zoom (100%, pleine largeur)"
           className="pointer-events-auto min-w-[3rem] rounded-full px-1 text-center text-[11px] font-medium text-muted transition hover:bg-background-alt hover:text-foreground"
         >
           {Math.round(zoom * 100)}%
@@ -1427,8 +1390,6 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
           <div>nb. déclenchements : {debugInfo.current.holdCount}</div>
           <div className="mt-2 border-t border-white/20 pt-2">— Zoom —</div>
           <div>zoom actuel : {Math.round(zoom * 100)}%</div>
-          <div>zoom ajusté à l&apos;écran (calculé) : {Math.round(zoomDebug.current.fitZoom * 100)}%</div>
-          <div>zoomé manuellement : {zoomDebug.current.hasUserZoomed ? "oui" : "non"}</div>
           <div>
             conteneur : {zoomDebug.current.containerW}×{zoomDebug.current.containerH}px
           </div>
