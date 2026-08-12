@@ -308,6 +308,49 @@ Code : `src/app/notes/`, `src/components/notes/`, `src/lib/notes/`.
           conteneur reproduisant la géométrie signalée (large et court,
           type paysage) : la largeur du canvas correspond désormais
           exactement à celle du conteneur, sans aucune marge latérale.
+        - **Second signalement sur iPad réel, après le correctif ci-dessus** :
+          la largeur du canvas correspondait bien à celle de son conteneur
+          (comme prévu par le fix précédent), mais un espace de couleur de
+          fond restait visible tout autour de la feuille — le vrai coupable
+          n'était donc pas dans le calcul du zoom, mais dans la mise en
+          page qui entoure le canvas :
+          - **Padding/largeur max de la page** : le conteneur racine de
+            `/notes` appliquait `max-w-4xl` (896px) + `px-4/py-6` à
+            *toute* la colonne (en-tête, barre d'outils, ET zone du
+            canvas) — sur un écran plus large que 896px (iPad en paysage
+            typiquement), toute l'interface se retrouvait centrée avec de
+            larges marges de chaque côté, y compris autour de la feuille.
+            Corrigé en sortant la zone du canvas de ce conteneur limité :
+            l'en-tête/sélecteur de feuille/barre d'outils gardent leur
+            mise en page centrée et aérée (`max-w-4xl` + padding, dans un
+            bloc séparé), mais la zone du canvas occupe désormais toute la
+            largeur de l'écran et descend jusqu'au bord inférieur, sans
+            aucun padding propre.
+          - **Style décoratif du canvas lui-même** : le canvas portait
+            `rounded-xl border shadow-...` (coins arrondis, bordure,
+            ombre) — hérité de l'époque où c'était une petite carte
+            flottante sur la page (phases 1–3). Une fois censé remplir
+            tout l'écran, ces coins arrondis et cette bordure laissaient
+            forcément apparaître la couleur de fond de la page dans les
+            coins et le long des bords, même une fois la largeur/hauteur
+            correctement calées. Retiré : le canvas est maintenant un
+            simple rectangle blanc plein, sans décoration, pour toucher
+            réellement les bords du conteneur.
+          - Vérifié en mesurant la position du canvas par rapport à la
+            fenêtre (`getBoundingClientRect`) en paysage et en portrait :
+            bords gauche et droit exactement à 0 et à la largeur de la
+            fenêtre dans les deux cas, zone visible remplie jusqu'au bas de
+            l'écran (le bas du canvas lui-même dépasse l'écran, normal
+            puisque la page continue par défilement vertical).
+        - *Sur la vérification du déploiement Vercel* : je n'ai pas accès
+          au tableau de bord Vercel depuis cet environnement pour confirmer
+          quel commit y est réellement déployé. Vérifié en revanche que la
+          branche `claude/distill-notes-app-itwnqy` sur GitHub est bien à
+          jour avec le code local à chaque étape (comparaison des hashes de
+          commit local/`origin`). Si un écart persiste après un nouveau
+          déploiement, penser aussi au cache agressif de Safari iOS
+          (recharger en navigation privée ou vider le cache du site avant
+          de conclure à un bug de code).
 - [ ] **Phase 5** — Outil texte "Tt" + clavier auto, outil lasso (sélection /
       déplacement / redimensionnement).
 - [ ] **Phase 6** — Historique et sauvegarde : persistance Supabase,

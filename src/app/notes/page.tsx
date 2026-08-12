@@ -133,65 +133,73 @@ export default function NotesPage() {
 
   return (
     <div
-      className="notes-no-callout mx-auto flex h-dvh w-full max-w-4xl select-none flex-col gap-4 overflow-hidden px-4 py-6 sm:px-6"
+      className="notes-no-callout flex h-dvh w-full select-none flex-col overflow-hidden"
       onContextMenu={(e) => e.preventDefault()}
     >
-      <div className="flex items-center justify-between">
-        <Link href="/" className="text-sm text-muted transition hover:text-foreground">
-          ← Retour à Distill
-        </Link>
-        <h1 className="font-display text-lg font-medium text-foreground">Notes à main levée</h1>
-        <div className="w-24" />
+      {/* Barre supérieure (en-tête, sélecteur de feuille, barre d'outils) :
+          garde la mise en page centrée/aérée du reste du site. La zone du
+          canvas ci-dessous, elle, sort volontairement de ce conteneur pour
+          toucher les bords de l'écran sans aucune marge — c'est elle que
+          l'utilisateur perçoit comme "la feuille" et qui doit remplir tout
+          l'espace disponible, sans bande de couleur de fond visible autour. */}
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-4 pt-6 sm:px-6">
+        <div className="flex items-center justify-between">
+          <Link href="/" className="text-sm text-muted transition hover:text-foreground">
+            ← Retour à Distill
+          </Link>
+          <h1 className="font-display text-lg font-medium text-foreground">Notes à main levée</h1>
+          <div className="w-24" />
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setSheetPanelOpen(true)}
+          className="flex w-fit items-center gap-2 self-center rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted transition hover:text-foreground"
+        >
+          <span
+            className="h-3 w-3 rounded-full border border-border"
+            style={{ backgroundColor }}
+            aria-hidden="true"
+          />
+          {sheetLabel} · {paperLabel}
+        </button>
+
+        <NotesToolbar
+          tool={tool}
+          onSelectPen={selectPen}
+          onSelectHighlighter={selectHighlighter}
+          onSelectEraser={selectEraser}
+          onSelectShapes={selectShapes}
+          onSelectPhoto={selectPhoto}
+          onSelectPan={selectPan}
+          onPenDoubleClick={activateTempEraser}
+          onImportPhotos={(files) => canvasHandle.current?.importPhotos(files)}
+          penColor={penColor}
+          onPenColorChange={setPenColor}
+          penSize={penSize}
+          onPenSizeChange={setPenSize}
+          penType={penType}
+          onPenTypeChange={setPenType}
+          highlighterColor={highlighterColor}
+          onHighlighterColorChange={setHighlighterColor}
+          highlighterSize={highlighterSize}
+          onHighlighterSizeChange={setHighlighterSize}
+          eraserRadius={eraserRadius}
+          onEraserRadiusChange={setEraserRadius}
+          shapeType={shapeType}
+          onShapeTypeChange={setShapeType}
+          shapeColor={shapeColor}
+          onShapeColorChange={setShapeColor}
+          shapeStrokeWidth={shapeStrokeWidth}
+          onShapeStrokeWidthChange={setShapeStrokeWidth}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          onUndo={() => canvasHandle.current?.undo()}
+          onRedo={() => canvasHandle.current?.redo()}
+        />
       </div>
 
-      <button
-        type="button"
-        onClick={() => setSheetPanelOpen(true)}
-        className="flex w-fit items-center gap-2 self-center rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted transition hover:text-foreground"
-      >
-        <span
-          className="h-3 w-3 rounded-full border border-border"
-          style={{ backgroundColor }}
-          aria-hidden="true"
-        />
-        {sheetLabel} · {paperLabel}
-      </button>
-
-      <NotesToolbar
-        tool={tool}
-        onSelectPen={selectPen}
-        onSelectHighlighter={selectHighlighter}
-        onSelectEraser={selectEraser}
-        onSelectShapes={selectShapes}
-        onSelectPhoto={selectPhoto}
-        onSelectPan={selectPan}
-        onPenDoubleClick={activateTempEraser}
-        onImportPhotos={(files) => canvasHandle.current?.importPhotos(files)}
-        penColor={penColor}
-        onPenColorChange={setPenColor}
-        penSize={penSize}
-        onPenSizeChange={setPenSize}
-        penType={penType}
-        onPenTypeChange={setPenType}
-        highlighterColor={highlighterColor}
-        onHighlighterColorChange={setHighlighterColor}
-        highlighterSize={highlighterSize}
-        onHighlighterSizeChange={setHighlighterSize}
-        eraserRadius={eraserRadius}
-        onEraserRadiusChange={setEraserRadius}
-        shapeType={shapeType}
-        onShapeTypeChange={setShapeType}
-        shapeColor={shapeColor}
-        onShapeColorChange={setShapeColor}
-        shapeStrokeWidth={shapeStrokeWidth}
-        onShapeStrokeWidthChange={setShapeStrokeWidth}
-        canUndo={canUndo}
-        canRedo={canRedo}
-        onUndo={() => canvasHandle.current?.undo()}
-        onRedo={() => canvasHandle.current?.redo()}
-      />
-
-      <div className="min-h-0 w-full flex-1">
+      <div className="mt-4 min-h-0 w-full flex-1">
         <NotesCanvas
           ref={canvasHandle}
           tool={tool}
