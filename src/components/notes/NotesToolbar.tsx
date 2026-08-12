@@ -16,6 +16,7 @@ import {
   RectangleShapeIcon,
   RedoIcon,
   ShapesIcon,
+  TextToolIcon,
   TriangleShapeIcon,
   UndoIcon,
 } from "./icons";
@@ -155,6 +156,7 @@ interface NotesToolbarProps {
   onSelectShapes: () => void;
   onSelectPhoto: () => void;
   onSelectPan: () => void;
+  onSelectText: () => void;
   onPenDoubleClick: () => void;
   onImportPhotos: (files: FileList) => void;
 
@@ -195,6 +197,7 @@ export function NotesToolbar({
   onSelectShapes,
   onSelectPhoto,
   onSelectPan,
+  onSelectText,
   onPenDoubleClick,
   onImportPhotos,
   penColor,
@@ -316,6 +319,19 @@ export function NotesToolbar({
           }`}
         >
           <EraserIcon className="h-5 w-5" />
+        </button>
+        <button
+          type="button"
+          onClick={onSelectText}
+          aria-pressed={tool === "text"}
+          title="Texte"
+          className={`grid h-9 w-9 shrink-0 place-items-center rounded-full border transition ${
+            tool === "text"
+              ? "border-accent bg-accent-light text-accent-dark"
+              : "border-border text-foreground hover:bg-background-alt"
+          }`}
+        >
+          <TextToolIcon className="h-5 w-5" />
         </button>
         <button
           type="button"

@@ -380,8 +380,98 @@ Code : `src/app/notes/`, `src/components/notes/`, `src/lib/notes/`.
         (conservé pour l'ajustement fin pendant le dessin), désormais
         exposée aussi via `NotesCanvasHandle.fitToScreen()` pour que la
         barre d'outils puisse l'appeler comme `undo`/`redo`/`importPhotos`.
-- [ ] **Phase 5** — Outil texte "Tt" + clavier auto, outil lasso (sélection /
-      déplacement / redimensionnement).
+- [ ] **Phase 5 (outil texte livré, lasso restant)** — Outil texte "T" avec
+      barre d'édition riche façon Notion :
+      - **Outil "T"** (`TextToolIcon` dans `icons.tsx`, entre Gomme et
+        Formes dans la barre) : un tap sur la feuille crée un bloc de texte
+        vide à cet endroit et le focalise immédiatement (clavier auto sur
+        mobile/tablette). Chaque tap avec l'outil "T" actif démarre un
+        nouveau bloc — pour éditer un bloc existant, cliquer dedans plutôt
+        qu'à côté.
+      - **Édition riche via TipTap** (`@tiptap/react` + `@tiptap/starter-kit`
+        + extensions séparées `underline`, `text-align`, `color`,
+        `font-family`, `text-style`, `link`, `task-list`/`task-item`,
+        `superscript`, `subscript`, `placeholder` — StarterKit ne fournit
+        pas ces sept-là). Choisi plutôt qu'un `contentEditable`/
+        `execCommand` fait main : 17 fonctions de formatage distinctes à
+        maintenir correctement (gras/italique/souligné/barré/exposant/
+        indice, 3 niveaux de titre + citation, 3 types de liste, bloc de
+        code, alignement, couleur, police, taille, lien, retrait) rendaient
+        une implémentation manuelle fragile. Taille de police portée par une
+        extension maison (`src/lib/notes/fontSizeExtension.ts`, étend le
+        mark `TextStyle`) — TipTap n'en fournit pas nativement.
+      - **Barre d'édition riche** (`RichTextToolbar.tsx`) : apparaît
+        au-dessus du bloc sélectionné, dans l'ordre exact demandé — style de
+        paragraphe (dropdown : Corps/Titre 1/2/3/Citation) · police (Inter,
+        Fraunces, Georgia, Helvetica, Times New Roman, Courier New,
+        Verdana) · taille (−/champ numérique/+) · couleur de texte (cercle
+        cliquable, `<input type="color">` natif) · gras/italique/souligné ·
+        menu "plus d'options" (barré, exposant, indice) · lien (popover avec
+        champ URL) · liste de tâches/à puces/numérotée · citation en bloc ·
+        bloc de code · retrait +/− (`sinkListItem`/`liftListItem`) ·
+        alignement (dropdown gauche/centre/droite/justifié). Design cohérent
+        avec le reste de l'interface (pastilles rondes, couleur accent,
+        mêmes rayons/ombres que la barre d'outils principale).
+      - **Rendu en DOM, pas sur le canvas** (`TextBoxOverlay.tsx`) : le
+        canvas HTML5 ne peut pas afficher du texte riche éditable — chaque
+        bloc est un `<div>` positionné en absolu (coordonnées en
+        pourcentage du même repère `0..PAGE_WIDTH/PAGE_HEIGHT` que le
+        canvas), superposé en frère du `<canvas>` dans un conteneur
+        `wrapperRef` partagé. `TextBoxElement` ne stocke pas de hauteur
+        (`{id, x, y, width, html}`) : le bloc s'ajuste au contenu comme un
+        bloc Notion ; la hauteur réellement rendue est mesurée en direct par
+        `ResizeObserver` et remontée à `NotesCanvas` (`textBoxHeights`, ref)
+        pour le hit-test de la gomme uniquement.
+      - **Modèle "brouillon"** : un bloc tout juste créé (vide) vit dans
+        `draftTextBoxes` (état séparé, pas encore dans l'historique
+        annuler/rétablir) tant qu'il n'a jamais reçu de texte — comme un
+        trait qui n'est commité qu'au lever du stylet. À la perte de focus
+        (`onBlur` de l'éditeur), un brouillon resté vide est simplement
+        abandonné ; un brouillon non-vide passe dans `textBoxes` (tableau
+        `useState`, inclus dans chaque `commitDoc`/`undo`/`redo` aux côtés
+        de `strokes`/`shapes`/`images`) et devient annulable/rétablissable.
+      - **Gomme étendue aux blocs de texte** : hit-test sur le rectangle
+        englobant (`textBoxHitTest`), même mécanique que traits/formes/photos.
+      - *Bug trouvé au premier test réel (Playwright)* : cliquer sur la
+        feuille avec l'outil "T" actif ne créait aucun bloc. Cause : le
+        calque conteneur des blocs de texte (`absolute inset-0` au-dessus du
+        canvas) passait en `pointer-events: auto` dès que l'outil "T" était
+        actif, et `stopPropagation()` sur son `onPointerDown` — mais
+        `pointer-events`/le test de collision du navigateur détermine la
+        *cible réelle* d'un clic, `stopPropagation` ne fait qu'empêcher la
+        remontée vers les ancêtres une fois la cible touchée. Le calque
+        entier interceptait donc tous les clics avant qu'ils n'atteignent le
+        canvas en dessous (qui contient la logique de création de bloc),
+        `stopPropagation` ou pas. Corrigé : le conteneur reste *toujours*
+        `pointer-events: none` ; seuls les blocs de texte individuels
+        redeviennent `auto`, et seulement avec l'outil "T" actif (prop
+        `interactive` sur `TextBoxOverlay`) — les clics sur une zone vide
+        traversent normalement jusqu'au canvas.
+      - *Bug trouvé en testant les contrôles de la barre riche* : utiliser le
+        champ URL du lien (ou tout contrôle qui déplace le focus DOM hors de
+        l'éditeur sans le lui rendre, comme un `<input>` avec `autoFocus`)
+        désélectionnait le bloc et faisait disparaître la barre entière —
+        y compris le champ qu'on venait d'ouvrir, empêchant toute saisie.
+        Deux causes cumulées, corrigées ensemble : (1) `handleTextBoxCommit`
+        (appelé à chaque perte de focus de l'éditeur, pas seulement à une
+        vraie fin d'édition) désélectionnait le bloc *inconditionnellement*,
+        y compris quand il restait rempli — corrigé pour ne désélectionner
+        que si le bloc est effectivement supprimé (resté/devenu vide) ; (2)
+        la barre riche n'était rendue que si `editor.isFocused`, hypothèse
+        fausse dès qu'un de ses propres contrôles (sélecteurs natifs, champ
+        numérique de taille, sélecteur de couleur, champ de lien) prend le
+        focus DOM — corrigé en la basant uniquement sur la sélection du bloc
+        (`selected`), comme dans Notion : la barre reste visible tant que le
+        bloc est sélectionné, qu'il ait ou non le focus DOM à l'instant T.
+        Une désélection explicite (changement d'outil, ou bloc supprimé)
+        reste la seule façon de la faire disparaître.
+      - Vérifié par test Playwright couvrant les 17 contrôles de la barre
+        (style de paragraphe, police, taille, couleur, gras/italique/
+        souligné, barré/exposant/indice, lien, 3 types de liste,
+        citation, bloc de code, retrait +/−, alignement), plus glisser-
+        déposer (poignée dédiée), redimensionnement (poignée de coin),
+        annuler/rétablir sur un bloc committé, abandon d'un bloc resté vide
+        au changement d'outil, et suppression d'un bloc par la gomme.
 - [ ] **Phase 6** — Historique et sauvegarde : persistance Supabase,
       sauvegarde auto, titres générés par IA, scroll mémorisé par page, écran
       d'historique (vignettes, regroupement par carnet, recherche), recherche

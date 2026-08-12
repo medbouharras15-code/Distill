@@ -17,6 +17,7 @@ import type {
   SheetType,
   Stroke,
   StrokePoint,
+  TextBoxElement,
 } from "@/lib/notes/types";
 import {
   drawImageElement,
@@ -33,6 +34,7 @@ import {
 import { getPageDimensions } from "@/lib/notes/sheets";
 import { computeSnapTargets, detectFreehandShape, type ShapeDetectionResult } from "@/lib/notes/shapeDetection";
 import { ZoomInIcon, ZoomOutIcon } from "./icons";
+import { TextBoxOverlay } from "./TextBoxOverlay";
 
 function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
@@ -54,6 +56,23 @@ function loadImageDimensions(src: string): Promise<{ width: number; height: numb
     img.onerror = () => reject(new Error("Échec du chargement de l'image"));
     img.src = src;
   });
+}
+
+/** Vrai si (x, y) passe à moins de `radius` du rectangle englobant d'un bloc
+ * de texte — `height` est la hauteur mesurée en direct (les blocs de texte
+ * n'ont pas de hauteur stockée, elle s'ajuste au contenu). */
+function textBoxHitTest(
+  box: { x: number; y: number; width: number },
+  height: number,
+  x: number,
+  y: number,
+  radius: number,
+): boolean {
+  const x0 = box.x - radius;
+  const x1 = box.x + box.width + radius;
+  const y0 = box.y - radius;
+  const y1 = box.y + height + radius;
+  return x >= x0 && x <= x1 && y >= y0 && y <= y1;
 }
 
 /** Zoom minimum/maximum autorisé sur la feuille (pinch-to-zoom, molette
@@ -162,7 +181,7 @@ function deriveLockedSnap(
   };
 }
 
-export type NotesTool = "pen" | "highlighter" | "eraser" | "shapes" | "photo" | "pan";
+export type NotesTool = "pen" | "highlighter" | "eraser" | "shapes" | "photo" | "pan" | "text";
 
 export interface NotesCanvasHandle {
   undo(): void;
@@ -177,7 +196,13 @@ interface Document {
   strokes: Stroke[];
   shapes: ShapeElement[];
   images: ImageElement[];
+  textBoxes: TextBoxElement[];
 }
+
+/** Taille par défaut (unités logiques de page) d'un nouveau bloc de texte
+ * créé d'un tap/clic avec l'outil "T". */
+const DEFAULT_TEXTBOX_WIDTH = 260;
+const MIN_TEXTBOX_HIT_HEIGHT = 32;
 
 interface NotesCanvasProps {
   tool: NotesTool;
@@ -236,13 +261,21 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  /** Enveloppe la feuille (canvas + calque des blocs de texte) : c'est elle
+   * qui porte la largeur en %/l'aspect-ratio dépendant du zoom (le canvas
+   * lui-même se contente désormais de la remplir à 100%/100%), pour que le
+   * calque de texte partage exactement le même repère de coordonnées que
+   * le contenu dessiné. */
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
 
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [shapes, setShapes] = useState<ShapeElement[]>([]);
   const [images, setImages] = useState<ImageElement[]>([]);
+  const [textBoxes, setTextBoxes] = useState<TextBoxElement[]>([]);
   const strokesRef = useRef<Stroke[]>([]);
   const shapesRef = useRef<ShapeElement[]>([]);
   const imagesRef = useRef<ImageElement[]>([]);
+  const textBoxesRef = useRef<TextBoxElement[]>([]);
   const undoStack = useRef<Document[]>([]);
   const redoStack = useRef<Document[]>([]);
 
@@ -253,6 +286,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   const erasedStrokeIds = useRef<Set<string> | null>(null);
   const erasedShapeIds = useRef<Set<string> | null>(null);
   const erasedImageIds = useRef<Set<string> | null>(null);
+  const erasedTextBoxIds = useRef<Set<string> | null>(null);
   const lastPenTime = useRef(0);
   const renderScheduled = useRef(false);
 
@@ -269,6 +303,24 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
    * lui-même n'est modifié qu'au moment du commit (relâchement), pour que
    * l'instantané "avant" poussé sur la pile d'annulation reste correct. */
   const dragPreview = useRef<ImageElement | null>(null);
+
+  /** Blocs de texte fraîchement créés (tap avec l'outil "T") mais pas
+   * encore commités dans le document/l'historique — tant qu'on n'a rien
+   * tapé dedans. Ça évite de polluer la pile d'annulation d'un "créer un
+   * bloc vide" suivi d'un "le retirer" si l'utilisateur clique puis
+   * clique ailleurs sans avoir écrit ; un bloc n'est réellement ajouté au
+   * document (via commitDoc) qu'à la perte de focus, s'il contient du
+   * texte. Un tableau (pas un simple `| null`) pour rester correct même si
+   * un second brouillon est créé avant que le focus n'ait quitté le
+   * premier (le blur du premier arrive après coup, de façon asynchrone). */
+  const [draftTextBoxes, setDraftTextBoxes] = useState<TextBoxElement[]>([]);
+  const [selectedTextBoxId, setSelectedTextBoxId] = useState<string | null>(null);
+  const [autoFocusTextBoxId, setAutoFocusTextBoxId] = useState<string | null>(null);
+  /** Hauteur réellement rendue (mesurée en direct par chaque bloc via
+   * ResizeObserver) de chaque bloc de texte, en unités logiques de page —
+   * `TextBoxElement` ne stocke pas de hauteur (elle s'ajuste au contenu),
+   * mais la gomme a besoin d'une boîte englobante pour détecter un contact. */
+  const textBoxHeights = useRef<Map<string, number>>(new Map());
 
   /** 1 = 100% = la largeur du canvas correspond exactement à la largeur du
    * conteneur (le zoom est défini en % de la largeur du conteneur, voir le
@@ -371,6 +423,17 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   useEffect(() => {
     imagesRef.current = images;
   }, [images]);
+
+  useEffect(() => {
+    textBoxesRef.current = textBoxes;
+  }, [textBoxes]);
+
+  // Désélectionne le bloc de texte actif dès qu'on quitte l'outil "T" —
+  // sinon son cadre de sélection et ses poignées resteraient visibles par-
+  // dessus la feuille pendant qu'on dessine ou qu'on gomme avec un autre outil.
+  useEffect(() => {
+    if (tool !== "text") setSelectedTextBoxId(null);
+  }, [tool]);
 
   const notifyHistory = useCallback(() => {
     onHistoryChange?.(undoStack.current.length > 0, redoStack.current.length > 0);
@@ -581,9 +644,9 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     (newZoomRaw: number, clientX: number, clientY: number) => {
       const clamped = clamp(newZoomRaw, MIN_ZOOM, MAX_ZOOM);
       const container = containerRef.current;
-      const canvas = canvasRef.current;
+      const wrapper = wrapperRef.current;
       const currentZoom = zoomRef.current;
-      if (!container || !canvas) {
+      if (!container || !wrapper) {
         applyZoom(clamped);
         return;
       }
@@ -610,7 +673,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       const newCanvasWidth = containerWidth * clamped;
       const newCanvasHeight = newCanvasWidth * (PAGE_HEIGHT / PAGE_WIDTH);
       const newOffsetX = Math.max(0, (containerWidth - newCanvasWidth) / 2);
-      canvas.style.width = `${clamped * 100}%`;
+      wrapper.style.width = `${clamped * 100}%`;
       container.scrollLeft = fracX * newCanvasWidth - pointerX + newOffsetX;
       container.scrollTop = fracY * newCanvasHeight - pointerY;
 
@@ -673,14 +736,21 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
 
   const commitDoc = useCallback(
     (next: Document) => {
-      undoStack.current.push({ strokes: strokesRef.current, shapes: shapesRef.current, images: imagesRef.current });
+      undoStack.current.push({
+        strokes: strokesRef.current,
+        shapes: shapesRef.current,
+        images: imagesRef.current,
+        textBoxes: textBoxesRef.current,
+      });
       redoStack.current = [];
       strokesRef.current = next.strokes;
       shapesRef.current = next.shapes;
       imagesRef.current = next.images;
+      textBoxesRef.current = next.textBoxes;
       setStrokes(next.strokes);
       setShapes(next.shapes);
       setImages(next.images);
+      setTextBoxes(next.textBoxes);
       notifyHistory();
     },
     [notifyHistory],
@@ -689,26 +759,40 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   const undo = useCallback(() => {
     if (undoStack.current.length === 0) return;
     const prev = undoStack.current.pop()!;
-    redoStack.current.push({ strokes: strokesRef.current, shapes: shapesRef.current, images: imagesRef.current });
+    redoStack.current.push({
+      strokes: strokesRef.current,
+      shapes: shapesRef.current,
+      images: imagesRef.current,
+      textBoxes: textBoxesRef.current,
+    });
     strokesRef.current = prev.strokes;
     shapesRef.current = prev.shapes;
     imagesRef.current = prev.images;
+    textBoxesRef.current = prev.textBoxes;
     setStrokes(prev.strokes);
     setShapes(prev.shapes);
     setImages(prev.images);
+    setTextBoxes(prev.textBoxes);
     notifyHistory();
   }, [notifyHistory]);
 
   const redo = useCallback(() => {
     if (redoStack.current.length === 0) return;
     const next = redoStack.current.pop()!;
-    undoStack.current.push({ strokes: strokesRef.current, shapes: shapesRef.current, images: imagesRef.current });
+    undoStack.current.push({
+      strokes: strokesRef.current,
+      shapes: shapesRef.current,
+      images: imagesRef.current,
+      textBoxes: textBoxesRef.current,
+    });
     strokesRef.current = next.strokes;
     shapesRef.current = next.shapes;
     imagesRef.current = next.images;
+    textBoxesRef.current = next.textBoxes;
     setStrokes(next.strokes);
     setShapes(next.shapes);
     setImages(next.images);
+    setTextBoxes(next.textBoxes);
     notifyHistory();
   }, [notifyHistory]);
 
@@ -748,7 +832,12 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
 
       if (newImages.length === 0) return;
       const nextImages = [...imagesRef.current, ...newImages];
-      commitDoc({ strokes: strokesRef.current, shapes: shapesRef.current, images: nextImages });
+      commitDoc({
+        strokes: strokesRef.current,
+        shapes: shapesRef.current,
+        images: nextImages,
+        textBoxes: textBoxesRef.current,
+      });
       setSelectedImageId(newImages[newImages.length - 1].id);
     },
     [PAGE_WIDTH, PAGE_HEIGHT, commitDoc],
@@ -773,7 +862,9 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   }
 
   function eraseAt(pos: StrokePoint) {
-    if (!erasedStrokeIds.current || !erasedShapeIds.current || !erasedImageIds.current) return;
+    if (!erasedStrokeIds.current || !erasedShapeIds.current || !erasedImageIds.current || !erasedTextBoxIds.current) {
+      return;
+    }
     let changed = false;
     for (const stroke of strokesRef.current) {
       if (erasedStrokeIds.current.has(stroke.id)) continue;
@@ -796,15 +887,115 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         changed = true;
       }
     }
-    // On ne retire les éléments effacés de strokesRef/shapesRef/imagesRef
-    // qu'au commit final (endStroke) — pas ici — afin que ces refs
-    // conservent l'état "avant effacement" jusque-là : commitDoc s'en sert
-    // pour construire l'instantané que l'annulation doit restaurer. Le
-    // rendu masque déjà les éléments marqués comme effacés (voir renderAll),
-    // donc l'aperçu visuel reste correct sans cette mutation anticipée.
+    for (const textBox of textBoxesRef.current) {
+      if (erasedTextBoxIds.current.has(textBox.id)) continue;
+      const height = textBoxHeights.current.get(textBox.id) ?? MIN_TEXTBOX_HIT_HEIGHT;
+      if (textBoxHitTest(textBox, height, pos.x, pos.y, eraserRadius)) {
+        erasedTextBoxIds.current.add(textBox.id);
+        changed = true;
+      }
+    }
+    // On ne retire les éléments effacés de strokesRef/shapesRef/imagesRef/
+    // textBoxesRef qu'au commit final (endStroke) — pas ici — afin que ces
+    // refs conservent l'état "avant effacement" jusque-là : commitDoc s'en
+    // sert pour construire l'instantané que l'annulation doit restaurer. Le
+    // rendu masque déjà les éléments dessinés sur le canvas qui sont
+    // marqués comme effacés (voir renderAll) ; les blocs de texte (rendus en
+    // DOM, pas sur le canvas) ne disparaissent visuellement qu'au commit —
+    // simplification acceptée pour ne pas dupliquer cet état côté React.
     if (changed) {
       scheduleRender();
     }
+  }
+
+  function handleTextBoxSelect(id: string) {
+    setSelectedTextBoxId(id);
+  }
+
+  /** Appelé quand un bloc de texte perd le focus (fin d'édition) — seul
+   * moment où son contenu est réellement commité dans l'historique
+   * annuler/rétablir, comme un trait n'est commité qu'au lever du stylet.
+   * Un bloc resté vide (jamais commité, ou vidé de tout son texte) est
+   * retiré plutôt que conservé.
+   *
+   * Ce blur n'implique pas forcément que l'utilisateur a fini d'interagir
+   * avec le bloc : certains contrôles de la barre riche (champ URL du lien,
+   * saisie numérique de taille, sélecteur de couleur natif) font perdre le
+   * focus DOM à l'éditeur sans que ce soit une vraie désélection. On ne
+   * désélectionne donc le bloc ici que s'il est effectivement supprimé
+   * (resté/devenu vide) — sinon la sélection reste active et la barre riche
+   * réapparaît dès que l'éditeur reprend le focus. */
+  function handleTextBoxCommit(id: string, html: string, isEmpty: boolean) {
+    const draft = draftTextBoxes.find((t) => t.id === id);
+    if (draft) {
+      setDraftTextBoxes((prev) => prev.filter((t) => t.id !== id));
+      if (!isEmpty) {
+        commitDoc({
+          strokes: strokesRef.current,
+          shapes: shapesRef.current,
+          images: imagesRef.current,
+          textBoxes: [...textBoxesRef.current, { ...draft, html }],
+        });
+      } else if (selectedTextBoxId === id) {
+        setSelectedTextBoxId(null);
+      }
+      return;
+    }
+
+    const existing = textBoxesRef.current.find((t) => t.id === id);
+    if (!existing) return;
+    if (isEmpty) {
+      commitDoc({
+        strokes: strokesRef.current,
+        shapes: shapesRef.current,
+        images: imagesRef.current,
+        textBoxes: textBoxesRef.current.filter((t) => t.id !== id),
+      });
+      if (selectedTextBoxId === id) setSelectedTextBoxId(null);
+    } else if (existing.html !== html) {
+      commitDoc({
+        strokes: strokesRef.current,
+        shapes: shapesRef.current,
+        images: imagesRef.current,
+        textBoxes: textBoxesRef.current.map((t) => (t.id === id ? { ...t, html } : t)),
+      });
+    }
+  }
+
+  function handleTextBoxMoveEnd(id: string, x: number, y: number) {
+    const draft = draftTextBoxes.find((t) => t.id === id);
+    if (draft) {
+      setDraftTextBoxes((prev) => prev.map((t) => (t.id === id ? { ...t, x, y } : t)));
+      return;
+    }
+    const existing = textBoxesRef.current.find((t) => t.id === id);
+    if (!existing || (existing.x === x && existing.y === y)) return;
+    commitDoc({
+      strokes: strokesRef.current,
+      shapes: shapesRef.current,
+      images: imagesRef.current,
+      textBoxes: textBoxesRef.current.map((t) => (t.id === id ? { ...t, x, y } : t)),
+    });
+  }
+
+  function handleTextBoxResizeEnd(id: string, width: number) {
+    const draft = draftTextBoxes.find((t) => t.id === id);
+    if (draft) {
+      setDraftTextBoxes((prev) => prev.map((t) => (t.id === id ? { ...t, width } : t)));
+      return;
+    }
+    const existing = textBoxesRef.current.find((t) => t.id === id);
+    if (!existing || existing.width === width) return;
+    commitDoc({
+      strokes: strokesRef.current,
+      shapes: shapesRef.current,
+      images: imagesRef.current,
+      textBoxes: textBoxesRef.current.map((t) => (t.id === id ? { ...t, width } : t)),
+    });
+  }
+
+  function handleTextBoxHeightChange(id: string, height: number) {
+    textBoxHeights.current.set(id, height);
   }
 
   function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
@@ -887,6 +1078,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       erasedStrokeIds.current = new Set();
       erasedShapeIds.current = new Set();
       erasedImageIds.current = new Set();
+      erasedTextBoxIds.current = new Set();
       eraseAt(pos);
     } else if (tool === "shapes") {
       shapeStartPos.current = { x: pos.x, y: pos.y };
@@ -944,6 +1136,23 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         imageDragMode.current = null;
       }
       scheduleRender();
+    } else if (tool === "text") {
+      // Un tap sur la feuille avec l'outil "T" crée un nouveau bloc de
+      // texte à cet endroit et le passe aussitôt en édition — un clic sur
+      // un bloc déjà existant, lui, est intercepté par ce bloc lui-même
+      // (voir TextBoxOverlay, qui arrête la propagation de son propre
+      // pointerdown) et n'arrive donc jamais jusqu'ici.
+      const id = crypto.randomUUID();
+      const newBox: TextBoxElement = {
+        id,
+        x: pos.x,
+        y: pos.y,
+        width: DEFAULT_TEXTBOX_WIDTH,
+        html: "",
+      };
+      setDraftTextBoxes((prev) => [...prev, newBox]);
+      setSelectedTextBoxId(id);
+      setAutoFocusTextBoxId(id);
     } else if (tool === "pan") {
       const container = containerRef.current;
       panState.current = {
@@ -1014,6 +1223,13 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
           container.scrollTop = panState.current.startScrollTop - (e.clientY - panState.current.startClientY);
         }
       }
+      return;
+    }
+
+    if (tool === "text") {
+      // Rien à suivre au niveau du canvas : le placement du bloc est
+      // immédiat au tap, et son éventuel déplacement/redimensionnement est
+      // géré par son propre gestionnaire de pointeur (voir TextBoxOverlay).
       return;
     }
 
@@ -1129,16 +1345,23 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       return;
     }
 
+    if (tool === "text") {
+      activePointerId.current = null;
+      onActionComplete?.();
+      return;
+    }
+
     if (tool === "eraser") {
       const hasErasedStrokes = !!erasedStrokeIds.current && erasedStrokeIds.current.size > 0;
       const hasErasedShapes = !!erasedShapeIds.current && erasedShapeIds.current.size > 0;
       const hasErasedImages = !!erasedImageIds.current && erasedImageIds.current.size > 0;
-      if (hasErasedStrokes || hasErasedShapes || hasErasedImages) {
-        // strokesRef/shapesRef/imagesRef sont encore l'état "avant
-        // effacement" à ce stade (eraseAt ne les mutait pas) : on calcule
-        // les tableaux filtrés ici, pour committer, sans jamais avoir
-        // modifié les refs avant que commitDoc n'y lise son instantané
-        // "avant" pour la pile d'annulation.
+      const hasErasedTextBoxes = !!erasedTextBoxIds.current && erasedTextBoxIds.current.size > 0;
+      if (hasErasedStrokes || hasErasedShapes || hasErasedImages || hasErasedTextBoxes) {
+        // strokesRef/shapesRef/imagesRef/textBoxesRef sont encore l'état
+        // "avant effacement" à ce stade (eraseAt ne les mutait pas) : on
+        // calcule les tableaux filtrés ici, pour committer, sans jamais
+        // avoir modifié les refs avant que commitDoc n'y lise son
+        // instantané "avant" pour la pile d'annulation.
         const nextStrokes = hasErasedStrokes
           ? strokesRef.current.filter((s) => !erasedStrokeIds.current!.has(s.id))
           : strokesRef.current;
@@ -1148,11 +1371,15 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         const nextImages = hasErasedImages
           ? imagesRef.current.filter((i) => !erasedImageIds.current!.has(i.id))
           : imagesRef.current;
-        commitDoc({ strokes: nextStrokes, shapes: nextShapes, images: nextImages });
+        const nextTextBoxes = hasErasedTextBoxes
+          ? textBoxesRef.current.filter((t) => !erasedTextBoxIds.current!.has(t.id))
+          : textBoxesRef.current;
+        commitDoc({ strokes: nextStrokes, shapes: nextShapes, images: nextImages, textBoxes: nextTextBoxes });
       }
       erasedStrokeIds.current = null;
       erasedShapeIds.current = null;
       erasedImageIds.current = null;
+      erasedTextBoxIds.current = null;
       activePointerId.current = null;
       scheduleRender();
       onActionComplete?.();
@@ -1165,7 +1392,12 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       shapeStartPos.current = null;
       activePointerId.current = null;
       if (shape && Math.abs(shape.width) > 4 && Math.abs(shape.height) > 4) {
-        commitDoc({ strokes: strokesRef.current, shapes: [...shapesRef.current, shape], images: imagesRef.current });
+        commitDoc({
+          strokes: strokesRef.current,
+          shapes: [...shapesRef.current, shape],
+          images: imagesRef.current,
+          textBoxes: textBoxesRef.current,
+        });
       }
       scheduleRender();
       onActionComplete?.();
@@ -1179,7 +1411,12 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       activePointerId.current = null;
       if (preview) {
         const nextImages = imagesRef.current.map((img) => (img.id === preview.id ? preview : img));
-        commitDoc({ strokes: strokesRef.current, shapes: shapesRef.current, images: nextImages });
+        commitDoc({
+          strokes: strokesRef.current,
+          shapes: shapesRef.current,
+          images: nextImages,
+          textBoxes: textBoxesRef.current,
+        });
       }
       scheduleRender();
       onActionComplete?.();
@@ -1207,7 +1444,12 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
             { x: locked.current.x, y: locked.current.y, pressure: 0.5 },
           ],
         };
-        commitDoc({ strokes: [...strokesRef.current, stroke], shapes: shapesRef.current, images: imagesRef.current });
+        commitDoc({
+          strokes: [...strokesRef.current, stroke],
+          shapes: shapesRef.current,
+          images: imagesRef.current,
+          textBoxes: textBoxesRef.current,
+        });
       } else if (locked.shapeType) {
         const shape: ShapeElement = {
           id: crypto.randomUUID(),
@@ -1219,7 +1461,12 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
           color: locked.color,
           strokeWidth: locked.size,
         };
-        commitDoc({ strokes: strokesRef.current, shapes: [...shapesRef.current, shape], images: imagesRef.current });
+        commitDoc({
+          strokes: strokesRef.current,
+          shapes: [...shapesRef.current, shape],
+          images: imagesRef.current,
+          textBoxes: textBoxesRef.current,
+        });
       }
       tapStartInfo.current = null;
       lastTap.current = null;
@@ -1260,7 +1507,12 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     }
 
     if (finished.points.length > 0) {
-      commitDoc({ strokes: [...strokesRef.current, finished], shapes: shapesRef.current, images: imagesRef.current });
+      commitDoc({
+        strokes: [...strokesRef.current, finished],
+        shapes: shapesRef.current,
+        images: imagesRef.current,
+        textBoxes: textBoxesRef.current,
+      });
     }
     scheduleRender();
     onActionComplete?.();
@@ -1293,6 +1545,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     erasedStrokeIds.current = null;
     erasedShapeIds.current = null;
     erasedImageIds.current = null;
+    erasedTextBoxIds.current = null;
     imageDragMode.current = null;
     dragPreview.current = null;
     panState.current = null;
@@ -1331,37 +1584,70 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         className="h-full w-full overflow-auto"
         style={{ touchAction: "none" }}
       >
-        <canvas
-          ref={canvasRef}
-          style={{
-            width: `${zoom * 100}%`,
-            height: "auto",
-            aspectRatio: `${PAGE_WIDTH} / ${PAGE_HEIGHT}`,
-            touchAction: "none",
-            cursor:
-              tool === "eraser"
-                ? "cell"
-                : tool === "photo"
-                  ? "default"
-                  : tool === "pan"
-                    ? isPanning
-                      ? "grabbing"
-                      : "grab"
-                    : "crosshair",
-            display: "block",
-            WebkitTouchCallout: "none",
-            WebkitUserSelect: "none",
-            userSelect: "none",
-            WebkitTapHighlightColor: "transparent",
-          }}
-          className="mx-auto bg-card"
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerCancel}
-          onPointerLeave={handlePointerCancel}
-          onContextMenu={(e) => e.preventDefault()}
-        />
+        <div
+          ref={wrapperRef}
+          className="relative mx-auto"
+          style={{ width: `${zoom * 100}%`, aspectRatio: `${PAGE_WIDTH} / ${PAGE_HEIGHT}` }}
+        >
+          <canvas
+            ref={canvasRef}
+            style={{
+              width: "100%",
+              height: "100%",
+              touchAction: "none",
+              cursor:
+                tool === "eraser"
+                  ? "cell"
+                  : tool === "photo"
+                    ? "default"
+                    : tool === "pan"
+                      ? isPanning
+                        ? "grabbing"
+                        : "grab"
+                      : "crosshair",
+              display: "block",
+              WebkitTouchCallout: "none",
+              WebkitUserSelect: "none",
+              userSelect: "none",
+              WebkitTapHighlightColor: "transparent",
+            }}
+            className="bg-card"
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerCancel}
+            onPointerLeave={handlePointerCancel}
+            onContextMenu={(e) => e.preventDefault()}
+          />
+
+          {/* Blocs de texte : rendus en DOM (pas sur le canvas) pour
+              profiter d'une vraie édition riche contentEditable — ce calque
+              partage exactement le même repère 0..PAGE_WIDTH/PAGE_HEIGHT que
+              le canvas grâce au positionnement en pourcentage. Le calque
+              lui-même reste toujours `pointer-events: none` (les clics sur
+              une zone vide doivent atteindre le canvas en dessous, pour
+              dessiner/gommer/etc.) ; seuls les blocs de texte individuels
+              redeviennent interactifs, et seulement avec l'outil "T" actif
+              (voir la prop `interactive` de TextBoxOverlay). */}
+          <div className="absolute inset-0" style={{ pointerEvents: "none" }}>
+            {[...textBoxes, ...draftTextBoxes].map((tb) => (
+              <TextBoxOverlay
+                key={tb.id}
+                element={tb}
+                pageWidth={PAGE_WIDTH}
+                pageHeight={PAGE_HEIGHT}
+                selected={selectedTextBoxId === tb.id}
+                interactive={tool === "text"}
+                autoFocus={autoFocusTextBoxId === tb.id}
+                onSelect={() => handleTextBoxSelect(tb.id)}
+                onCommit={(html, isEmpty) => handleTextBoxCommit(tb.id, html, isEmpty)}
+                onMoveEnd={(x, y) => handleTextBoxMoveEnd(tb.id, x, y)}
+                onResizeEnd={(width) => handleTextBoxResizeEnd(tb.id, width)}
+                onHeightChange={(height) => handleTextBoxHeightChange(tb.id, height)}
+              />
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Le canvas défile désormais dans son propre conteneur borné à la

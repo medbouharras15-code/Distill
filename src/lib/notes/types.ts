@@ -43,11 +43,12 @@ export interface TextBoxElement {
   id: string;
   x: number;
   y: number;
+  /** Largeur du bloc ; la hauteur, elle, s'ajuste automatiquement au
+   * contenu (comme un bloc de texte Notion), donc non stockée. */
   width: number;
-  height: number;
-  content: string;
-  color: string;
-  fontSize: number;
+  /** Contenu riche sérialisé en HTML, produit par l'éditeur (TipTap) —
+   * porte tout le formatage (gras, titres, listes, couleurs, alignement...). */
+  html: string;
 }
 
 export interface ImageElement {
