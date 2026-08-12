@@ -125,6 +125,18 @@ Code : `src/app/notes/`, `src/components/notes/`, `src/lib/notes/`.
         `user-select: none` (+ préfixe `-webkit-`) sur le canvas et son
         conteneur, plus un `onContextMenu` qui annule l'événement en repli.
         Scope limité à la zone de dessin, sans toucher au reste du site.
+        *Étendu ensuite à toute l'interface de l'éditeur* (barre d'outils,
+        panneau de debug, boutons, libellés, barre "type de feuille") :
+        classe `.notes-no-callout` dans `globals.css` (`-webkit-touch-
+        callout`, propriété sans équivalent utilitaire Tailwind) combinée à
+        la classe Tailwind `select-none` sur les deux conteneurs racine de
+        `src/app/notes/page.tsx` — ces propriétés étant héritées en CSS,
+        elles se propagent automatiquement à tous les descendants (pas
+        besoin de les répéter sur chaque bouton). Le canvas lui-même garde
+        en plus sa propre déclaration locale (indépendance si réutilisé
+        ailleurs). Les contrôles natifs (menu déroulant type de stylo,
+        sélecteur de couleur) restent pleinement fonctionnels : `user-
+        select` ne bloque que la sélection de texte, pas l'interaction.
       - **Indicateur de debug temporaire** : ajouter `?debug=1` à l'URL
         (`/notes?debug=1`) affiche un encart en direct (type de pointeur,
         outil actif, temps d'immobilité écoulé, écart par rapport à

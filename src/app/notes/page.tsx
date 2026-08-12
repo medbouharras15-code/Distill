@@ -95,7 +95,10 @@ export default function NotesPage() {
 
   if (!sheetChosen) {
     return (
-      <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-4 py-6 sm:px-6">
+      <div
+        className="notes-no-callout mx-auto flex min-h-full w-full max-w-4xl select-none flex-col gap-6 px-4 py-6 sm:px-6"
+        onContextMenu={(e) => e.preventDefault()}
+      >
         <div className="flex items-center justify-between">
           <Link href="/" className="text-sm text-muted transition hover:text-foreground">
             ← Retour à Distill
@@ -119,7 +122,10 @@ export default function NotesPage() {
   }
 
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-4 px-4 py-6 sm:px-6">
+    <div
+      className="notes-no-callout mx-auto flex min-h-full w-full max-w-4xl select-none flex-col gap-4 px-4 py-6 sm:px-6"
+      onContextMenu={(e) => e.preventDefault()}
+    >
       <div className="flex items-center justify-between">
         <Link href="/" className="text-sm text-muted transition hover:text-foreground">
           ← Retour à Distill

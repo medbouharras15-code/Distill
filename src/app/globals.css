@@ -60,3 +60,14 @@ body {
 .flip-card-back {
   transform: rotateY(180deg);
 }
+
+/* Empêche le menu de sélection natif de Safari iOS (Copier / Rechercher /
+ * Traduire) de s'ouvrir sur un appui long n'importe où dans l'interface de
+ * l'éditeur de notes — barre d'outils, panneau de debug, boutons, libellés.
+ * Le canvas de dessin lui-même applique en plus sa propre version (voir
+ * NotesCanvas.tsx) pour rester indépendant si jamais réutilisé ailleurs.
+ * -webkit-user-select n'a pas d'équivalent utilitaire Tailwind, d'où cette
+ * classe dédiée (à coupler avec la classe Tailwind `select-none`). */
+.notes-no-callout {
+  -webkit-touch-callout: none;
+}
