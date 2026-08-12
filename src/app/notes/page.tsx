@@ -128,7 +128,7 @@ export default function NotesPage() {
 
   return (
     <div
-      className="notes-no-callout mx-auto flex min-h-full w-full max-w-4xl select-none flex-col gap-4 px-4 py-6 sm:px-6"
+      className="notes-no-callout mx-auto flex h-dvh w-full max-w-4xl select-none flex-col gap-4 overflow-hidden px-4 py-6 sm:px-6"
       onContextMenu={(e) => e.preventDefault()}
     >
       <div className="flex items-center justify-between">
@@ -185,7 +185,7 @@ export default function NotesPage() {
         onRedo={() => canvasHandle.current?.redo()}
       />
 
-      <div className="mx-auto w-full max-w-2xl">
+      <div className="min-h-0 w-full flex-1">
         <NotesCanvas
           ref={canvasHandle}
           tool={tool}

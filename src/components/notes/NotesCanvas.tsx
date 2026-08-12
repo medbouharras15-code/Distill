@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -232,6 +233,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [shapes, setShapes] = useState<ShapeElement[]>([]);
@@ -267,8 +269,28 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   const dragPreview = useRef<ImageElement | null>(null);
 
   const [zoom, setZoom] = useState(1);
+  const zoomRef = useRef(zoom);
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
   const touchPoints = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinchState = useRef<{ initialDistance: number; initialZoom: number } | null>(null);
+  /** Zoom initial calculé pour que la feuille remplisse l'écran disponible
+   * sans déborder ni laisser d'espace vide ("fit to screen") — mémorisé
+   * pour que le bouton de réinitialisation du zoom y revienne, plutôt que
+   * de toujours revenir à un 100% arbitraire. */
+  const fitZoomRef = useRef(1);
+  const hasAutoFitted = useRef(false);
+  /** Point de la feuille (en fraction 0–1 de la largeur/hauteur affichées)
+   * sur lequel un changement de zoom doit rester centré, posé juste avant
+   * `setZoom` et consommé par l'effet de layout qui ajuste le défilement
+   * une fois le nouveau zoom appliqué au DOM. */
+  const pendingZoomAnchor = useRef<{
+    fracX: number;
+    fracY: number;
+    pointerX: number;
+    pointerY: number;
+  } | null>(null);
 
   /** Récupère (en la mettant en cache) l'image HTML correspondant à une
    * source donnée — ne retourne l'image que si elle est déjà chargée ;
@@ -503,6 +525,76 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     scheduleRender();
   }, [strokes, shapes, images, backgroundColor, scheduleRender]);
 
+  /** Change le zoom en gardant fixe, à l'écran, le point de contenu qui se
+   * trouve sous (clientX, clientY) — pincement à deux doigts, molette
+   * Ctrl+, ou boutons +/- (centrés sur le milieu de la zone visible). On
+   * enregistre la fraction du contenu affiché sous ce point *avant*
+   * d'appliquer le nouveau zoom ; l'effet de layout ci-dessous recale
+   * ensuite le défilement une fois le DOM redessiné à la nouvelle taille. */
+  const zoomAtPoint = useCallback(
+    (newZoomRaw: number, clientX: number, clientY: number) => {
+      const clamped = clamp(newZoomRaw, MIN_ZOOM, MAX_ZOOM);
+      const container = containerRef.current;
+      const currentZoom = zoomRef.current;
+      if (!container || clamped === currentZoom) {
+        setZoom(clamped);
+        return;
+      }
+      const rect = container.getBoundingClientRect();
+      const pointerX = clientX - rect.left;
+      const pointerY = clientY - rect.top;
+      const canvasWidth = container.clientWidth * currentZoom;
+      const canvasHeight = canvasWidth * (PAGE_HEIGHT / PAGE_WIDTH);
+      const contentX = container.scrollLeft + pointerX;
+      const contentY = container.scrollTop + pointerY;
+      pendingZoomAnchor.current = {
+        fracX: canvasWidth > 0 ? contentX / canvasWidth : 0.5,
+        fracY: canvasHeight > 0 ? contentY / canvasHeight : 0.5,
+        pointerX,
+        pointerY,
+      };
+      setZoom(clamped);
+    },
+    [PAGE_WIDTH, PAGE_HEIGHT],
+  );
+
+  // Une fois le zoom appliqué et le DOM redessiné à la nouvelle taille, on
+  // recale le défilement pour que le point visé par zoomAtPoint reste
+  // exactement sous le doigt/curseur plutôt que de laisser le zoom recentrer
+  // ailleurs (comportement attendu façon Google Maps/Photos).
+  useLayoutEffect(() => {
+    const anchor = pendingZoomAnchor.current;
+    const container = containerRef.current;
+    if (!anchor || !container) return;
+    pendingZoomAnchor.current = null;
+    const newCanvasWidth = container.clientWidth * zoom;
+    const newCanvasHeight = newCanvasWidth * (PAGE_HEIGHT / PAGE_WIDTH);
+    container.scrollLeft = anchor.fracX * newCanvasWidth - anchor.pointerX;
+    container.scrollTop = anchor.fracY * newCanvasHeight - anchor.pointerY;
+  }, [zoom, PAGE_WIDTH, PAGE_HEIGHT]);
+
+  // Zoom initial "à l'écran" : dès l'arrivée sur la page, la feuille doit
+  // remplir tout l'espace disponible sans déborder ni laisser de marges
+  // vides, quelle que soit la taille de l'écran (iPad compris). On ne le
+  // calcule qu'une seule fois (hasAutoFitted) : une fois cet affichage de
+  // départ posé, tout zoom ultérieur est entièrement manuel.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      if (width <= 0 || height <= 0 || hasAutoFitted.current) return;
+      hasAutoFitted.current = true;
+      const fitZoom = clamp(Math.min(1, (height * PAGE_WIDTH) / (width * PAGE_HEIGHT)), MIN_ZOOM, MAX_ZOOM);
+      fitZoomRef.current = fitZoom;
+      setZoom(fitZoom);
+    });
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [PAGE_WIDTH, PAGE_HEIGHT]);
+
   // Empêche le geste natif de pinch-to-zoom du navigateur/Safari sur le
   // canvas (déjà largement neutralisé par touchAction: "none") tout en
   // écoutant le zoom au trackpad (molette + Ctrl), qui doit rester possible
@@ -515,11 +607,11 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     function onWheel(e: WheelEvent) {
       if (!e.ctrlKey) return;
       e.preventDefault();
-      setZoom((z) => clamp(z - e.deltaY * 0.01, MIN_ZOOM, MAX_ZOOM));
+      zoomAtPoint(zoomRef.current - e.deltaY * 0.01, e.clientX, e.clientY);
     }
     canvas.addEventListener("wheel", onWheel, { passive: false });
     return () => canvas.removeEventListener("wheel", onWheel);
-  }, []);
+  }, [zoomAtPoint]);
 
   const commitDoc = useCallback(
     (next: Document) => {
@@ -816,7 +908,12 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         const pts = Array.from(touchPoints.current.values());
         const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
         const ratio = dist / pinchState.current.initialDistance;
-        setZoom(clamp(pinchState.current.initialZoom * ratio, MIN_ZOOM, MAX_ZOOM));
+        // Le centre du pincement suit les doigts à chaque mouvement (plutôt
+        // que de rester figé sur le point de départ), pour un zoom qui
+        // "colle" aux doigts comme dans Google Maps/Photos.
+        const midX = (pts[0].x + pts[1].x) / 2;
+        const midY = (pts[0].y + pts[1].y) / 2;
+        zoomAtPoint(pinchState.current.initialZoom * ratio, midX, midY);
         return;
       }
     }
@@ -1110,16 +1207,39 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     scheduleRender();
   }
 
+  /** Zoom via les boutons +/- : centré sur le milieu de la zone visible
+   * actuelle plutôt que de recentrer ailleurs (même logique de point fixe
+   * que le pincement et la molette, appliquée au centre de l'écran faute
+   * d'un point de geste explicite). */
+  function zoomByButton(delta: number) {
+    const container = containerRef.current;
+    if (!container) {
+      setZoom((z) => clamp(z + delta, MIN_ZOOM, MAX_ZOOM));
+      return;
+    }
+    const rect = container.getBoundingClientRect();
+    zoomAtPoint(zoomRef.current + delta, rect.left + rect.width / 2, rect.top + rect.height / 2);
+  }
+
+  function resetZoom() {
+    setZoom(fitZoomRef.current);
+    const container = containerRef.current;
+    if (container) {
+      container.scrollLeft = 0;
+      container.scrollTop = 0;
+    }
+  }
+
   return (
     <div
-      className="relative"
+      className="relative h-full w-full"
       style={{
         WebkitTouchCallout: "none",
         WebkitUserSelect: "none",
         userSelect: "none",
       }}
     >
-      <div className="overflow-x-auto">
+      <div ref={containerRef} className="h-full w-full overflow-auto">
         <canvas
           ref={canvasRef}
           style={{
@@ -1144,14 +1264,13 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         />
       </div>
 
-      {/* `sticky` plutôt que `absolute` : quand le zoom agrandit la feuille
-          au-delà de la hauteur de l'écran, les contrôles doivent rester
-          visibles pendant le défilement plutôt que de suivre le bas (très
-          lointain) du canvas zoomé. */}
-      <div className="pointer-events-none sticky bottom-3 z-10 ml-auto flex w-fit items-center gap-1 rounded-full border border-border bg-card/95 px-1.5 py-1 shadow-sm">
+      {/* Le canvas défile désormais dans son propre conteneur borné à la
+          taille de l'écran (voir ci-dessus) plutôt que dans la page entière
+          — les contrôles restent donc bien ancrés au coin de cette zone. */}
+      <div className="pointer-events-none absolute bottom-3 right-3 z-10 flex w-fit items-center gap-1 rounded-full border border-border bg-card/95 px-1.5 py-1 shadow-sm">
         <button
           type="button"
-          onClick={() => setZoom((z) => clamp(z - 0.25, MIN_ZOOM, MAX_ZOOM))}
+          onClick={() => zoomByButton(-0.25)}
           aria-label="Zoom arrière"
           title="Zoom arrière"
           className="pointer-events-auto grid h-7 w-7 place-items-center rounded-full text-foreground transition hover:bg-background-alt"
@@ -1160,16 +1279,16 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         </button>
         <button
           type="button"
-          onClick={() => setZoom(1)}
+          onClick={resetZoom}
           aria-label="Réinitialiser le zoom"
-          title="Réinitialiser le zoom"
+          title="Réinitialiser le zoom (ajuster à l'écran)"
           className="pointer-events-auto min-w-[3rem] rounded-full px-1 text-center text-[11px] font-medium text-muted transition hover:bg-background-alt hover:text-foreground"
         >
           {Math.round(zoom * 100)}%
         </button>
         <button
           type="button"
-          onClick={() => setZoom((z) => clamp(z + 0.25, MIN_ZOOM, MAX_ZOOM))}
+          onClick={() => zoomByButton(0.25)}
           aria-label="Zoom avant"
           title="Zoom avant"
           className="pointer-events-auto grid h-7 w-7 place-items-center rounded-full text-foreground transition hover:bg-background-alt"

@@ -168,21 +168,43 @@ Code : `src/app/notes/`, `src/components/notes/`, `src/lib/notes/`.
         supprimer une photo entière (hit-test sur son rectangle,
         `imageHitTest` dans `canvasUtils.ts`), au même titre que les traits
         et les formes.
-      - **Zoom/dézoom** : boutons +/- flottants (bas-droite, `position:
-        sticky` pour rester visibles même quand le zoom agrandit la feuille
-        bien au-delà de l'écran), molette + Ctrl (trackpad pinch, listener
-        natif non-passif pour que `preventDefault` fonctionne), et vrai
-        pincement à deux doigts sur écran tactile (suivi de deux pointeurs
-        tactiles simultanés, `touchPoints`/`pinchState` dans
-        `NotesCanvas.tsx` — interrompt proprement tout tracé/geste en cours
-        dès qu'un deuxième doigt touche l'écran). Zoom borné 50%–300%,
-        implémenté en redimensionnant le canvas en CSS (`width: {zoom*100}%`)
-        plutôt qu'en modifiant sa résolution logique — `getPos()` continue de
-        fonctionner sans changement car il se base déjà sur
-        `getBoundingClientRect()`. Le conteneur du canvas défile
-        horizontalement (`overflow-x-auto`) pour permettre le panoramique
-        latéral une fois zoomé ; le défilement vertical utilise le défilement
-        normal de la page.
+      - **Zoom/dézoom** : boutons +/- flottants (bas-droite), molette + Ctrl
+        (trackpad pinch, listener natif non-passif pour que `preventDefault`
+        fonctionne), et vrai pincement à deux doigts sur écran tactile
+        (suivi de deux pointeurs tactiles simultanés, `touchPoints`/
+        `pinchState` dans `NotesCanvas.tsx` — interrompt proprement tout
+        tracé/geste en cours dès qu'un deuxième doigt touche l'écran). Zoom
+        borné 50%–300%, implémenté en redimensionnant le canvas en CSS
+        (`width: {zoom*100}%`) plutôt qu'en modifiant sa résolution logique —
+        `getPos()` continue de fonctionner sans changement car il se base
+        déjà sur `getBoundingClientRect()`.
+      - **Zoom centré sur le point du geste** (`zoomAtPoint` dans
+        `NotesCanvas.tsx`) : pincement, molette+Ctrl et boutons +/- gardent
+        tous le même point de contenu fixe à l'écran plutôt que de recentrer
+        ailleurs (comme Google Maps/Photos) — le pincement recalcule en plus
+        son centre à chaque `pointermove` pour "coller" aux doigts pendant le
+        geste. Fonctionne en enregistrant la fraction (x, y) du contenu
+        affiché sous le point visé *avant* d'appliquer le nouveau zoom, puis
+        en recalculant `scrollLeft`/`scrollTop` après coup
+        (`useLayoutEffect`, une fois le DOM redessiné à la nouvelle taille)
+        pour que ce même point reste sous le doigt/curseur. Les boutons +/-
+        n'ayant pas de point de geste explicite, ils zooment centrés sur le
+        milieu de la zone visible actuelle.
+      - **Affichage initial "à l'écran"** : au chargement, la feuille est
+        automatiquement mise à l'échelle pour remplir tout l'espace
+        disponible sans déborder ni laisser de marges inutiles ("fit to
+        screen", calculé une seule fois via `ResizeObserver` sur le
+        conteneur — `hasAutoFitted` empêche tout recalcul ultérieur, pour ne
+        jamais annuler un zoom manuel de l'utilisateur). Le bouton de
+        réinitialisation du zoom revient à cette valeur "ajustée à l'écran"
+        plutôt qu'à un 100% arbitraire. Le canvas défile dans son propre
+        conteneur (`overflow-auto`, `h-full w-full`) borné à la hauteur de
+        l'écran (`src/app/notes/page.tsx` : conteneur racine passé en
+        `h-dvh flex flex-col overflow-hidden`, zone du canvas en
+        `flex-1 min-h-0`) plutôt que de faire défiler la page entière — la
+        barre d'outils et l'en-tête restent fixes au-dessus, seule la
+        feuille défile/zoome, comme dans une vraie app plutôt qu'une page
+        web classique.
       - Undo/redo étendu aux photos : `Document = { strokes, shapes, images }`
         dans `NotesCanvas.tsx`, toujours une seule pile de snapshots partagée.
       - *Bug trouvé et corrigé pendant les tests* : l'annulation après un
