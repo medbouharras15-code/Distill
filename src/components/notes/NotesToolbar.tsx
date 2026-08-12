@@ -9,6 +9,7 @@ import {
   EraserIcon,
   HighlighterIcon,
   LineShapeIcon,
+  PanIcon,
   PenIcon,
   PhotoIcon,
   RectangleShapeIcon,
@@ -152,6 +153,7 @@ interface NotesToolbarProps {
   onSelectEraser: () => void;
   onSelectShapes: () => void;
   onSelectPhoto: () => void;
+  onSelectPan: () => void;
   onPenDoubleClick: () => void;
   onImportPhotos: (files: FileList) => void;
 
@@ -190,6 +192,7 @@ export function NotesToolbar({
   onSelectEraser,
   onSelectShapes,
   onSelectPhoto,
+  onSelectPan,
   onPenDoubleClick,
   onImportPhotos,
   penColor,
@@ -323,6 +326,19 @@ export function NotesToolbar({
           }`}
         >
           <PhotoIcon className="h-5 w-5" />
+        </button>
+        <button
+          type="button"
+          onClick={onSelectPan}
+          aria-pressed={tool === "pan"}
+          title="Déplacement (naviguer sans dessiner)"
+          className={`grid h-9 w-9 shrink-0 place-items-center rounded-full border transition ${
+            tool === "pan"
+              ? "border-accent bg-accent-light text-accent-dark"
+              : "border-border text-foreground hover:bg-background-alt"
+          }`}
+        >
+          <PanIcon className="h-5 w-5" />
         </button>
       </div>
 

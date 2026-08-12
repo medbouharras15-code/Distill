@@ -163,7 +163,7 @@ function deriveLockedSnap(
   };
 }
 
-export type NotesTool = "pen" | "highlighter" | "eraser" | "shapes" | "photo";
+export type NotesTool = "pen" | "highlighter" | "eraser" | "shapes" | "photo" | "pan";
 
 export interface NotesCanvasHandle {
   undo(): void;
@@ -291,6 +291,17 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     pointerX: number;
     pointerY: number;
   } | null>(null);
+
+  /** Outil "Déplacement" (main) : fait défiler la feuille au glisser, sans
+   * jamais dessiner ni modifier le contenu — équivalent de l'outil main de
+   * Photoshop / du mode scroll de Notability. */
+  const panState = useRef<{
+    startClientX: number;
+    startClientY: number;
+    startScrollLeft: number;
+    startScrollTop: number;
+  } | null>(null);
+  const [isPanning, setIsPanning] = useState(false);
 
   /** Récupère (en la mettant en cache) l'image HTML correspondant à une
    * source donnée — ne retourne l'image que si elle est déjà chargée ;
@@ -767,6 +778,8 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         holdAnchorPos.current = null;
         imageDragMode.current = null;
         dragPreview.current = null;
+        panState.current = null;
+        setIsPanning(false);
         if (holdTimer.current) {
           clearTimeout(holdTimer.current);
           holdTimer.current = null;
@@ -780,8 +793,10 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       }
     }
 
-    if (e.pointerType === "touch" && Date.now() - lastPenTime.current < PALM_REJECTION_MS) {
-      // Rejet de paume : on ignore ce contact tactile pendant l'écriture au stylet.
+    if (tool !== "pan" && e.pointerType === "touch" && Date.now() - lastPenTime.current < PALM_REJECTION_MS) {
+      // Rejet de paume : on ignore ce contact tactile pendant l'écriture au
+      // stylet — sauf avec l'outil Déplacement, explicitement choisi pour
+      // naviguer et qui ne dessine jamais rien.
       return;
     }
     if (e.pointerType === "pen") {
@@ -878,6 +893,15 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         imageDragMode.current = null;
       }
       scheduleRender();
+    } else if (tool === "pan") {
+      const container = containerRef.current;
+      panState.current = {
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        startScrollLeft: container ? container.scrollLeft : 0,
+        startScrollTop: container ? container.scrollTop : 0,
+      };
+      setIsPanning(true);
     } else if (tool === "highlighter") {
       currentStroke.current = {
         id: crypto.randomUUID(),
@@ -929,6 +953,17 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       if (Math.hypot(pos.x - start.x, pos.y - start.y) > TAP_MAX_MOVEMENT) {
         tapIsCandidate.current = false;
       }
+    }
+
+    if (tool === "pan") {
+      if (panState.current) {
+        const container = containerRef.current;
+        if (container) {
+          container.scrollLeft = panState.current.startScrollLeft - (e.clientX - panState.current.startClientX);
+          container.scrollTop = panState.current.startScrollTop - (e.clientY - panState.current.startClientY);
+        }
+      }
+      return;
     }
 
     if (tool === "eraser") {
@@ -1034,6 +1069,14 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       holdTimer.current = null;
     }
     holdAnchorPos.current = null;
+
+    if (tool === "pan") {
+      panState.current = null;
+      setIsPanning(false);
+      activePointerId.current = null;
+      onActionComplete?.();
+      return;
+    }
 
     if (tool === "eraser") {
       const hasErasedStrokes = !!erasedStrokeIds.current && erasedStrokeIds.current.size > 0;
@@ -1201,6 +1244,8 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     erasedImageIds.current = null;
     imageDragMode.current = null;
     dragPreview.current = null;
+    panState.current = null;
+    setIsPanning(false);
     activePointerId.current = null;
     tapStartInfo.current = null;
     tapIsCandidate.current = false;
@@ -1247,7 +1292,16 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
             height: "auto",
             aspectRatio: `${PAGE_WIDTH} / ${PAGE_HEIGHT}`,
             touchAction: "none",
-            cursor: tool === "eraser" ? "cell" : tool === "photo" ? "default" : "crosshair",
+            cursor:
+              tool === "eraser"
+                ? "cell"
+                : tool === "photo"
+                  ? "default"
+                  : tool === "pan"
+                    ? isPanning
+                      ? "grabbing"
+                      : "grab"
+                    : "crosshair",
             display: "block",
             WebkitTouchCallout: "none",
             WebkitUserSelect: "none",

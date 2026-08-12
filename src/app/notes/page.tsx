@@ -77,6 +77,11 @@ export default function NotesPage() {
     setTempEraser(false);
   }
 
+  function selectPan() {
+    setTool("pan");
+    setTempEraser(false);
+  }
+
   /** Bascule rapide vers la gomme, avec retour automatique à l'outil
    * précédent après usage — déclenchée par le double-clic sur l'icône
    * stylo ou par un double-tap de la pointe du stylet sur la feuille. */
@@ -159,6 +164,7 @@ export default function NotesPage() {
         onSelectEraser={selectEraser}
         onSelectShapes={selectShapes}
         onSelectPhoto={selectPhoto}
+        onSelectPan={selectPan}
         onPenDoubleClick={activateTempEraser}
         onImportPhotos={(files) => canvasHandle.current?.importPhotos(files)}
         penColor={penColor}

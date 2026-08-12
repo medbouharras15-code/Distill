@@ -226,6 +226,19 @@ Code : `src/app/notes/`, `src/components/notes/`, `src/lib/notes/`.
         dédiés : import → déplacement → annuler (repositionne bien la photo)
         → annuler (la retire) ; et dessin → effacement → annuler (le trait
         réapparaît) → rétablir (il redisparaît).
+      - **Outil "Déplacement"** (`PanIcon` dans `icons.tsx`, à côté de
+        Photo dans la barre) : glisser sur la feuille avec cet outil actif
+        fait uniquement défiler la vue (`scrollLeft`/`scrollTop` du
+        conteneur, calculés à partir du déplacement du pointeur depuis le
+        point de contact — le contenu "suit le doigt" comme l'outil main de
+        Photoshop) sans jamais dessiner, effacer ni déplacer quoi que ce
+        soit ; curseur `grab`/`grabbing` selon l'état. Exempté du rejet de
+        paume (le choix explicite de l'outil prime), et cède toujours la
+        priorité au pincement à deux doigts (zoom) s'il démarre pendant un
+        déplacement en cours. Vérifié par test Playwright : aucun pixel
+        d'encre sur le canvas après un glisser avec cet outil, pile
+        d'annulation inchangée, dessin à nouveau opérationnel après retour
+        à l'outil stylo.
 - [ ] **Phase 5** — Outil texte "Tt" + clavier auto, outil lasso (sélection /
       déplacement / redimensionnement).
 - [ ] **Phase 6** — Historique et sauvegarde : persistance Supabase,

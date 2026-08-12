@@ -182,3 +182,26 @@ export function ZoomOutIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+/** Main ouverte simplifiée (façon outil "main" de Photoshop) : outil
+ * "Déplacement" — fait défiler la feuille sans jamais rien dessiner. */
+export function PanIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M9 12.2V5.5a1.3 1.3 0 1 1 2.6 0v5.7M11.6 11V4.3a1.3 1.3 0 1 1 2.6 0V11M14.2 11V5.8a1.3 1.3 0 1 1 2.6 0v7.7"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9 12.2 7.1 10.4a1.4 1.4 0 0 0-2.2 1.7l2.9 4.4A6 6 0 0 0 12.8 19h1.2a5.2 5.2 0 0 0 5.2-5.2V9.6"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
