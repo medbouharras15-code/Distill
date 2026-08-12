@@ -752,7 +752,14 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   }
 
   return (
-    <div className="relative">
+    <div
+      className="relative"
+      style={{
+        WebkitTouchCallout: "none",
+        WebkitUserSelect: "none",
+        userSelect: "none",
+      }}
+    >
       <canvas
         ref={canvasRef}
         style={{
@@ -762,6 +769,10 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
           touchAction: "none",
           cursor: tool === "eraser" ? "cell" : "crosshair",
           display: "block",
+          WebkitTouchCallout: "none",
+          WebkitUserSelect: "none",
+          userSelect: "none",
+          WebkitTapHighlightColor: "transparent",
         }}
         className="rounded-xl border border-border bg-card shadow-[0_8px_30px_-12px_rgba(0,0,0,0.15)]"
         onPointerDown={handlePointerDown}
@@ -769,6 +780,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
         onPointerLeave={handlePointerCancel}
+        onContextMenu={(e) => e.preventDefault()}
       />
       {debugHoldDetection && (
         <div className="pointer-events-none absolute left-2 top-2 rounded-lg bg-black/80 px-3 py-2 font-mono text-[11px] leading-relaxed text-white">

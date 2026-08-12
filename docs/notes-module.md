@@ -116,6 +116,15 @@ Code : `src/app/notes/`, `src/components/notes/`, `src/lib/notes/`.
         le minuteur déclenché. Corrigé en figeant un instantané des points
         du tracé au moment où le minuteur est (ré)armé, et en analysant cet
         instantané plutôt que la liste de points toujours croissante.
+      - *Bug trouvé sur iPad + Safari* : maintenir le stylet immobile
+        (le geste même qui déclenche le redressement) était interprété par
+        Safari comme un appui long de sélection de texte, ouvrant son menu
+        contextuel natif (Copier/Sélectionner) et interrompant le dessin.
+        `touch-action: none` seul ne suffit pas à bloquer ce geste sur iOS
+        — corrigé en ajoutant `-webkit-touch-callout: none` et
+        `user-select: none` (+ préfixe `-webkit-`) sur le canvas et son
+        conteneur, plus un `onContextMenu` qui annule l'événement en repli.
+        Scope limité à la zone de dessin, sans toucher au reste du site.
       - **Indicateur de debug temporaire** : ajouter `?debug=1` à l'URL
         (`/notes?debug=1`) affiche un encart en direct (type de pointeur,
         outil actif, temps d'immobilité écoulé, écart par rapport à
