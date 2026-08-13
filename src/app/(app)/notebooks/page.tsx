@@ -1,5 +1,108 @@
-import { ComingSoonScreen } from "@/components/ComingSoonScreen";
+"use client";
+
+import { useMemo, useState } from "react";
+import Link from "next/link";
+import { SheetPreview } from "@/components/notes/SheetPreview";
+import { Badge, Card, buttonClasses } from "@/components/ui";
+import { mockNotebooks } from "@/lib/appMockData";
+import { Dots, Plus, Star } from "@/lib/icons";
+import { PAPER_SIZES, SHEET_TYPES } from "@/lib/notes/sheets";
+
+const totalPages = mockNotebooks.reduce((sum, n) => sum + n.pages, 0);
+const subjects = Array.from(new Set(mockNotebooks.map((n) => n.subject)));
+const filters = ["Tous", "Favoris", ...subjects];
+
+const sheetTypeLabel = (id: (typeof mockNotebooks)[number]["sheetType"]) =>
+  SHEET_TYPES.find((s) => s.value === id)?.label ?? id;
 
 export default function NotebooksPage() {
-  return <ComingSoonScreen title="Mes carnets" subtitle="La liste de tes carnets arrive dans une prochaine étape de la refonte." />;
+  const [filter, setFilter] = useState("Tous");
+
+  const list = useMemo(() => {
+    if (filter === "Tous") return mockNotebooks;
+    if (filter === "Favoris") return mockNotebooks.filter((n) => n.favorite);
+    return mockNotebooks.filter((n) => n.subject === filter);
+  }, [filter]);
+
+  return (
+    <div className="mx-auto max-w-[1180px] animate-fade px-6 py-8 md:px-10 md:py-12">
+      <header className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 className="font-display text-4xl font-medium tracking-[-0.02em] text-foreground">Mes carnets</h1>
+          <p className="mt-2 text-[15px] text-muted-foreground">
+            {mockNotebooks.length} carnets · {totalPages} pages au total
+          </p>
+        </div>
+        <Link href="/notebooks/new" className={buttonClasses("primary", "md", "gap-2")}>
+          <Plus size={18} /> Nouveau carnet
+        </Link>
+      </header>
+
+      <div className="mt-8 flex flex-wrap items-center gap-2">
+        {filters.map((f) => (
+          <button
+            key={f}
+            type="button"
+            onClick={() => setFilter(f)}
+            className={`rounded-full px-3.5 py-1.5 text-[13px] font-medium transition ${
+              filter === f ? "bg-foreground text-background" : "border border-border bg-card text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {f}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-6 grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4">
+        {list.map((n) => {
+          const ratio = PAPER_SIZES.find((p) => p.value === n.paperSize)?.ratio ?? PAPER_SIZES[0].ratio;
+          return (
+            <Link key={n.id} href="/notes" className="group text-left">
+              <Card className="overflow-hidden transition-all duration-300 group-hover:-translate-y-1">
+                <div className="relative h-36 overflow-hidden">
+                  <SheetPreview sheetType={n.sheetType} backgroundColor="#ffffff" ratio={ratio} width={200} className="h-full w-full" />
+                  {n.favorite && (
+                    <span className="absolute right-2.5 top-2.5 text-primary">
+                      <Star size={17} />
+                    </span>
+                  )}
+                </div>
+                <div className="p-4">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                        <span className="h-2 w-2 rounded-full" style={{ background: n.color }} /> {n.subject}
+                      </div>
+                      <div className="mt-1 font-medium leading-snug text-foreground">{n.title}</div>
+                    </div>
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label="Plus d'actions"
+                      className="cursor-pointer text-muted-foreground hover:text-foreground"
+                      onClick={(e) => e.preventDefault()}
+                    >
+                      <Dots size={18} />
+                    </span>
+                  </div>
+                  <div className="mt-3 flex items-center gap-2 text-[11px] text-muted-foreground">
+                    <Badge className="bg-secondary text-secondary-foreground">{sheetTypeLabel(n.sheetType)}</Badge>
+                    <span>{n.pages} p.</span>
+                  </div>
+                </div>
+              </Card>
+            </Link>
+          );
+        })}
+        <Link href="/notebooks/new" className="group">
+          <div className="flex h-full min-h-[220px] flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border text-muted-foreground transition hover:border-primary hover:text-primary">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full border border-current">
+              <Plus size={22} />
+            </div>
+            <span className="text-sm font-medium">Créer un carnet</span>
+          </div>
+        </Link>
+      </div>
+    </div>
+  );
 }

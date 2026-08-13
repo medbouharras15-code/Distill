@@ -44,3 +44,17 @@ export const mockHistoryItems: MockHistoryItem[] = [
   { id: "h4", title: "Réactions SN1 / SN2", notebook: "Chimie organique", action: "Fiche de révision", time: "hier" },
   { id: "h5", title: "Present perfect vs preterit", notebook: "Anglais — Essays", action: "Écriture convertie en texte", time: "il y a 2 j" },
 ];
+
+/** Regroupement thématique des 16 types de feuille réels de l'éditeur
+ * (@/lib/notes/sheets → SHEET_TYPES), pour l'écran "Nouveau carnet" —
+ * même esprit que le classement du Figma Make, appliqué aux vrais types
+ * plutôt qu'à une liste de papiers fictive. */
+export const SHEET_TYPE_GROUPS: { label: string; types: SheetType[] }[] = [
+  { label: "Essentiels", types: ["plain", "lined-thin", "lined-wide", "dot"] },
+  { label: "Grilles", types: ["grid-small", "grid-large", "isometric"] },
+  { label: "Étude", types: ["cornell", "college-rule", "checklist"] },
+  { label: "Mise en page", types: ["columns-2", "columns-3", "table"] },
+  { label: "Spécial", types: ["manuscript", "music", "storyboard"] },
+];
+
+export const NOTEBOOK_COLORS = ["#0f7a63", "#3b6ee0", "#c2632a", "#8a3fd1", "#c9436f", "#1f9c8c"];
