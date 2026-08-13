@@ -1,6 +1,6 @@
-import DistillApp from "@/components/DistillApp";
 import LandingGate from "@/components/LandingGate";
 import { getUserAndProfile } from "@/lib/auth";
+import { redirect } from "next/navigation";
 
 export default async function Home({
   searchParams,
@@ -8,25 +8,18 @@ export default async function Home({
   searchParams: Promise<{ checkout?: string }>;
 }) {
   const auth = await getUserAndProfile();
-  const params = await searchParams;
 
   if (!auth) {
     return <LandingGate />;
   }
 
-  const checkoutStatus =
-    params.checkout === "success" || params.checkout === "cancelled"
-      ? params.checkout
-      : null;
+  const params = await searchParams;
+  // Lemon Squeezy redirige vers "/?checkout=success" après un paiement : le
+  // panneau qui affiche cette confirmation vit sur /distill (voir ce
+  // dossier), donc on relaie le paramètre plutôt que de le perdre.
+  if (params.checkout) {
+    redirect(`/distill?checkout=${params.checkout}`);
+  }
 
-  return (
-    <main className="flex flex-1 flex-col bg-background">
-      <DistillApp
-        email={auth.user.email ?? ""}
-        subscriptionStatus={auth.profile.subscription_status}
-        generationsUsed={auth.profile.generations_used}
-        checkoutStatus={checkoutStatus}
-      />
-    </main>
-  );
+  redirect("/dashboard");
 }
