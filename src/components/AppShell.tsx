@@ -30,9 +30,9 @@ interface AppShellProps {
 
 /** Coquille de navigation principale des utilisateurs connectés (sidebar +
  * en-tête + barre mobile), sur le modèle du Figma Make "NoteFlash" —
- * remplace l'ancien en-tête minimal par écran. `/distill` (résumé de
- * texte/photo/PDF) et l'éditeur (`/notes`) restent volontairement en dehors
- * de cette coquille : comme dans la référence, l'éditeur occupe tout
+ * remplace l'ancien en-tête minimal par écran. L'éditeur (`/notes`, qui
+ * inclut désormais le panneau IA résumé/flashcards) reste volontairement en
+ * dehors de cette coquille : comme dans la référence, il occupe tout
  * l'écran sans chrome de navigation. */
 export function AppShell({ email, subscribed, children }: AppShellProps) {
   const pathname = usePathname();
@@ -76,11 +76,10 @@ export function AppShell({ email, subscribed, children }: AppShellProps) {
           })}
         </nav>
 
-        {/* Accès rapide IA — TODO : pointera vers /notes une fois le panneau
-            IA fusionné dans l'éditeur (voir /distill, comportement inchangé
-            en attendant). */}
+        {/* Accès rapide IA — ouvre l'éditeur avec le panneau IA (résumé/
+            flashcards à partir de texte/photo/PDF), voir @/components/notes/AiPanel. */}
         <Link
-          href="/distill"
+          href="/notes"
           className="mt-6 flex items-center gap-3 rounded-2xl border border-border bg-gradient-to-br from-secondary/60 to-card p-3 text-left transition hover:border-[color-mix(in_srgb,var(--ai-2)_40%,transparent)] hover:shadow-[var(--shadow-md)]"
         >
           <AiOrb size={34} />
@@ -92,7 +91,7 @@ export function AppShell({ email, subscribed, children }: AppShellProps) {
 
         <div className="mt-auto space-y-1 pt-4">
           <Link
-            href="/distill"
+            href="/notes"
             className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] text-muted-foreground transition hover:bg-secondary/60 hover:text-foreground"
           >
             <Crown size={19} /> Abonnement

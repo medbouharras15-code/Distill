@@ -145,10 +145,8 @@ export default function DashboardPage() {
               <p className="mt-1.5 text-sm text-muted-foreground">
                 Résumés et flashcards générés à partir de ton texte, d&apos;une photo ou d&apos;un PDF.
               </p>
-              {/* TODO : pointera vers /notes une fois le panneau IA fusionné
-                  dans l'éditeur — comportement inchangé en attendant sur /distill. */}
               <Link
-                href="/distill"
+                href="/notes"
                 className="mt-5 inline-flex items-center gap-2 rounded-full ai-gradient px-4 py-2.5 text-sm font-medium text-white shadow-[0_8px_24px_-10px_var(--ai-glow)] transition hover:-translate-y-px"
               >
                 <Cards size={16} /> Générer maintenant

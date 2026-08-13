@@ -4,6 +4,7 @@ import type { ComponentType } from "react";
 import type { PenType, ShapeType } from "@/lib/notes/types";
 import type { NotesTool } from "./NotesCanvas";
 import { useRef } from "react";
+import { AiOrb } from "@/components/Brand";
 import {
   CircleShapeIcon,
   EraserIcon,
@@ -187,6 +188,9 @@ interface NotesToolbarProps {
   onUndo: () => void;
   onRedo: () => void;
   onFitToScreen: () => void;
+
+  aiOpen: boolean;
+  onToggleAi: () => void;
 }
 
 export function NotesToolbar({
@@ -223,11 +227,29 @@ export function NotesToolbar({
   onUndo,
   onRedo,
   onFitToScreen,
+  aiOpen,
+  onToggleAi,
 }: NotesToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   return (
     <div className="flex flex-nowrap items-center gap-3 overflow-x-auto rounded-2xl border border-border bg-card px-4 py-3 shadow-sm">
+      <button
+        type="button"
+        onClick={onToggleAi}
+        aria-pressed={aiOpen}
+        title="IA Distill — résumé & flashcards"
+        className={`flex shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+          aiOpen
+            ? "ai-gradient text-white shadow-[0_4px_14px_-6px_var(--ai-glow)]"
+            : "border border-border text-foreground hover:bg-background-alt"
+        }`}
+      >
+        <AiOrb size={20} active={aiOpen} /> IA
+      </button>
+
+      <div className="h-8 w-px shrink-0 bg-border" />
+
       <input
         ref={fileInputRef}
         type="file"

@@ -9,7 +9,7 @@ import type { DistillRequestBody, DistillResult } from "@/lib/types";
 const SYSTEM_PROMPT = `Tu es un expert pédagogique. Génère un résumé structuré (titre, sections, points clés en gras) et 8 à 10 flashcards (question/réponse) à partir de ce contenu. Réponds uniquement en JSON : {"summary": "...", "flashcards": [{"question": "...", "answer": "..."}]}`;
 
 const MODEL = "claude-sonnet-4-6";
-// Doit rester cohérent avec les limites côté client (src/components/DistillApp.tsx) :
+// Doit rester cohérent avec les limites côté client (src/components/notes/AiPanel.tsx) :
 // les images sont compressées avant envoi, les PDF sont plafonnés à 3 Mo.
 const MAX_FILE_BYTES = 4 * 1024 * 1024; // 4 Mo par fichier une fois décodé
 
