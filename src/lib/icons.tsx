@@ -162,6 +162,11 @@ export const Cloud = (p: IconProps) => (
     <path d="M7 18h9.5" />
   </Base>
 );
+export const TextTool = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M5 6h14M12 6v13M9 19h6" />
+  </Base>
+);
 export const Users = (p: IconProps) => (
   <Base {...p}>
     <circle cx="9" cy="8" r="3" />
