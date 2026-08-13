@@ -6,6 +6,9 @@ import FileDropZone from "@/components/FileDropZone";
 import FlashcardView from "@/components/FlashcardView";
 import { FREE_GENERATIONS_LIMIT, isSubscribed } from "@/lib/billing";
 import type { DistillResult } from "@/lib/types";
+import { AiOrb, Wordmark } from "@/components/Brand";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { Badge, buttonClasses } from "@/components/ui";
 
 // Vercel limite la taille d'une requête à ~4,5 Mo. Le base64 gonfle les
 // données d'environ 33 % : on garde donc une marge de sécurité pour les PDF
@@ -132,13 +135,14 @@ function AccountBar({
 }) {
   return (
     <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
-      <span className="font-display text-2xl text-foreground">Distill</span>
+      <div className="flex items-center gap-2">
+        <Wordmark size={22} />
+        <ThemeToggle className="ml-1" />
+      </div>
 
       <div className="flex flex-wrap items-center gap-3">
         {subscribed ? (
-          <span className="rounded-full bg-accent-light/50 px-3 py-1 text-xs font-semibold text-accent-dark">
-            ✦ Abonné — accès illimité
-          </span>
+          <Badge className="bg-accent-light/50 text-accent-dark">✦ Abonné — accès illimité</Badge>
         ) : (
           <span className="text-xs text-muted">
             {remaining} génération{remaining !== 1 ? "s" : ""} gratuite
@@ -149,7 +153,7 @@ function AccountBar({
         <button
           onClick={subscribed ? onCancel : onSubscribe}
           disabled={billingLoading}
-          className="rounded-full border border-border px-4 py-1.5 text-xs font-semibold text-foreground transition-colors hover:border-accent hover:text-accent-dark disabled:cursor-not-allowed disabled:opacity-40"
+          className={buttonClasses("outline", "sm")}
         >
           {subscribed ? "Annuler mon abonnement" : "S'abonner — 9,99€/mois"}
         </button>
@@ -337,9 +341,9 @@ export default function DistillApp({
           <div className="flex gap-2 rounded-full bg-background-alt p-1">
             <button
               onClick={() => setTab("summary")}
-              className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+              className={`rounded-full px-4 py-2 text-sm font-medium transition-all duration-200 ${
                 tab === "summary"
-                  ? "bg-card text-accent-dark shadow-sm"
+                  ? "bg-card text-accent-dark shadow-[var(--shadow-sm)]"
                   : "text-muted hover:text-foreground"
               }`}
             >
@@ -347,25 +351,22 @@ export default function DistillApp({
             </button>
             <button
               onClick={() => setTab("flashcards")}
-              className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+              className={`rounded-full px-4 py-2 text-sm font-medium transition-all duration-200 ${
                 tab === "flashcards"
-                  ? "bg-card text-accent-dark shadow-sm"
+                  ? "bg-card text-accent-dark shadow-[var(--shadow-sm)]"
                   : "text-muted hover:text-foreground"
               }`}
             >
               Flashcards ({result.flashcards.length})
             </button>
           </div>
-          <button
-            onClick={reset}
-            className="rounded-full border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-accent hover:text-accent-dark"
-          >
+          <button onClick={reset} className={buttonClasses("outline", "sm")}>
             ↺ Nouvelle distillation
           </button>
         </div>
 
         {tab === "summary" ? (
-          <article className="prose-summary rounded-2xl border border-border bg-card p-8 shadow-sm">
+          <article className="prose-summary animate-fade rounded-2xl border border-border bg-card p-8 shadow-[var(--shadow-sm)]">
             <ReactMarkdown
               components={{
                 h1: (p) => (
@@ -404,7 +405,7 @@ export default function DistillApp({
             </ReactMarkdown>
           </article>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid animate-fade grid-cols-1 gap-4 sm:grid-cols-2">
             {result.flashcards.map((card, i) => (
               <FlashcardView key={i} card={card} index={i} />
             ))}
@@ -426,7 +427,7 @@ export default function DistillApp({
       />
 
       {checkoutStatus && !dismissedCheckoutBanner && (
-        <div className="mb-6 flex items-start justify-between gap-3 rounded-xl border border-accent-light bg-accent-light/30 px-4 py-3 text-sm text-accent-dark">
+        <div className="mb-6 flex animate-fade items-start justify-between gap-3 rounded-xl border border-accent-light bg-accent-light/30 px-4 py-3 text-sm text-accent-dark">
           <span>
             {checkoutStatus === "success"
               ? "Merci ! Votre abonnement est en cours d'activation — cela prend quelques secondes."
@@ -442,7 +443,10 @@ export default function DistillApp({
         </div>
       )}
 
-      <div className="mb-10 text-center">
+      <div className="mb-10 text-center animate-fade">
+        <div className="mb-4 flex justify-center">
+          <AiOrb size={40} />
+        </div>
         <h1 className="font-display text-4xl leading-tight text-foreground sm:text-5xl">
           Vos notes de cours,
           <br />
@@ -456,7 +460,7 @@ export default function DistillApp({
         </p>
       </div>
 
-      <div className="rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-8">
+      <div className="rounded-2xl border border-border bg-card p-6 shadow-[var(--shadow-sm)] sm:p-8">
         <label className="mb-2 block text-sm font-medium text-foreground">
           Collez le texte de vos notes
         </label>
@@ -465,7 +469,7 @@ export default function DistillApp({
           onChange={(e) => setText(e.target.value)}
           placeholder="Collez ici le contenu de votre cours..."
           rows={8}
-          className="mb-6 w-full resize-y rounded-xl border border-border bg-background-alt p-4 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-light"
+          className="mb-6 w-full resize-y rounded-xl border border-border bg-background-alt p-4 text-sm text-foreground transition placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-light"
         />
 
         <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -497,7 +501,7 @@ export default function DistillApp({
           <button
             onClick={handleSubscribe}
             disabled={billingLoading}
-            className="w-full rounded-xl bg-accent px-6 py-3.5 text-sm font-semibold text-accent-foreground transition-colors hover:bg-accent-dark disabled:cursor-not-allowed disabled:opacity-40"
+            className={buttonClasses("primary", "lg", "w-full")}
           >
             {billingLoading
               ? "Redirection vers le paiement…"
@@ -507,7 +511,7 @@ export default function DistillApp({
           <button
             onClick={handleSubmit}
             disabled={!hasInput || loading}
-            className="w-full rounded-xl bg-accent px-6 py-3.5 text-sm font-semibold text-accent-foreground transition-colors hover:bg-accent-dark disabled:cursor-not-allowed disabled:opacity-40"
+            className={buttonClasses("primary", "lg", "w-full")}
           >
             {loading ? "Distillation en cours…" : "Distiller mes notes"}
           </button>

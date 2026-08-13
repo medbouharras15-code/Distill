@@ -14,7 +14,7 @@ export default function FlashcardView({
 
   return (
     <div
-      className={`flip-card h-56 cursor-pointer ${flipped ? "is-flipped" : ""}`}
+      className={`flip-card h-56 cursor-pointer transition-transform duration-200 hover:-translate-y-0.5 ${flipped ? "is-flipped" : ""}`}
       role="button"
       tabIndex={0}
       aria-pressed={flipped}
@@ -28,7 +28,7 @@ export default function FlashcardView({
     >
       <div className="flip-card-inner relative h-full w-full">
         {/* Face avant : la question */}
-        <div className="flip-card-face absolute inset-0 flex flex-col justify-between rounded-2xl border border-border bg-card p-6 shadow-sm">
+        <div className="flip-card-face absolute inset-0 flex flex-col justify-between rounded-2xl border border-border bg-card p-6 shadow-[var(--shadow-sm)]">
           <span className="text-xs font-medium uppercase tracking-wider text-accent-dark">
             Carte {index + 1} · Question
           </span>
@@ -41,7 +41,7 @@ export default function FlashcardView({
         </div>
 
         {/* Face arrière : la réponse */}
-        <div className="flip-card-face flip-card-back absolute inset-0 flex flex-col justify-between rounded-2xl border border-accent bg-accent-light/40 p-6 shadow-sm">
+        <div className="flip-card-face flip-card-back absolute inset-0 flex flex-col justify-between rounded-2xl border border-accent bg-accent-light/40 p-6 shadow-[var(--shadow-sm)]">
           <span className="text-xs font-medium uppercase tracking-wider text-accent-dark">
             Carte {index + 1} · Réponse
           </span>
