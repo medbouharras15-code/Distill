@@ -1,19 +1,89 @@
 @import "tailwindcss";
 
+/* ─────────────────────────────────────────────────────────────
+   Système de design Distill — identité "jade" premium.
+   Les noms de variable existants (--background, --accent, etc.)
+   sont conservés pour que toutes les classes Tailwind déjà en
+   place dans l'app (bg-accent, text-muted, border-border…)
+   récupèrent automatiquement la nouvelle palette sans qu'aucun
+   fichier applicatif n'ait besoin d'être modifié. Les nouveaux
+   tokens canoniques (--primary, --secondary, --ai-*…) sont ajoutés
+   à côté pour les composants à venir.
+   ───────────────────────────────────────────────────────────── */
 :root {
-  /* Palette neutre, chaude et sobre */
-  --background: #faf8f4;
-  --background-alt: #f2ede3;
-  --foreground: #262220;
-  --muted: #6f665c;
-  --border: #e6ddcc;
-  --card: #ffffff;
+  --background: #f3f2ec;
+  --background-alt: #edece4;
+  --foreground: #12211b;
+  --muted: #6d746a;
+  --border: #e3e1d7;
+  --card: #fbfaf6;
 
-  /* Accent doré / bronze */
-  --accent: #b08a4e;
-  --accent-dark: #8a6a37;
-  --accent-light: #e7d3a6;
-  --accent-foreground: #2a2116;
+  --accent: #0c6b52;
+  --accent-dark: #085040;
+  --accent-light: #d5ecdf;
+  /* Texte porté par les boutons pleins (bg-accent) : doit rester clair pour
+   * contraster avec le jade saturé — jamais utilisé sur bg-accent-light,
+   * qui prend systématiquement text-accent-dark dans tout le code existant. */
+  --accent-foreground: #f7fcf9;
+
+  /* Système canonique (nouveaux composants) */
+  --primary: var(--accent);
+  --primary-foreground: var(--accent-foreground);
+  --secondary: var(--background-alt);
+  --secondary-foreground: #263029;
+  --muted-foreground: var(--muted);
+  --ring: var(--accent);
+  --radius: 16px;
+
+  /* Signature IA Distill — dégradé aurore (jade → bleu → violet) */
+  --ai-1: #12b083;
+  --ai-2: #4b9dff;
+  --ai-3: #9b7cff;
+  --ai-glow: rgba(75, 157, 255, 0.28);
+
+  --canvas: #fbfaf6;
+  --ink: #16231d;
+  --highlight: #f6e58d;
+
+  --shadow-sm: 0 1px 2px rgba(18, 33, 27, 0.05);
+  --shadow-md: 0 1px 2px rgba(18, 33, 27, 0.05), 0 12px 28px -18px rgba(18, 33, 27, 0.28);
+  --shadow-lg: 0 2px 4px rgba(18, 33, 27, 0.05), 0 28px 60px -28px rgba(18, 33, 27, 0.42);
+}
+
+.dark {
+  --background: #0a0f0d;
+  --background-alt: #161c19;
+  --foreground: #ecf1ee;
+  --muted: #8b958f;
+  --border: #232b27;
+  --card: #121815;
+
+  --accent: #29c79c;
+  --accent-dark: #1fa47f;
+  --accent-light: #123027;
+  /* En sombre, l'accent devient un teal clair et saturé : le texte des
+   * boutons pleins doit alors être sombre pour rester lisible. */
+  --accent-foreground: #04140f;
+
+  --primary: var(--accent);
+  --primary-foreground: var(--accent-foreground);
+  --secondary: var(--background-alt);
+  --secondary-foreground: #d3dad5;
+  --muted-foreground: var(--muted);
+  --ring: var(--accent);
+
+  --ai-1: #1fd6a2;
+  --ai-2: #5aa8ff;
+  --ai-3: #a98bff;
+  --ai-glow: rgba(90, 168, 255, 0.32);
+
+  --canvas: #101613;
+  --ink: #e8ede9;
+  --highlight: #6b6320;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 30px -18px rgba(0, 0, 0, 0.7);
+  --shadow-lg: 0 2px 6px rgba(0, 0, 0, 0.5), 0 30px 70px -30px rgba(0, 0, 0, 0.85);
 }
 
 @theme inline {
@@ -29,14 +99,55 @@
   --color-accent-light: var(--accent-light);
   --color-accent-foreground: var(--accent-foreground);
 
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-ring: var(--ring);
+
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 6px);
+  --radius-2xl: calc(var(--radius) + 12px);
+
   --font-sans: var(--font-sans);
   --font-display: var(--font-display);
+  --font-mono: var(--font-mono);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
 }
+
+/* Signature IA Distill — traitements partagés par tous les points
+   d'entrée IA (AiOrb, boutons "IA", surlignages de résultats…), pour
+   que l'identité IA se lise comme une seule signature cohérente. */
+.ai-gradient {
+  background: linear-gradient(115deg, var(--ai-1) 0%, var(--ai-2) 52%, var(--ai-3) 100%);
+}
+.ai-text {
+  background: linear-gradient(115deg, var(--ai-1), var(--ai-2) 55%, var(--ai-3));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.ai-glow {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ai-2) 30%, transparent), 0 10px 40px -8px var(--ai-glow);
+}
+
+@keyframes distill-fade {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade {
+  animation: distill-fade 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes distill-pulse {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.06); }
+}
+.animate-aipulse { animation: distill-pulse 2.4s ease-in-out infinite; }
 
 /* Utilitaire pour l'effet de retournement des flashcards */
 .flip-card {
