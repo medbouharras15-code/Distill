@@ -174,6 +174,17 @@ export const TextTool = (p: IconProps) => (
     <path d="M5 6h14M12 6v13M9 19h6" />
   </Base>
 );
+export const Bolt = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M13 3 5 13h5l-1 8 8-10h-5l1-8Z" />
+  </Base>
+);
+export const Upload = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M12 15V4M8.5 7.5 12 4l3.5 3.5" />
+    <path d="M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" />
+  </Base>
+);
 export const Users = (p: IconProps) => (
   <Base {...p}>
     <circle cx="9" cy="8" r="3" />

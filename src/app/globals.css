@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+/* Le mode sombre de ce site est piloté manuellement (classe `.dark` sur
+ * `<html>`, voir ThemeToggle.tsx), pas par la préférence système : sans
+ * cette ligne, Tailwind v4 fait par défaut correspondre `dark:` à
+ * `prefers-color-scheme`, ce qui le désynchronise du bouton clair/sombre
+ * réel de l'app dès que la préférence OS diffère du choix de l'utilisateur. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ─────────────────────────────────────────────────────────────
    Système de design Distill — identité "jade" premium.
    Les noms de variable existants (--background, --accent, etc.)
@@ -292,4 +299,88 @@ body {
   color: var(--muted);
   opacity: 0.6;
   pointer-events: none;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Landing page — signature cinématographique. Scopé à la landing
+   (jamais appliqué globalement) pour ne rien changer ailleurs.
+   ───────────────────────────────────────────────────────────── */
+
+/* Grain de papier très subtil sur le fond crème/sombre, pour évoquer le
+ * carnet plutôt qu'un écran plat. Bruit encodé en data-URI (aucune requête
+ * réseau), volontairement discret. */
+.landing-grain {
+  position: relative;
+  isolation: isolate;
+}
+.landing-grain::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+}
+.dark .landing-grain::before {
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+}
+
+/* Geste signature — la goutte du mot "distillées" du hero se forme et
+ * retombe doucement à sa place au chargement de la page. */
+.landing-drop {
+  display: inline-block;
+  transform-origin: 50% 0%;
+}
+@keyframes distill-drop-fall {
+  0% {
+    transform: translateY(-0.4em) scale(0.5);
+    opacity: 0;
+  }
+  55% {
+    transform: translateY(0.05em) scale(1.04);
+    opacity: 1;
+  }
+  78% {
+    transform: translateY(-0.02em) scale(0.98);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .landing-drop {
+    animation: distill-drop-fall 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.35s both;
+  }
+}
+
+/* Révélation douce au scroll (fondu + léger déplacement vers le haut),
+ * pilotée en JS via IntersectionObserver (@/components/landing) qui bascule
+ * `data-visible`. Repli `<noscript>` : toujours visible sans JavaScript. */
+[data-reveal] {
+  transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1), transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+[data-reveal="hidden"] {
+  opacity: 0;
+  transform: translateY(22px);
+}
+[data-reveal="visible"] {
+  opacity: 1;
+  transform: translateY(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal] {
+    transition: none !important;
+  }
+  [data-reveal="hidden"] {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .landing-drop {
+    animation: none !important;
+  }
 }
