@@ -1,47 +1,17 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
-
-const STORAGE_KEY = "distill-theme";
-
-/** S'abonne à la classe `dark` de `<html>` sans passer par un effet +
- * setState (source de désynchronisations serveur/client) : `useSyncExternalStore`
- * gère nativement l'écart attendu entre le rendu serveur (toujours "clair",
- * faute d'accès au DOM) et l'état réel côté client, déjà posé par le script
- * anti-flash de `layout.tsx` avant l'hydratation. */
-function subscribeToThemeClass(callback: () => void) {
-  const observer = new MutationObserver(callback);
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
-  return () => observer.disconnect();
-}
-function getIsDark() {
-  return document.documentElement.classList.contains("dark");
-}
-function getServerIsDark() {
-  return false;
-}
+import { setDarkMode, useIsDarkMode } from "@/lib/useTheme";
 
 /** Bouton de bascule clair/sombre — persiste le choix (localStorage) et
  * met à jour la classe `dark` sur `<html>`, déjà lue au chargement par le
  * script anti-flash injecté dans `layout.tsx`. */
 export function ThemeToggle({ className = "" }: { className?: string }) {
-  const dark = useSyncExternalStore(subscribeToThemeClass, getIsDark, getServerIsDark);
-
-  function toggle() {
-    const next = !dark;
-    document.documentElement.classList.toggle("dark", next);
-    try {
-      localStorage.setItem(STORAGE_KEY, next ? "dark" : "light");
-    } catch {
-      // Stockage indisponible (navigation privée…) — le choix ne persiste
-      // simplement pas d'une session à l'autre, sans conséquence bloquante.
-    }
-  }
+  const dark = useIsDarkMode();
 
   return (
     <button
       type="button"
-      onClick={toggle}
+      onClick={() => setDarkMode(!dark)}
       aria-label={dark ? "Passer en mode clair" : "Passer en mode sombre"}
       title={dark ? "Mode clair" : "Mode sombre"}
       className={`flex h-9 w-9 items-center justify-center rounded-lg text-muted transition hover:bg-background-alt hover:text-foreground ${className}`}

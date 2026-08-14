@@ -185,6 +185,18 @@ export const Upload = (p: IconProps) => (
     <path d="M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" />
   </Base>
 );
+export const Contrast = (p: IconProps) => (
+  <Base {...p}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M12 3.5a8.5 8.5 0 0 1 0 17Z" fill="currentColor" stroke="none" />
+  </Base>
+);
+export const Shield = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M12 3.5 19 6v6c0 4.5-3 7.5-7 8.5-4-1-7-4-7-8.5V6l7-2.5Z" />
+    <path d="m9.2 12 2 2 3.6-4" />
+  </Base>
+);
 export const Users = (p: IconProps) => (
   <Base {...p}>
     <circle cx="9" cy="8" r="3" />

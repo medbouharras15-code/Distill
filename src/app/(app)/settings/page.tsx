@@ -1,5 +1,23 @@
-import { ComingSoonScreen } from "@/components/ComingSoonScreen";
+import { redirect } from "next/navigation";
+import { SettingsForm } from "@/components/SettingsForm";
+import { getUserAndProfile } from "@/lib/auth";
+import { isSubscribed } from "@/lib/billing";
 
-export default function SettingsPage() {
-  return <ComingSoonScreen title="Paramètres" subtitle="Les réglages de compte et d'apparence arrivent dans une prochaine étape de la refonte." />;
+export default async function SettingsPage() {
+  const auth = await getUserAndProfile();
+  if (!auth) {
+    redirect("/");
+  }
+
+  const memberSince = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" }).format(
+    new Date(auth.profile.created_at),
+  );
+
+  return (
+    <SettingsForm
+      email={auth.user.email ?? ""}
+      subscribed={isSubscribed(auth.profile)}
+      memberSince={memberSince}
+    />
+  );
 }
