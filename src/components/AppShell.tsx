@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 import { AiOrb, Wordmark } from "@/components/Brand";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Badge, buttonClasses } from "@/components/ui";
-import { Books, Clock, Crown, Gear, Home, Plus, Search, Star } from "@/lib/icons";
+import { Books, Clock, Crown, Gear, Home, LogOut, Plus, Search, Star } from "@/lib/icons";
 
 interface NavItem {
   href: string;
@@ -104,20 +104,29 @@ export function AppShell({ email, subscribed, children }: AppShellProps) {
           >
             <Gear size={19} className={isActive("/settings") ? "text-primary" : ""} /> Paramètres
           </Link>
-          <Link
-            href="/profile"
-            className="mt-2 flex w-full items-center gap-3 rounded-2xl border border-border bg-card p-2.5 text-left transition hover:border-primary/40 hover:shadow-[var(--shadow-sm)]"
-          >
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-sm font-medium text-primary-foreground">
-              {initial}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-[13px] font-medium">{email}</div>
-              <div className="truncate text-[11px] text-muted-foreground">
-                {subscribed ? "Distill Pro · Gérer" : "Offre gratuite · Gérer"}
+          <div className="mt-2 flex w-full items-center gap-1 rounded-2xl border border-border bg-card p-2.5 transition hover:border-primary/40 hover:shadow-[var(--shadow-sm)]">
+            <Link href="/profile" className="flex min-w-0 flex-1 items-center gap-3 text-left">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-medium text-primary-foreground">
+                {initial}
               </div>
-            </div>
-          </Link>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[13px] font-medium">{email}</div>
+                <div className="truncate text-[11px] text-muted-foreground">
+                  {subscribed ? "Distill Pro · Gérer" : "Offre gratuite · Gérer"}
+                </div>
+              </div>
+            </Link>
+            <form action="/auth/signout" method="post">
+              <button
+                type="submit"
+                aria-label="Déconnexion"
+                title="Déconnexion"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground"
+              >
+                <LogOut size={16} />
+              </button>
+            </form>
+          </div>
         </div>
       </aside>
 

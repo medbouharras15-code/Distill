@@ -162,6 +162,13 @@ export const Cloud = (p: IconProps) => (
     <path d="M7 18h9.5" />
   </Base>
 );
+export const LogOut = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+    <path d="M16 17l5-5-5-5" />
+    <path d="M21 12H9" />
+  </Base>
+);
 export const TextTool = (p: IconProps) => (
   <Base {...p}>
     <path d="M5 6h14M12 6v13M9 19h6" />

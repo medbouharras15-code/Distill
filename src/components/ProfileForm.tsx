@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Badge, Button, Card } from "@/components/ui";
 import { mockNotebooks } from "@/lib/appMockData";
-import { Check, ChevronLeft, Clock, Doc, Pen } from "@/lib/icons";
+import { Check, ChevronLeft, Clock, Doc, LogOut, Pen } from "@/lib/icons";
 
 interface ProfileFormProps {
   email: string;
@@ -36,9 +36,19 @@ export function ProfileForm({ email, subscribed, memberSince }: ProfileFormProps
 
   return (
     <div className="mx-auto max-w-[720px] animate-fade px-6 py-8 md:px-10 md:py-12">
-      <Link href="/settings" className="mb-8 flex items-center gap-1.5 text-sm text-muted-foreground transition hover:text-foreground">
-        <ChevronLeft size={16} /> Paramètres
-      </Link>
+      <div className="mb-8 flex items-center justify-between gap-4">
+        <Link href="/settings" className="flex items-center gap-1.5 text-sm text-muted-foreground transition hover:text-foreground">
+          <ChevronLeft size={16} /> Paramètres
+        </Link>
+        <form action="/auth/signout" method="post">
+          <button
+            type="submit"
+            className="flex items-center gap-1.5 text-sm text-muted-foreground transition hover:text-foreground"
+          >
+            <LogOut size={16} /> Déconnexion
+          </button>
+        </form>
+      </div>
 
       <h1 className="font-display text-4xl font-medium tracking-[-0.02em] text-foreground">Mon profil</h1>
       <p className="mt-2 text-[15px] text-muted-foreground">Tes informations et statistiques personnelles.</p>
