@@ -8,6 +8,7 @@ import { AiOrb } from "@/components/Brand";
 import { Badge, buttonClasses } from "@/components/ui";
 import { Close } from "@/lib/icons";
 import { FREE_GENERATIONS_LIMIT, isSubscribed } from "@/lib/billing";
+import { parseJsonResponse, useSubscriptionActions } from "@/lib/useSubscriptionActions";
 import type { DistillResult } from "@/lib/types";
 
 // Vercel limite la taille d'une requête à ~4,5 Mo. Le base64 gonfle les
@@ -98,22 +99,6 @@ function resizeImageToJpeg(file: File): Promise<string> {
   });
 }
 
-/** Lit une réponse HTTP comme du JSON, en donnant un message clair si le
- * serveur (ou une plateforme intermédiaire comme Vercel) a renvoyé autre
- * chose que du JSON — par exemple après un délai d'exécution dépassé. */
-async function parseJsonResponse(res: Response): Promise<Record<string, unknown>> {
-  const raw = await res.text();
-  try {
-    return raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-  } catch {
-    throw new Error(
-      res.ok
-        ? "Réponse du serveur illisible. Réessayez."
-        : `Le serveur a mis trop de temps à répondre ou a rejeté la requête (code ${res.status}). Réessayez avec un fichier plus léger.`,
-    );
-  }
-}
-
 /** Panneau IA de l'éditeur — reprend à l'identique le comportement de
  * l'ancien écran DistillApp (coller texte/photo/PDF → résumé/flashcards,
  * gestion d'abonnement) dans le panneau latéral de `/notes`, comme convenu.
@@ -127,7 +112,7 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
-  const [billingLoading, setBillingLoading] = useState(false);
+  const { billingLoading, billingError, setBillingError, subscribe, cancel } = useSubscriptionActions();
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<DistillResult | null>(null);
   const [tab, setTab] = useState<Tab>("summary");
@@ -159,47 +144,6 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
       return;
     }
     setPdfFile(file);
-  }
-
-  async function handleSubscribe() {
-    if (billingLoading) return;
-    setBillingLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/lemonsqueezy/checkout", { method: "POST" });
-      const payload = await parseJsonResponse(res);
-      if (!res.ok || typeof payload.url !== "string") {
-        throw new Error(typeof payload.error === "string" ? payload.error : "Impossible de démarrer le paiement.");
-      }
-      // Redirige vers la page hébergée par Lemon Squeezy : la carte bancaire
-      // y est saisie directement, elle ne transite jamais par notre serveur.
-      window.location.href = payload.url;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Une erreur est survenue.");
-      setBillingLoading(false);
-    }
-  }
-
-  async function handleCancelSubscription() {
-    if (billingLoading) return;
-    if (!window.confirm("Annuler votre abonnement Distill ? L'accès illimité s'arrêtera immédiatement.")) {
-      return;
-    }
-    setBillingLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/lemonsqueezy/cancel", { method: "POST" });
-      const payload = await parseJsonResponse(res);
-      if (!res.ok) {
-        throw new Error(typeof payload.error === "string" ? payload.error : "Impossible d'annuler l'abonnement.");
-      }
-      // Recharge la page pour refléter le nouveau statut (recalculé côté
-      // serveur dans page.tsx).
-      window.location.reload();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Une erreur est survenue.");
-      setBillingLoading(false);
-    }
   }
 
   async function handleSubmit() {
@@ -288,13 +232,22 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
           )}
           <button
             type="button"
-            onClick={subscribed ? handleCancelSubscription : handleSubscribe}
+            onClick={subscribed ? cancel : subscribe}
             disabled={billingLoading}
             className={buttonClasses("outline", "sm")}
           >
             {subscribed ? "Annuler mon abonnement" : "S'abonner — 9,99€/mois"}
           </button>
         </div>
+
+        {billingError && (
+          <div className="relative mt-3 flex items-start justify-between gap-3 rounded-xl bg-red-50 px-3 py-2.5 text-xs text-red-700">
+            <span>{billingError}</span>
+            <button type="button" onClick={() => setBillingError(null)} className="shrink-0 text-red-700/70 hover:text-red-700" aria-label="Fermer">
+              ✕
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-auto p-4">
@@ -401,7 +354,7 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
             {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2.5 text-xs text-red-700">{error}</p>}
 
             {limitReached ? (
-              <button type="button" onClick={handleSubscribe} disabled={billingLoading} className={buttonClasses("primary", "lg", "w-full")}>
+              <button type="button" onClick={subscribe} disabled={billingLoading} className={buttonClasses("primary", "lg", "w-full")}>
                 {billingLoading ? "Redirection vers le paiement…" : "Limite atteinte — S'abonner pour continuer"}
               </button>
             ) : (

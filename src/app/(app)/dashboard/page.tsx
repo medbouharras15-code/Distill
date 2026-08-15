@@ -146,7 +146,7 @@ export default function DashboardPage() {
                 Résumés et flashcards générés à partir de ton texte, d&apos;une photo ou d&apos;un PDF.
               </p>
               <Link
-                href="/notes"
+                href="/notes?ai=1"
                 className="mt-5 inline-flex items-center gap-2 rounded-full ai-gradient px-4 py-2.5 text-sm font-medium text-white shadow-[0_8px_24px_-10px_var(--ai-glow)] transition hover:-translate-y-px"
               >
                 <Cards size={16} /> Générer maintenant

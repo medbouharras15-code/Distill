@@ -8,7 +8,7 @@ import { getUserAndProfile } from "@/lib/auth";
 export default async function NotesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ checkout?: string }>;
+  searchParams: Promise<{ checkout?: string; ai?: string }>;
 }) {
   const auth = await getUserAndProfile();
   const params = await searchParams;
@@ -20,6 +20,7 @@ export default async function NotesPage({
     <NotesPageClient
       auth={auth ? { subscriptionStatus: auth.profile.subscription_status, generationsUsed: auth.profile.generations_used } : null}
       checkoutStatus={checkoutStatus}
+      openAi={params.ai === "1"}
     />
   );
 }

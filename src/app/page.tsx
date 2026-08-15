@@ -15,11 +15,11 @@ export default async function Home({
 
   const params = await searchParams;
   // Lemon Squeezy redirige vers "/?checkout=success" après un paiement : la
-  // confirmation s'affiche désormais dans le panneau IA de l'éditeur (voir
-  // @/components/notes/AiPanel), donc on relaie le paramètre vers /notes
-  // plutôt que de le perdre.
+  // confirmation s'affiche sur la page Abonnement dédiée (voir
+  // @/app/(app)/subscription), donc on relaie le paramètre plutôt que de le
+  // perdre.
   if (params.checkout) {
-    redirect(`/notes?checkout=${params.checkout}`);
+    redirect(`/subscription?checkout=${params.checkout}`);
   }
 
   redirect("/dashboard");

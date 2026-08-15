@@ -26,9 +26,12 @@ interface NotesAuth {
 interface NotesPageClientProps {
   auth: NotesAuth | null;
   checkoutStatus: "success" | "cancelled" | null;
+  /** Ouvre le panneau IA dès l'arrivée sur la page (lien "IA Distill" de la
+   * sidebar ou carte IA du Dashboard, voir ?ai=1 dans @/app/notes/page.tsx). */
+  openAi: boolean;
 }
 
-export default function NotesPageClient({ auth, checkoutStatus }: NotesPageClientProps) {
+export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesPageClientProps) {
   const router = useRouter();
   const canvasHandle = useRef<NotesCanvasHandle | null>(null);
 
@@ -60,9 +63,10 @@ export default function NotesPageClient({ auth, checkoutStatus }: NotesPageClien
 
   // Panneau IA (résumé/flashcards à partir de texte/photo/PDF) — repris de
   // l'ancien écran DistillApp, voir @/components/notes/AiPanel. Ouvert par
-  // défaut au retour d'un paiement Lemon Squeezy pour que la confirmation
-  // soit immédiatement visible.
-  const [aiOpen, setAiOpen] = useState(() => auth !== null && checkoutStatus !== null);
+  // défaut via ?ai=1 (lien "IA Distill" de la sidebar / carte IA du
+  // Dashboard) ou au retour d'un paiement Lemon Squeezy directement sur
+  // cette page, pour que la confirmation soit immédiatement visible.
+  const [aiOpen, setAiOpen] = useState(() => auth !== null && (openAi || checkoutStatus !== null));
 
   function toggleAi() {
     if (!auth) {

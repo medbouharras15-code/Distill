@@ -76,10 +76,11 @@ export function AppShell({ email, subscribed, children }: AppShellProps) {
           })}
         </nav>
 
-        {/* Accès rapide IA — ouvre l'éditeur avec le panneau IA (résumé/
-            flashcards à partir de texte/photo/PDF), voir @/components/notes/AiPanel. */}
+        {/* Accès rapide IA — ouvre l'éditeur avec le panneau IA déjà déplié
+            (résumé/flashcards à partir de texte/photo/PDF), voir
+            @/components/notes/AiPanel. */}
         <Link
-          href="/notes"
+          href="/notes?ai=1"
           className="mt-6 flex items-center gap-3 rounded-2xl border border-border bg-gradient-to-br from-secondary/60 to-card p-3 text-left transition hover:border-[color-mix(in_srgb,var(--ai-2)_40%,transparent)] hover:shadow-[var(--shadow-md)]"
         >
           <AiOrb size={34} />
@@ -91,10 +92,12 @@ export function AppShell({ email, subscribed, children }: AppShellProps) {
 
         <div className="mt-auto space-y-1 pt-4">
           <Link
-            href="/notes"
-            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] text-muted-foreground transition hover:bg-secondary/60 hover:text-foreground"
+            href="/subscription"
+            className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] transition ${
+              isActive("/subscription") ? "bg-secondary font-medium text-foreground" : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+            }`}
           >
-            <Crown size={19} /> Abonnement
+            <Crown size={19} className={isActive("/subscription") ? "text-primary" : ""} /> Abonnement
           </Link>
           <Link
             href="/settings"

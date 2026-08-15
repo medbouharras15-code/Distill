@@ -254,7 +254,7 @@ export function SettingsForm({ email, subscribed, memberSince }: SettingsFormPro
                     </div>
                   </div>
                 </div>
-                <Link href="/notes" className={buttonClasses("primary", "sm", "mt-5 w-full rounded-xl sm:w-auto")}>
+                <Link href="/subscription" className={buttonClasses("primary", "sm", "mt-5 w-full rounded-xl sm:w-auto")}>
                   Gérer l&apos;abonnement
                 </Link>
               </Card>
