@@ -76,11 +76,12 @@ export function AppShell({ email, subscribed, children }: AppShellProps) {
           })}
         </nav>
 
-        {/* Accès rapide IA — ouvre l'éditeur avec le panneau IA déjà déplié
-            (résumé/flashcards à partir de texte/photo/PDF), voir
-            @/components/notes/AiPanel. */}
+        {/* Accès rapide IA — page dédiée en plein écran (résumé/flashcards
+            à partir de texte/photo/PDF), voir @/components/notes/AiFullScreen.
+            Deuxième point d'accès à l'IA, en plus du panneau latéral de
+            l'éditeur (/notes, son bouton "IA" reste inchangé). */}
         <Link
-          href="/notes?ai=1"
+          href="/distill"
           className="mt-6 flex items-center gap-3 rounded-2xl border border-border bg-gradient-to-br from-secondary/60 to-card p-3 text-left transition hover:border-[color-mix(in_srgb,var(--ai-2)_40%,transparent)] hover:shadow-[var(--shadow-md)]"
         >
           <AiOrb size={34} />
