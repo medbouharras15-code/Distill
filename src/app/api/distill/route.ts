@@ -39,9 +39,13 @@ const MODEL = "claude-sonnet-4-6";
 const MAX_FILE_BYTES = 4 * 1024 * 1024; // 4 Mo par fichier une fois décodé
 
 // Laisse plus de temps à Vercel pour l'analyse d'image / génération des
-// flashcards (le délai par défaut peut être trop court, ce qui provoquait
-// une page d'erreur non-JSON côté client sur les envois avec photo).
-export const maxDuration = 60;
+// flashcards, et surtout pour un QCM de 20 questions (jusqu'à 8192 tokens de
+// sortie) qui peut dépasser 60 s selon la charge de l'API Claude — ça
+// provoquait un 504 non-JSON côté client. Vercel plafonne automatiquement
+// cette valeur au maximum réellement autorisé par le plan si elle est plus
+// haute (300 s sur Hobby avec Fluid Compute activé, 800 s sur Pro/
+// Enterprise) : aucun risque à viser large ici.
+export const maxDuration = 300;
 
 function base64ByteLength(base64: string): number {
   const cleaned = base64.replace(/=+$/, "");
