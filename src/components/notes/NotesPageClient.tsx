@@ -239,7 +239,7 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
         />
       </div>
 
-      <div className="relative mt-4 min-h-0 w-full flex-1">
+      <div className="relative mt-3 min-h-0 w-full flex-1">
         <NotesCanvas
           ref={canvasHandle}
           tool={tool}
@@ -264,14 +264,27 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
           }}
         />
 
+        {/* Assombrissement léger du canvas quand le panneau IA est ouvert —
+            purement décoratif (pointer-events-none : ne bloque jamais le
+            dessin), pour un déplacement de profondeur cohérent avec le
+            glissement du panneau plutôt qu'un canvas qui reste au même
+            plan visuel une fois le panneau ouvert. */}
+        <div
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-0 z-20 bg-black/[0.04] transition-opacity duration-500 ${
+            aiOpen ? "opacity-100" : "opacity-0"
+          }`}
+        />
+
         {/* Panneau IA — recouvre le bord droit du canvas sans jamais changer
             ses dimensions (position absolute), pour ne rien toucher au
             calcul de zoom/ajustement du canvas. */}
         {auth && (
           <aside
-            className={`absolute right-0 top-0 z-30 h-full w-full max-w-[420px] border-l border-border shadow-[var(--shadow-lg)] transition-transform duration-300 ${
-              aiOpen ? "translate-x-0" : "translate-x-full"
+            className={`ai-panel-transition absolute right-0 top-0 z-30 h-full w-full max-w-[420px] border-l border-border shadow-[var(--shadow-lg)] transition-[transform,opacity] duration-[450ms] ${
+              aiOpen ? "translate-x-0 scale-100 opacity-100" : "translate-x-full scale-[0.97] opacity-80"
             }`}
+            style={{ transitionTimingFunction: "var(--ease-panel)" }}
           >
             <AiPanel
               subscriptionStatus={auth.subscriptionStatus}

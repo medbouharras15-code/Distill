@@ -5,7 +5,7 @@ import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import FileDropZone from "@/components/FileDropZone";
 import FlashcardView from "@/components/FlashcardView";
-import { AiOrb } from "@/components/Brand";
+import { AiOrb, DistillMark } from "@/components/Brand";
 import { Badge, buttonClasses } from "@/components/ui";
 import { Close } from "@/lib/icons";
 import { FREE_GENERATIONS_LIMIT, IS_FREE_LIMIT_OVERRIDDEN, isSubscribed } from "@/lib/billing";
@@ -31,6 +31,24 @@ interface AiPanelProps {
   generationsUsed: number;
   checkoutStatus: "success" | "cancelled" | null;
   onClose: () => void;
+}
+
+/** État de chargement signature de l'IA Distill — le repère de marque se
+ * soulève et retombe en boucle (goutte qui se distille), plutôt qu'un
+ * spinner générique. Utilisé pour toute attente propre à l'IA (ici, la
+ * génération du QCM en arrière-plan). */
+function DistillingLoader({ label }: { label: string }) {
+  return (
+    <div className="flex animate-fade flex-col items-center justify-center gap-4 py-16 text-center">
+      <div className="relative flex h-14 w-14 shrink-0 items-center justify-center">
+        <span className="absolute inset-0 rounded-full ai-gradient opacity-25 animate-aipulse" aria-hidden="true" />
+        <span className="relative text-accent animate-distill-loop" aria-hidden="true">
+          <DistillMark size={28} />
+        </span>
+      </div>
+      <p className="text-sm text-muted-foreground">{label}</p>
+    </div>
+  );
 }
 
 /** Téléverse le PDF directement du navigateur vers Vercel Blob (jeton émis
@@ -388,10 +406,7 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
                   </button>
                 </div>
               ) : (
-                <div className="flex animate-fade flex-col items-center justify-center gap-3 py-16 text-center">
-                  <span className="h-6 w-6 animate-spin rounded-full border-2 border-accent border-t-transparent" aria-hidden="true" />
-                  <p className="text-sm text-muted-foreground">Génération de votre QCM en cours…</p>
-                </div>
+                <DistillingLoader label="Génération de votre QCM en cours…" />
               )
             ) : tab === "summary" ? (
               <article className="prose-summary animate-fade rounded-2xl border border-border bg-background p-5 shadow-[var(--shadow-sm)]">
@@ -486,6 +501,11 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
               </button>
             ) : (
               <button type="button" onClick={handleSubmit} disabled={!hasInput || loading} className={buttonClasses("primary", "lg", "w-full")}>
+                {loading && (
+                  <span className="text-[var(--primary-foreground)] animate-distill-loop" aria-hidden="true">
+                    <DistillMark size={16} />
+                  </span>
+                )}
                 {loading ? "Distillation en cours…" : "Distiller mes notes"}
               </button>
             )}

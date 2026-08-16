@@ -233,7 +233,13 @@ export function NotesToolbar({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   return (
-    <div className="flex flex-nowrap items-center gap-3 overflow-x-auto rounded-2xl border border-border bg-card px-4 py-3 shadow-sm">
+    // Forme pilule + surface légèrement translucide, volontairement distincte
+    // du composant Card générique (rounded-2xl) utilisé partout ailleurs
+    // (Dashboard, Mes carnets…) : cette barre est un palette d'outils flottant
+    // au-dessus de la feuille, pas une carte de contenu — la faire ressembler
+    // à un objet différent la rend "intégrée" au canvas plutôt que perçue
+    // comme un composant générique dupliqué à cet endroit.
+    <div className="flex flex-nowrap items-center gap-3 overflow-x-auto rounded-full border border-border/70 bg-card/95 px-4 py-3 shadow-[var(--shadow-lg)]">
       <button
         type="button"
         onClick={onToggleAi}

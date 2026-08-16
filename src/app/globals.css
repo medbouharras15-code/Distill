@@ -60,6 +60,12 @@
    * l'app (élévation de carte, ouverture de panneau…) — même courbe que
    * le geste de la landing (distill-fade, landing-drop). */
   --ease-signature: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Courbe avec léger rebond (léger dépassement puis retour), réservée aux
+   * ouvertures de panneau — un slide qui "s'installe" plutôt qu'un simple
+   * glissement linéaire. Distincte de --ease-signature (sans dépassement),
+   * qui reste la bonne courbe pour les élévations de carte. */
+  --ease-panel: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .dark {
@@ -206,6 +212,30 @@ body {
 .dark .paper-grain::after {
   opacity: 0.22;
   mix-blend-mode: overlay;
+}
+
+/* Ouverture du panneau IA — transition dédiée (voir --ease-panel),
+ * neutralisée en mouvement réduit indépendamment des autres classes
+ * utilitaires puisque sa durée/courbe est posée en style inline. */
+@media (prefers-reduced-motion: reduce) {
+  .ai-panel-transition {
+    transition: none !important;
+  }
+}
+
+/* Signature "goutte qui se distille" — état de chargement de l'IA (QCM en
+ * cours…), en boucle contrairement à .landing-drop (qui ne joue qu'une
+ * fois à l'arrivée sur la page). Le repère de marque (DistillMark) se
+ * soulève et retombe doucement, comme une goutte qui se reforme. */
+@keyframes distill-loop {
+  0%, 100% { transform: translateY(-5px) scale(0.9); opacity: 0.55; }
+  50% { transform: translateY(3px) scale(1.06); opacity: 1; }
+}
+.animate-distill-loop { animation: distill-loop 1.7s var(--ease-signature) infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .animate-distill-loop {
+    animation: none !important;
+  }
 }
 
 /* Utilitaire pour l'effet de retournement des flashcards */
