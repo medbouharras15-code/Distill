@@ -3,10 +3,35 @@ import { NextResponse } from "next/server";
 import { getUserAndProfile } from "@/lib/auth";
 import { FREE_GENERATIONS_LIMIT, isSubscribed } from "@/lib/billing";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { DistillRequestBody, DistillResult } from "@/lib/types";
+import type { DistillRequestBody, DistillResult, QuizDifficulty, QuizQuestion } from "@/lib/types";
 
-// Le prompt exact demandé pour transformer les notes en résumé + flashcards.
-const SYSTEM_PROMPT = `Tu es un expert pédagogique. Génère un résumé structuré (titre, sections, points clés en gras) et 8 à 10 flashcards (question/réponse) à partir de ce contenu. Réponds uniquement en JSON : {"summary": "...", "flashcards": [{"question": "...", "answer": "..."}]}`;
+const QUIZ_QUESTION_COUNT = 20;
+
+/** Prompt système : résumé + flashcards inchangés (toujours générés), QCM
+ * ajouté uniquement si `quizDifficulty` est fourni — sans ce paramètre, le
+ * prompt et la forme de la réponse sont strictement identiques à avant
+ * l'introduction du QCM. */
+function buildSystemPrompt(quizDifficulty?: QuizDifficulty): string {
+  const base =
+    "Tu es un expert pédagogique. Génère un résumé structuré (titre, sections, points clés en gras) et 8 à 10 flashcards (question/réponse) à partir de ce contenu.";
+
+  if (!quizDifficulty) {
+    return `${base} Réponds uniquement en JSON : {"summary": "...", "flashcards": [{"question": "...", "answer": "..."}]}`;
+  }
+
+  const difficultyInstruction =
+    quizDifficulty === "hard"
+      ? "difficile : questions pointues, distracteurs plausibles et proches de la bonne réponse"
+      : "facile : questions directes, distracteurs clairement différents de la bonne réponse";
+
+  return `${base} Génère également un QCM de ${QUIZ_QUESTION_COUNT} questions à partir de ce même contenu, niveau ${difficultyInstruction}, dans l'esprit d'un examen :
+- Chaque question a un énoncé clair et 4 ou 5 propositions de réponse.
+- Certaines questions ont UNE SEULE bonne réponse, d'autres en ont PLUSIEURS (2 ou plus) — mélange les deux types aléatoirement dans l'ordre des questions, sans jamais l'indiquer dans l'énoncé ni dans les propositions : l'étudiant doit le déduire par lui-même en lisant les choix, exactement comme dans un vrai examen.
+- Vise un mélange équilibré entre questions à réponse unique et à réponses multiples (ni l'un ni l'autre en écrasante majorité).
+- Pour chaque question, fournis une courte explication (1 à 2 phrases) justifiant la ou les bonnes réponses.
+- Chaque proposition a un identifiant "id" à une seule lettre, unique au sein de sa question ("a", "b", "c", "d", éventuellement "e").
+Réponds uniquement en JSON : {"summary": "...", "flashcards": [{"question": "...", "answer": "..."}], "quiz": [{"question": "...", "choices": [{"id": "a", "text": "..."}, {"id": "b", "text": "..."}], "correctChoiceIds": ["a"], "explanation": "..."}]}`;
+}
 
 const MODEL = "claude-sonnet-4-6";
 // Doit rester cohérent avec les limites côté client (src/components/notes/AiPanel.tsx) :
@@ -45,16 +70,46 @@ function extractJson(text: string): unknown {
   }
 }
 
+function isQuizQuestion(value: unknown): value is QuizQuestion {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  if (typeof v.question !== "string") return false;
+
+  if (!Array.isArray(v.choices) || v.choices.length < 2) return false;
+  const choiceIds = new Set<string>();
+  for (const choice of v.choices) {
+    if (!choice || typeof choice !== "object") return false;
+    const c = choice as Record<string, unknown>;
+    if (typeof c.id !== "string" || typeof c.text !== "string") return false;
+    choiceIds.add(c.id);
+  }
+
+  if (!Array.isArray(v.correctChoiceIds) || v.correctChoiceIds.length === 0) return false;
+  if (!v.correctChoiceIds.every((id) => typeof id === "string" && choiceIds.has(id))) return false;
+
+  if (v.explanation !== undefined && typeof v.explanation !== "string") return false;
+
+  return true;
+}
+
 function isDistillResult(value: unknown): value is DistillResult {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
   if (typeof v.summary !== "string") return false;
+
   if (!Array.isArray(v.flashcards)) return false;
-  return v.flashcards.every((card) => {
+  const flashcardsValid = v.flashcards.every((card) => {
     if (!card || typeof card !== "object") return false;
     const c = card as Record<string, unknown>;
     return typeof c.question === "string" && typeof c.answer === "string";
   });
+  if (!flashcardsValid) return false;
+
+  if (v.quiz !== undefined) {
+    if (!Array.isArray(v.quiz) || !v.quiz.every(isQuizQuestion)) return false;
+  }
+
+  return true;
 }
 
 export async function POST(request: Request) {
@@ -98,6 +153,7 @@ export async function POST(request: Request) {
 
   const text = body.text?.trim();
   const { image, pdf } = body;
+  const quizDifficulty = body.quizDifficulty === "easy" || body.quizDifficulty === "hard" ? body.quizDifficulty : undefined;
 
   if (!text && !image && !pdf) {
     return NextResponse.json(
@@ -155,8 +211,11 @@ export async function POST(request: Request) {
   try {
     const response = await client.messages.create({
       model: MODEL,
-      max_tokens: 4096,
-      system: SYSTEM_PROMPT,
+      // 20 questions à 4-5 propositions + explication pèsent nettement plus
+      // que le résumé + les flashcards seuls : plus de marge uniquement
+      // quand un QCM est demandé, pour éviter un JSON tronqué.
+      max_tokens: quizDifficulty ? 8192 : 4096,
+      system: buildSystemPrompt(quizDifficulty),
       messages: [{ role: "user", content }],
     });
 

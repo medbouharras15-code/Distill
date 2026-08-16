@@ -9,7 +9,8 @@ import { Badge, buttonClasses } from "@/components/ui";
 import { Close } from "@/lib/icons";
 import { FREE_GENERATIONS_LIMIT, isSubscribed } from "@/lib/billing";
 import { parseJsonResponse, useSubscriptionActions } from "@/lib/useSubscriptionActions";
-import type { DistillResult } from "@/lib/types";
+import type { DistillResult, QuizDifficulty } from "@/lib/types";
+import { QuizView } from "./QuizView";
 
 // Vercel limite la taille d'une requête à ~4,5 Mo. Le base64 gonfle les
 // données d'environ 33 % : on garde donc une marge de sécurité pour les PDF
@@ -24,7 +25,7 @@ const MAX_RAW_IMAGE_BYTES = 20 * 1024 * 1024; // simple garde-fou avant compress
 const MAX_IMAGE_DIMENSION = 1568;
 const IMAGE_JPEG_QUALITY = 0.85;
 
-type Tab = "summary" | "flashcards";
+type Tab = "summary" | "flashcards" | "quiz";
 
 interface AiPanelProps {
   subscriptionStatus: string;
@@ -118,6 +119,8 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
   const [tab, setTab] = useState<Tab>("summary");
   const [localGenerationsUsed, setLocalGenerationsUsed] = useState(generationsUsed);
   const [dismissedCheckoutBanner, setDismissedCheckoutBanner] = useState(false);
+  const [quizRequested, setQuizRequested] = useState(false);
+  const [quizDifficulty, setQuizDifficulty] = useState<QuizDifficulty>("easy");
 
   const subscribed = isSubscribed({ subscription_status: subscriptionStatus });
   const remaining = subscribed ? Infinity : Math.max(0, FREE_GENERATIONS_LIMIT - localGenerationsUsed);
@@ -166,6 +169,7 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
           text: text.trim() || undefined,
           image: imageData ? { data: imageData, mediaType: "image/jpeg" } : undefined,
           pdf: pdfData ? { data: pdfData, mediaType: "application/pdf" } : undefined,
+          quizDifficulty: quizRequested ? quizDifficulty : undefined,
         }),
       });
 
@@ -208,7 +212,7 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
             <AiOrb size={36} active />
             <div>
               <div className="text-sm font-semibold text-foreground">IA Distill</div>
-              <div className="text-[11px] text-muted-foreground">Résumé & flashcards</div>
+              <div className="text-[11px] text-muted-foreground">Résumé, flashcards & QCM</div>
             </div>
           </div>
           <button
@@ -291,13 +295,26 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
                 >
                   Flashcards ({result.flashcards.length})
                 </button>
+                {result.quiz && (
+                  <button
+                    type="button"
+                    onClick={() => setTab("quiz")}
+                    className={`rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-200 ${
+                      tab === "quiz" ? "bg-card text-accent-dark shadow-[var(--shadow-sm)]" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    QCM ({result.quiz.length})
+                  </button>
+                )}
               </div>
               <button type="button" onClick={reset} className={buttonClasses("outline", "sm")}>
                 ↺ Nouvelle
               </button>
             </div>
 
-            {tab === "summary" ? (
+            {tab === "quiz" && result.quiz ? (
+              <QuizView quiz={result.quiz} />
+            ) : tab === "summary" ? (
               <article className="prose-summary animate-fade rounded-2xl border border-border bg-background p-5 shadow-[var(--shadow-sm)]">
                 <ReactMarkdown
                   components={{
@@ -349,6 +366,37 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
                 onSelect={selectPdf}
                 onClear={() => setPdfFile(null)}
               />
+            </div>
+
+            <div className="mb-4 rounded-xl border border-border bg-background-alt p-3">
+              <label className="flex cursor-pointer items-center gap-2.5 text-sm font-medium text-foreground">
+                <input
+                  type="checkbox"
+                  checked={quizRequested}
+                  onChange={(e) => setQuizRequested(e.target.checked)}
+                  className="h-4 w-4 shrink-0 accent-accent"
+                />
+                Générer aussi un QCM de révision
+              </label>
+              {quizRequested && (
+                <div className="mt-3 flex items-center gap-2.5">
+                  <span className="text-xs text-muted-foreground">Difficulté</span>
+                  <div className="flex gap-1 rounded-full bg-secondary p-1">
+                    {(["easy", "hard"] as const).map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setQuizDifficulty(d)}
+                        className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                          quizDifficulty === d ? "bg-card text-accent-dark shadow-[var(--shadow-sm)]" : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {d === "easy" ? "Facile" : "Difficile"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2.5 text-xs text-red-700">{error}</p>}
