@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { type ReactNode, ViewTransition } from "react";
 import { AiOrb, Wordmark } from "@/components/Brand";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Badge, buttonClasses } from "@/components/ui";
@@ -151,7 +151,18 @@ export function AppShell({ email, subscribed, children }: AppShellProps) {
             {subscribed && <Badge className="hidden bg-accent-light/50 text-accent-dark sm:inline-flex">✦ Pro</Badge>}
           </div>
         </header>
-        <main className="flex-1 pb-16 md:pb-0">{children}</main>
+        <main className="flex-1 pb-16 md:pb-0">
+          {/* Fondu-enchaîné natif entre les écrans de cette coquille
+              (Dashboard, Mes carnets, Favoris…) — la sidebar/l'en-tête ne
+              sont volontairement PAS dans ce wrapper : eux ne changent
+              jamais d'une navigation à l'autre, seul ce contenu doit
+              participer à la transition (sinon la sidebar clignoterait à
+              chaque clic). Sans props, ViewTransition applique le
+              fondu-enchaîné par défaut de React — aucune CSS ni config
+              requise ; sans support navigateur, la navigation reste
+              instantanée comme avant (dégradation silencieuse). */}
+          <ViewTransition>{children}</ViewTransition>
+        </main>
       </div>
 
       {/* Mobile bottom nav */}

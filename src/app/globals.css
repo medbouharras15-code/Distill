@@ -214,6 +214,22 @@ body {
   mix-blend-mode: overlay;
 }
 
+/* Continuité entre écrans (Dashboard → Mes carnets → …, voir AppShell) via
+ * le <ViewTransition> de React/l'API View Transitions du navigateur.
+ * pointer-events: none pendant la transition — sinon le calque de capture
+ * de la transition intercepte les clics pendant sa (brève) durée. */
+::view-transition {
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(*),
+  ::view-transition-new(*),
+  ::view-transition-group(*) {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+  }
+}
+
 /* Ouverture du panneau IA — transition dédiée (voir --ease-panel),
  * neutralisée en mouvement réduit indépendamment des autres classes
  * utilitaires puisque sa durée/courbe est posée en style inline. */
