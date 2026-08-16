@@ -21,10 +21,12 @@ import type { DistillRequestBody, DistillResult } from "@/lib/types";
 // qui garde le premier affichage rapide comme avant l'introduction du QCM.
 const SYSTEM_PROMPT = `Tu es un expert pédagogique. Génère un résumé structuré (titre, sections, points clés en gras) et 8 à 10 flashcards (question/réponse) à partir de ce contenu. Réponds uniquement en JSON : {"summary": "...", "flashcards": [{"question": "...", "answer": "..."}]}`;
 
-// Laisse plus de temps à Vercel pour l'analyse d'image (le délai par défaut
-// peut être trop court, ce qui provoquait une page d'erreur non-JSON côté
-// client sur les envois avec photo).
-export const maxDuration = 60;
+// Depuis le passage des PDF à Vercel Blob, cette route peut recevoir des
+// documents nettement plus lourds (jusqu'à 15 Mo) qu'auparavant — Claude met
+// alors plus de temps à les analyser. 60s suffisait tant que les PDF étaient
+// plafonnés à ~3,1 Mo, mais provoquait un 504 sur de plus gros documents.
+// Alignée sur la même marge que /api/distill/quiz.
+export const maxDuration = 300;
 
 function isDistillResult(value: unknown): value is DistillResult {
   if (!value || typeof value !== "object") return false;
