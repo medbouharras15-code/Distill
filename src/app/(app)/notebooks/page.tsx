@@ -67,19 +67,28 @@ export default function NotebooksPage() {
                   className="pointer-events-none absolute inset-0 z-0 opacity-0 transition-opacity duration-500 group-hover:opacity-100"
                   style={{ background: `radial-gradient(140% 70% at 50% 0%, color-mix(in srgb, ${n.color} 16%, transparent), transparent 70%)` }}
                 />
-                <div className="relative z-10 h-36 overflow-hidden paper-grain">
-                  <SheetPreview
-                    sheetType={n.sheetType}
-                    backgroundColor="#ffffff"
-                    ratio={ratio}
-                    width={200}
-                    className="h-full w-full shadow-[0_10px_22px_-16px_rgba(18,33,27,0.55)] transition-transform duration-500 group-hover:scale-[1.03]"
-                  />
-                  {n.favorite && (
-                    <span className="absolute right-2.5 top-2.5 z-[2] text-primary drop-shadow-sm">
-                      <Star size={17} />
-                    </span>
-                  )}
+                {/* "Plateau" légèrement en retrait (bg-background-alt) dans
+                    lequel repose la feuille : l'espace tout autour est ce qui
+                    permet à l'ombre propre de la feuille de se voir — collée
+                    aux bords de la carte, elle serait invisible (rognée par
+                    l'overflow-hidden de la Card). L'ombre est posée ici sur le
+                    conteneur qui porte lui-même l'overflow-hidden (pas sur un
+                    enfant qu'il rognerait) pour ne jamais être coupée. */}
+                <div className="relative z-10 bg-background-alt/70 p-3">
+                  <div className="relative h-32 overflow-hidden rounded-xl paper-grain shadow-[0_14px_26px_-12px_rgba(0,0,0,0.4),0_3px_8px_-3px_rgba(0,0,0,0.25)] transition-transform duration-500 group-hover:-translate-y-1">
+                    <SheetPreview
+                      sheetType={n.sheetType}
+                      backgroundColor="#ffffff"
+                      ratio={ratio}
+                      width={200}
+                      className="h-full w-full !rounded-none !border-0 transition-transform duration-500 group-hover:scale-[1.03]"
+                    />
+                    {n.favorite && (
+                      <span className="absolute right-2.5 top-2.5 z-[2] text-primary drop-shadow-sm">
+                        <Star size={17} />
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="relative z-10 p-4">
                   <div className="flex items-start justify-between">
