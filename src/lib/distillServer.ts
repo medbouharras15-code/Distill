@@ -1,11 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
+import { MAX_IMAGE_FILE_BYTES, MAX_PDF_FILE_BYTES } from "@/lib/fileSizeLimits";
 import type { DistillRequestFile, QuizQuestion } from "@/lib/types";
 
 export const MODEL = "claude-sonnet-4-6";
-// Doit rester cohérent avec les limites côté client (src/components/notes/AiPanel.tsx) :
-// les images sont compressées avant envoi, les PDF sont plafonnés à 3 Mo.
-export const MAX_FILE_BYTES = 4 * 1024 * 1024; // 4 Mo par fichier une fois décodé
 
 export function base64ByteLength(base64: string): number {
   const cleaned = base64.replace(/=+$/, "");
@@ -56,14 +54,17 @@ export function isQuizQuestion(value: unknown): value is QuizQuestion {
   return true;
 }
 
-/** Valide la taille des fichiers joints ; renvoie un message d'erreur si un
- * fichier dépasse la limite, sinon `null`. Partagé entre /api/distill et
- * /api/distill/quiz, qui reçoivent tous les deux les mêmes pièces jointes. */
-export function validateFileSizes(files: (DistillRequestFile | undefined)[]): string | null {
-  for (const file of files) {
-    if (file && base64ByteLength(file.data) > MAX_FILE_BYTES) {
-      return "Le fichier est trop volumineux (4 Mo maximum une fois traité).";
-    }
+/** Valide la taille de l'image et du PDF joints (limites distinctes, voir
+ * MAX_IMAGE_FILE_BYTES / MAX_PDF_FILE_BYTES) ; renvoie un message d'erreur
+ * précis dès qu'un fichier dépasse sa limite, sinon `null`. Partagé entre
+ * /api/distill et /api/distill/quiz, qui reçoivent tous les deux les mêmes
+ * pièces jointes. */
+export function validateFileSizes(image?: DistillRequestFile, pdf?: DistillRequestFile): string | null {
+  if (image && base64ByteLength(image.data) > MAX_IMAGE_FILE_BYTES) {
+    return `L'image est trop volumineuse (${(MAX_IMAGE_FILE_BYTES / (1024 * 1024)).toFixed(1)} Mo maximum une fois traitée).`;
+  }
+  if (pdf && base64ByteLength(pdf.data) > MAX_PDF_FILE_BYTES) {
+    return `Le PDF est trop volumineux (${(MAX_PDF_FILE_BYTES / (1024 * 1024)).toFixed(1)} Mo maximum une fois traité).`;
   }
   return null;
 }

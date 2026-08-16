@@ -8,15 +8,13 @@ import { AiOrb } from "@/components/Brand";
 import { Badge, buttonClasses } from "@/components/ui";
 import { Close } from "@/lib/icons";
 import { FREE_GENERATIONS_LIMIT, IS_FREE_LIMIT_OVERRIDDEN, isSubscribed } from "@/lib/billing";
+import { MAX_PDF_FILE_BYTES } from "@/lib/fileSizeLimits";
 import { parseJsonResponse, useSubscriptionActions } from "@/lib/useSubscriptionActions";
 import type { DistillResult, QuizDifficulty, QuizGenerationResult } from "@/lib/types";
 import { QuizView } from "./QuizView";
 
-// Vercel limite la taille d'une requête à ~4,5 Mo. Le base64 gonfle les
-// données d'environ 33 % : on garde donc une marge de sécurité pour les PDF
-// (qui ne peuvent pas être compressés côté client, contrairement aux images).
-const MAX_PDF_BYTES = 3 * 1024 * 1024; // 3 Mo
 const MAX_RAW_IMAGE_BYTES = 20 * 1024 * 1024; // simple garde-fou avant compression
+const MAX_PDF_BYTES_LABEL = (MAX_PDF_FILE_BYTES / (1024 * 1024)).toFixed(1); // "3.1" pour l'affichage
 
 // Les photos sont redimensionnées et recompressées côté client : une photo
 // d'iPad de plusieurs Mo devient une poignée de centaines de Ko avant envoi,
@@ -148,8 +146,8 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
 
   function selectPdf(file: File) {
     setError(null);
-    if (file.size > MAX_PDF_BYTES) {
-      setError("Le PDF est trop volumineux (3 Mo maximum).");
+    if (file.size > MAX_PDF_FILE_BYTES) {
+      setError(`Le PDF est trop volumineux (${MAX_PDF_BYTES_LABEL} Mo maximum).`);
       return;
     }
     setPdfFile(file);
@@ -439,7 +437,7 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
               />
               <FileDropZone
                 label="PDF de cours"
-                hint="Cours scanné ou texte (3 Mo max.)"
+                hint={`Cours scanné ou texte (${MAX_PDF_BYTES_LABEL} Mo max.)`}
                 accept="application/pdf"
                 file={pdfFile}
                 onSelect={selectPdf}

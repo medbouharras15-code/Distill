@@ -91,7 +91,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const fileError = validateFileSizes([image, pdf]);
+  const fileError = validateFileSizes(image, pdf);
   if (fileError) {
     return NextResponse.json({ error: fileError }, { status: 400 });
   }
