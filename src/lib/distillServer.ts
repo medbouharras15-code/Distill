@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { del, get } from "@vercel/blob";
 import { NextResponse } from "next/server";
 import { MAX_IMAGE_FILE_BYTES, MAX_PDF_FILE_BYTES } from "@/lib/fileSizeLimits";
 import type { DistillRequestFile, QuizQuestion } from "@/lib/types";
@@ -54,19 +55,51 @@ export function isQuizQuestion(value: unknown): value is QuizQuestion {
   return true;
 }
 
-/** Valide la taille de l'image et du PDF joints (limites distinctes, voir
- * MAX_IMAGE_FILE_BYTES / MAX_PDF_FILE_BYTES) ; renvoie un message d'erreur
- * précis dès qu'un fichier dépasse sa limite, sinon `null`. Partagé entre
- * /api/distill et /api/distill/quiz, qui reçoivent tous les deux les mêmes
- * pièces jointes. */
-export function validateFileSizes(image?: DistillRequestFile, pdf?: DistillRequestFile): string | null {
+/** Valide la taille de l'image jointe (toujours transmise inline, en
+ * base64) ; renvoie un message d'erreur si elle dépasse MAX_IMAGE_FILE_BYTES,
+ * sinon `null`. Le PDF, lui, est vérifié à part par fetchPdfFromBlob une
+ * fois téléchargé (voir plus bas) : sa taille n'est plus connue à ce stade
+ * puisqu'il n'arrive plus que sous forme de référence Vercel Blob. */
+export function validateImageSize(image?: DistillRequestFile): string | null {
   if (image && base64ByteLength(image.data) > MAX_IMAGE_FILE_BYTES) {
     return `L'image est trop volumineuse (${(MAX_IMAGE_FILE_BYTES / (1024 * 1024)).toFixed(1)} Mo maximum une fois traitée).`;
   }
-  if (pdf && base64ByteLength(pdf.data) > MAX_PDF_FILE_BYTES) {
-    return `Le PDF est trop volumineux (${(MAX_PDF_FILE_BYTES / (1024 * 1024)).toFixed(1)} Mo maximum une fois traité).`;
-  }
   return null;
+}
+
+/** Télécharge le PDF téléversé sur Vercel Blob par le navigateur (voir
+ * @/app/api/upload/pdf) et le convertit en base64 pour buildContentBlocks —
+ * qui n'a pas besoin de savoir que le fichier n'est plus arrivé inline dans
+ * la requête. Revalide aussi la taille réelle (défense en profondeur : la
+ * limite est déjà appliquée à l'upload via `maximumSizeInBytes`, mais on ne
+ * fait pas une confiance aveugle à ce qui a atterri sur le stockage). */
+export async function fetchPdfFromBlob(url: string): Promise<{ data: string; sizeBytes: number }> {
+  const result = await get(url, { access: "private" });
+  if (!result) {
+    throw new Error("Le PDF téléversé est introuvable ou a expiré. Réessayez.");
+  }
+
+  const buffer = await new Response(result.stream).arrayBuffer();
+  if (buffer.byteLength > MAX_PDF_FILE_BYTES) {
+    throw new Error(`Le PDF est trop volumineux (${(MAX_PDF_FILE_BYTES / (1024 * 1024)).toFixed(0)} Mo maximum).`);
+  }
+
+  return { data: Buffer.from(buffer).toString("base64"), sizeBytes: buffer.byteLength };
+}
+
+/** Supprime le PDF temporaire sur Vercel Blob une fois qu'on n'en a plus
+ * besoin (fin de traitement, succès ou échec) — chaque appel à /api/distill
+ * ou /api/distill/quiz téléverse sa propre copie et la supprime lui-même
+ * juste après usage, plutôt que de garder un fichier partagé entre appels
+ * dont la durée de vie serait plus difficile à raisonner. Ne fait jamais
+ * échouer la requête : l'utilisateur a déjà sa réponse, un fichier orphelin
+ * en cas d'échec de suppression n'est pas bloquant. */
+export async function deletePdfBlob(url: string): Promise<void> {
+  try {
+    await del(url);
+  } catch (error) {
+    console.error("Impossible de supprimer le PDF temporaire sur Vercel Blob :", error);
+  }
 }
 
 /** Construit le contenu multimodal (image/PDF/texte) envoyé à Claude — même

@@ -1,28 +1,23 @@
-// Vercel plafonne le corps d'une requête de Function à 4,5 Mo — une limite
-// d'infrastructure fixe, non modifiable via vercel.json ni le code
-// (https://vercel.com/docs/functions/limitations). Le PDF est transmis en
-// base64 dans le JSON, ce qui gonfle sa taille de ~33 % (base64 = brut ×
-// 4/3) : c'est ça, et non le traitement IA ou un risque de timeout, qui
-// borne le maximum réellement atteignable. Calcul (marge conservatrice,
-// 4,5 Mo pris en interprétation décimale) :
-//   4 500 000 (plafond Vercel)
-//   -  150 000 (réservés au texte collé + à la structure JSON)
-//   = 4 350 000 octets disponibles pour le PDF encodé en base64
-//   × 3/4 (retour à la taille brute) ≈ 3,11 Mo
-// D'où 3,1 Mo retenu ci-dessous : c'est très proche du plafond réel, pas
-// une marge arbitrairement prudente. Pour aller nettement plus loin (PDF
-// de cours de 10-20 Mo), il faudrait changer d'architecture : upload direct
-// du navigateur vers un stockage (Vercel Blob) qui contourne entièrement
-// cette limite de corps de requête, la route ne recevant plus qu'une
-// référence au fichier — hors périmètre de cette augmentation ponctuelle.
-//
 // Fichier volontairement sans dépendance serveur (pas de SDK Anthropic, pas
 // de next/server) : importé tel quel par le client (AiPanel.tsx, pour
-// valider avant l'envoi) et par le serveur (distillServer.ts).
-export const MAX_PDF_FILE_BYTES = 3.1 * 1024 * 1024; // ~3,1 Mo par PDF, brut
+// valider avant l'envoi) et par le serveur (distillServer.ts, pour
+// revalider).
 
-// Les images sont compressées côté client avant envoi (voir AiPanel.tsx) et
-// ne s'approchent jamais de cette taille en usage normal : plafond
-// nettement plus généreux qu'il n'est nécessaire, gardé comme simple
-// garde-fou défensif plutôt que recalculé au plus juste comme le PDF.
+// Les PDF sont téléversés directement du navigateur vers Vercel Blob (voir
+// @/app/api/upload/pdf), donc plus jamais transmis dans le corps de la
+// requête vers /api/distill — la limite n'est donc plus bornée par le
+// plafond de 4,5 Mo des Functions Vercel, mais choisie pour rester
+// raisonnable : un cours de plusieurs dizaines de Mo ferait grimper le
+// temps d'analyse par Claude et le coût par génération sans réel bénéfice
+// pédagogique. 15 Mo couvre largement un support de cours (texte + quelques
+// images/schémas), avec la marge de temps déjà prise sur /api/distill et
+// /api/distill/quiz (maxDuration = 300 s).
+export const MAX_PDF_FILE_BYTES = 15 * 1024 * 1024; // 15 Mo par PDF, brut
+
+// Les images, elles, restent transmises inline (base64 dans le corps de la
+// requête) : compressées côté client avant envoi (voir AiPanel.tsx), elles
+// ne s'approchent jamais de cette taille en usage normal. Ce plafond reste
+// borné par la limite réelle de 4,5 Mo de Vercel (base64 gonfle de ~33 %),
+// gardé nettement plus généreux qu'il n'est nécessaire, comme simple
+// garde-fou défensif.
 export const MAX_IMAGE_FILE_BYTES = 4 * 1024 * 1024; // 4 Mo une fois décodée/compressée

@@ -1,5 +1,6 @@
 "use client";
 
+import { upload } from "@vercel/blob/client";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import FileDropZone from "@/components/FileDropZone";
@@ -14,7 +15,7 @@ import type { DistillResult, QuizDifficulty, QuizGenerationResult } from "@/lib/
 import { QuizView } from "./QuizView";
 
 const MAX_RAW_IMAGE_BYTES = 20 * 1024 * 1024; // simple garde-fou avant compression
-const MAX_PDF_BYTES_LABEL = (MAX_PDF_FILE_BYTES / (1024 * 1024)).toFixed(1); // "3.1" pour l'affichage
+const MAX_PDF_BYTES_LABEL = (MAX_PDF_FILE_BYTES / (1024 * 1024)).toFixed(0); // "15" pour l'affichage
 
 // Les photos sont redimensionnées et recompressées côté client : une photo
 // d'iPad de plusieurs Mo devient une poignée de centaines de Ko avant envoi,
@@ -32,20 +33,19 @@ interface AiPanelProps {
   onClose: () => void;
 }
 
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result;
-      if (typeof result !== "string") {
-        reject(new Error("Lecture du fichier impossible."));
-        return;
-      }
-      resolve(result.split(",")[1] ?? "");
-    };
-    reader.onerror = () => reject(reader.error ?? new Error("Erreur de lecture"));
-    reader.readAsDataURL(file);
+/** Téléverse le PDF directement du navigateur vers Vercel Blob (jeton émis
+ * par @/app/api/upload/pdf) — il ne transite jamais par le corps de la
+ * requête vers /api/distill ou /api/distill/quiz, ce qui permet des PDF
+ * bien plus lourds que la limite de 4,5 Mo des Functions Vercel. Chaque
+ * appel (premier envoi, QCM en arrière-plan, réessai du QCM) téléverse sa
+ * propre copie : le serveur supprime la sienne juste après usage, donc rien
+ * n'est partagé ni réutilisé entre appels. */
+async function uploadPdfToBlob(file: File): Promise<{ url: string; mediaType: "application/pdf" }> {
+  const blob = await upload(file.name, file, {
+    access: "private",
+    handleUploadUrl: "/api/upload/pdf",
   });
+  return { url: blob.url, mediaType: "application/pdf" };
 }
 
 /** Redimensionne et recompresse une image (JPEG) via un canvas, quel que
@@ -154,21 +154,32 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
   }
 
   /** Génère uniquement le QCM (/api/distill/quiz), en arrière-plan pendant
-   * que l'utilisateur consulte déjà le résumé/les flashcards. Gestion
-   * d'erreur indépendante du premier appel : un échec ici n'affecte jamais
-   * `result` (résumé/flashcards restent affichés), seul l'onglet QCM
-   * affiche l'erreur avec un bouton pour réessayer cette seule partie. */
-  async function generateQuiz(source: { text?: string; imageData: string | null; pdfData: string | null }) {
+   * que l'utilisateur consulte déjà le résumé/les flashcards. Autonome (pas
+   * de paramètres) : relit `text`/`imageFile`/`pdfFile` directement dans
+   * l'état et effectue sa propre compression/upload, car le serveur
+   * supprime le PDF Blob de chaque appel juste après usage — impossible de
+   * réutiliser la référence du premier appel ici. Sert aussi bien au
+   * premier lancement qu'au réessai après échec (bouton "Réessayer").
+   * Gestion d'erreur indépendante du premier appel : un échec ici n'affecte
+   * jamais `result` (résumé/flashcards restent affichés), seul l'onglet
+   * QCM affiche l'erreur. */
+  async function generateQuiz() {
+    if (quizLoading) return;
     setQuizLoading(true);
     setQuizError(null);
     try {
+      const [imageData, pdfRef] = await Promise.all([
+        imageFile ? resizeImageToJpeg(imageFile) : Promise.resolve(null),
+        pdfFile ? uploadPdfToBlob(pdfFile) : Promise.resolve(null),
+      ]);
+
       const res = await fetch("/api/distill/quiz", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          text: source.text,
-          image: source.imageData ? { data: source.imageData, mediaType: "image/jpeg" } : undefined,
-          pdf: source.pdfData ? { data: source.pdfData, mediaType: "application/pdf" } : undefined,
+          text: text.trim() || undefined,
+          image: imageData ? { data: imageData, mediaType: "image/jpeg" } : undefined,
+          pdf: pdfRef ?? undefined,
           quizDifficulty,
         }),
       });
@@ -187,18 +198,6 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
     }
   }
 
-  /** Relance uniquement le QCM après un échec — recompresse la photo si
-   * besoin (rare, contrairement au premier appel qui réutilise directement
-   * les données déjà compressées). */
-  async function retryQuiz() {
-    if (quizLoading) return;
-    const [imageData, pdfData] = await Promise.all([
-      imageFile ? resizeImageToJpeg(imageFile) : Promise.resolve(null),
-      pdfFile ? fileToBase64(pdfFile) : Promise.resolve(null),
-    ]);
-    await generateQuiz({ text: text.trim() || undefined, imageData, pdfData });
-  }
-
   async function handleSubmit() {
     if (!hasInput || loading || limitReached) return;
     setLoading(true);
@@ -206,10 +205,12 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
 
     try {
       // Les photos sont compressées en JPEG côté client (poids réduit et
-      // format toujours accepté par l'API) ; les PDF sont envoyés tels quels.
-      const [imageData, pdfData] = await Promise.all([
+      // format toujours accepté par l'API) ; les PDF sont téléversés
+      // directement vers Vercel Blob, pour ne plus être bornés par la
+      // limite de taille de requête de Vercel.
+      const [imageData, pdfRef] = await Promise.all([
         imageFile ? resizeImageToJpeg(imageFile) : Promise.resolve(null),
-        pdfFile ? fileToBase64(pdfFile) : Promise.resolve(null),
+        pdfFile ? uploadPdfToBlob(pdfFile) : Promise.resolve(null),
       ]);
 
       // Premier appel : résumé + flashcards uniquement, exactement comme
@@ -220,7 +221,7 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
         body: JSON.stringify({
           text: text.trim() || undefined,
           image: imageData ? { data: imageData, mediaType: "image/jpeg" } : undefined,
-          pdf: pdfData ? { data: pdfData, mediaType: "application/pdf" } : undefined,
+          pdf: pdfRef ?? undefined,
         }),
       });
 
@@ -240,11 +241,12 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
       }
 
       // Deuxième appel, en arrière-plan : l'utilisateur voit déjà le résumé
-      // et les flashcards pendant que le QCM se génère. Réutilise les
-      // données déjà compressées ci-dessus, pas besoin de recompresser.
+      // et les flashcards pendant que le QCM se génère. Téléverse sa propre
+      // copie du PDF (voir generateQuiz) : celle du premier appel a déjà
+      // été supprimée côté serveur juste après usage.
       if (quizRequested) {
         setQuizRequestedForResult(true);
-        void generateQuiz({ text: text.trim() || undefined, imageData, pdfData });
+        void generateQuiz();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Une erreur est survenue.");
@@ -381,7 +383,7 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
               ) : quizError ? (
                 <div className="flex animate-fade flex-col items-center gap-3 rounded-xl border border-red-200 bg-red-50/40 p-6 text-center">
                   <p className="text-sm text-red-700">{quizError}</p>
-                  <button type="button" onClick={retryQuiz} className={buttonClasses("outline", "sm")}>
+                  <button type="button" onClick={() => void generateQuiz()} className={buttonClasses("outline", "sm")}>
                     Réessayer
                   </button>
                 </div>

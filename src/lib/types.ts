@@ -38,10 +38,21 @@ export interface DistillRequestFile {
   mediaType: string;
 }
 
+/** Référence à un PDF déjà téléversé sur Vercel Blob par le navigateur (upload
+ * direct, en dehors du corps de la requête) — voir @/lib/fileSizeLimits pour
+ * le calcul de MAX_PDF_FILE_BYTES et @/app/api/upload/pdf pour l'émission du
+ * jeton d'upload. Contrairement à l'image (toujours inline, voir
+ * DistillRequestFile), le PDF n'est plus assez petit pour tenir dans le
+ * corps de la requête une fois la limite portée à 15 Mo. */
+export interface PdfBlobReference {
+  url: string;
+  mediaType: "application/pdf";
+}
+
 export interface DistillRequestBody {
   text?: string;
   image?: DistillRequestFile;
-  pdf?: DistillRequestFile;
+  pdf?: PdfBlobReference;
 }
 
 /** Corps de la requête vers /api/distill/quiz — appel séparé de
@@ -51,7 +62,7 @@ export interface DistillRequestBody {
 export interface QuizRequestBody {
   text?: string;
   image?: DistillRequestFile;
-  pdf?: DistillRequestFile;
+  pdf?: PdfBlobReference;
   quizDifficulty: QuizDifficulty;
 }
 

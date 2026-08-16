@@ -6,10 +6,12 @@ import {
   MODEL,
   anthropicErrorResponse,
   buildContentBlocks,
+  deletePdfBlob,
   extractJson,
+  fetchPdfFromBlob,
   isQuizQuestion,
   missingApiKeyResponse,
-  validateFileSizes,
+  validateImageSize,
 } from "@/lib/distillServer";
 import type { QuizDifficulty, QuizQuestion, QuizRequestBody } from "@/lib/types";
 
@@ -91,15 +93,33 @@ export async function POST(request: Request) {
     );
   }
 
-  const fileError = validateFileSizes(image, pdf);
+  const fileError = validateImageSize(image);
   if (fileError) {
     return NextResponse.json({ error: fileError }, { status: 400 });
   }
 
-  const content = buildContentBlocks({ text, image, pdf });
-  const client = new Anthropic({ apiKey });
-
+  // Même logique que /api/distill : le PDF n'arrive que sous forme de
+  // référence Vercel Blob, à télécharger/reconvertir en base64, puis
+  // supprimer une fois l'appel terminé. Chaque appel (résumé/flashcards,
+  // QCM, et chaque tentative de réessai du QCM) téléverse et supprime sa
+  // propre copie — voir @/components/notes/AiPanel.
+  let pdfFile: { data: string; mediaType: string } | undefined;
   try {
+    if (pdf) {
+      try {
+        const { data } = await fetchPdfFromBlob(pdf.url);
+        pdfFile = { data, mediaType: "application/pdf" };
+      } catch (error) {
+        return NextResponse.json(
+          { error: error instanceof Error ? error.message : "Impossible de récupérer le PDF téléversé." },
+          { status: 400 },
+        );
+      }
+    }
+
+    const content = buildContentBlocks({ text, image, pdf: pdfFile });
+    const client = new Anthropic({ apiKey });
+
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: 8192,
@@ -130,5 +150,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ quiz: parsed.quiz as QuizQuestion[] });
   } catch (error) {
     return anthropicErrorResponse(error);
+  } finally {
+    if (pdf) {
+      await deletePdfBlob(pdf.url);
+    }
   }
 }
