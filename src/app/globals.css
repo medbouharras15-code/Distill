@@ -55,6 +55,11 @@
   --shadow-sm: 0 1px 2px rgba(18, 33, 27, 0.05);
   --shadow-md: 0 1px 2px rgba(18, 33, 27, 0.05), 0 12px 28px -18px rgba(18, 33, 27, 0.28);
   --shadow-lg: 0 2px 4px rgba(18, 33, 27, 0.05), 0 28px 60px -28px rgba(18, 33, 27, 0.42);
+
+  /* Courbe signature réutilisée pour toute micro-interaction "soignée" de
+   * l'app (élévation de carte, ouverture de panneau…) — même courbe que
+   * le geste de la landing (distill-fade, landing-drop). */
+  --ease-signature: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .dark {
@@ -155,6 +160,26 @@ body {
   50% { opacity: 1; transform: scale(1.06); }
 }
 .animate-aipulse { animation: distill-pulse 2.4s ease-in-out infinite; }
+
+/* Élévation partagée des cartes interactives (stats, carnets, listes…) —
+ * ombre diffuse + micro-scale sur la courbe signature, plutôt que les
+ * transitions par défaut de Tailwind (linéaires, trop mécaniques pour une
+ * carte censée se "soulever"). */
+.card-hover {
+  transition: transform 0.35s var(--ease-signature), box-shadow 0.35s var(--ease-signature), border-color 0.35s var(--ease-signature);
+}
+.card-hover:hover {
+  transform: translateY(-3px) scale(1.012);
+  box-shadow: var(--shadow-lg);
+}
+
+/* Dérive très lente d'un halo décoratif (carte IA du Dashboard…) — donne
+ * une impression discrète que l'interface "respire" sans jamais distraire. */
+@keyframes distill-drift {
+  0%, 100% { transform: scale(1) translate(0, 0); opacity: 0.2; }
+  50% { transform: scale(1.15) translate(-6px, 6px); opacity: 0.3; }
+}
+.animate-drift { animation: distill-drift 8s var(--ease-signature) infinite; }
 
 /* Utilitaire pour l'effet de retournement des flashcards */
 .flip-card {
@@ -382,5 +407,11 @@ body {
   }
   .landing-drop {
     animation: none !important;
+  }
+  .animate-drift {
+    animation: none !important;
+  }
+  .animate-fade {
+    animation-delay: 0s !important;
   }
 }

@@ -70,3 +70,13 @@ export function Badge({ children, className = "" }: { children: ReactNode; class
 export function Eyebrow({ children }: { children: ReactNode }) {
   return <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">{children}</div>;
 }
+
+/** Délai d'entrée pour un élément d'une liste/grille, à passer en `style` à
+ * côté de la classe `animate-fade` — chaque élément suivant apparaît avec un
+ * léger retard plutôt que tout d'un coup. `animate-fade` a déjà `both` comme
+ * mode de remplissage, donc l'élément reste invisible pendant son délai au
+ * lieu de clignoter. Neutralisé pour les utilisateurs en mouvement réduit
+ * (voir globals.css). */
+export function staggerDelay(index: number, stepMs = 60, baseMs = 0): { animationDelay: string } {
+  return { animationDelay: `${baseMs + index * stepMs}ms` };
+}

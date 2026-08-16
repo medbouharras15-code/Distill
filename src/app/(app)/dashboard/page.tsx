@@ -3,20 +3,30 @@
 import Link from "next/link";
 import { AiOrb } from "@/components/Brand";
 import { SheetPreview } from "@/components/notes/SheetPreview";
-import { Badge, Card, Eyebrow, buttonClasses } from "@/components/ui";
+import { Badge, Card, Eyebrow, buttonClasses, staggerDelay } from "@/components/ui";
 import { mockHistoryItems, mockNotebooks } from "@/lib/appMockData";
-import { Cards, ChevronRight, Clock, Doc, Plus } from "@/lib/icons";
+import { Books, Cards, ChevronRight, Clock, Doc, Plus } from "@/lib/icons";
 import { PAPER_SIZES } from "@/lib/notes/sheets";
 
 const sparkline = [10, 14, 9, 18, 15, 22, 19, 26];
 
-function Sparkline({ color = "var(--primary)" }: { color?: string }) {
+/** Sparkline avec aire dégradée en dessous du tracé — plus de présence
+ * visuelle qu'un simple trait, sans perdre en légèreté. */
+function Sparkline({ id, color = "var(--primary)" }: { id: string; color?: string }) {
   const max = Math.max(...sparkline);
-  const points = sparkline
-    .map((v, i) => `${(i / (sparkline.length - 1)) * 100},${28 - (v / max) * 24}`)
-    .join(" ");
+  const coords = sparkline.map((v, i) => [(i / (sparkline.length - 1)) * 100, 28 - (v / max) * 24] as const);
+  const points = coords.map(([x, y]) => `${x},${y}`).join(" ");
+  const area = `0,30 ${points} 100,30`;
+  const gradientId = `sparkline-${id}`;
   return (
     <svg viewBox="0 0 100 30" preserveAspectRatio="none" className="h-8 w-full">
+      <defs>
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.28" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <polygon points={area} fill={`url(#${gradientId})`} />
       <polyline
         points={points}
         fill="none"
@@ -32,10 +42,10 @@ function Sparkline({ color = "var(--primary)" }: { color?: string }) {
 
 const totalPages = mockNotebooks.reduce((sum, n) => sum + n.pages, 0);
 const stats = [
-  { label: "Carnets", value: String(mockNotebooks.length), sub: "+1 cette semaine" },
-  { label: "Pages écrites", value: String(totalPages), sub: "18 aujourd'hui" },
-  { label: "Flashcards", value: "148", sub: "92 % maîtrisées" },
-  { label: "Temps d'étude", value: "12 h", sub: "cette semaine" },
+  { label: "Carnets", value: String(mockNotebooks.length), sub: "+1 cette semaine", icon: Books, tint: "primary" as const },
+  { label: "Pages écrites", value: String(totalPages), sub: "18 aujourd'hui", icon: Doc, tint: "primary" as const },
+  { label: "Flashcards", value: "148", sub: "92 % maîtrisées", icon: Cards, tint: "ai" as const },
+  { label: "Temps d'étude", value: "12 h", sub: "cette semaine", icon: Clock, tint: "primary" as const },
 ];
 
 const dateLabel = new Intl.DateTimeFormat("fr-FR", {
@@ -74,14 +84,24 @@ export default function DashboardPage() {
       {/* Stats */}
       <div className="mt-10 grid grid-cols-2 gap-4 md:grid-cols-4">
         {stats.map((s, i) => (
-          <Card key={s.label} className="group relative overflow-hidden p-5 transition hover:-translate-y-0.5 hover:shadow-[var(--shadow-md)]">
+          <Card
+            key={s.label}
+            className="card-hover group relative animate-fade overflow-hidden p-5"
+            style={staggerDelay(i)}
+          >
             <div className="flex items-start justify-between">
               <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{s.label}</div>
-              <span className="h-1.5 w-1.5 rounded-full bg-primary/40 transition group-hover:bg-primary" />
+              <span
+                className={`grid h-7 w-7 shrink-0 place-items-center rounded-full transition-transform duration-300 group-hover:scale-110 ${
+                  s.tint === "ai" ? "ai-gradient text-white" : "bg-accent-light text-accent-dark"
+                }`}
+              >
+                <s.icon size={14} />
+              </span>
             </div>
             <div className="mt-3 font-display text-[34px] leading-none tracking-tight tabular-nums text-foreground">{s.value}</div>
-            <div className="-mx-1 mt-3 opacity-70">
-              <Sparkline color={i === 2 ? "var(--ai-2)" : "var(--primary)"} />
+            <div className="-mx-1 mt-3">
+              <Sparkline id={s.label} color={s.tint === "ai" ? "var(--ai-2)" : "var(--primary)"} />
             </div>
             <div className="mt-1 text-[11px] text-muted-foreground">{s.sub}</div>
           </Card>
@@ -98,11 +118,11 @@ export default function DashboardPage() {
             </Link>
           </div>
           <div className="space-y-3">
-            {recent.map((n) => {
+            {recent.map((n, i) => {
               const ratio = PAPER_SIZES.find((p) => p.value === n.paperSize)?.ratio ?? PAPER_SIZES[0].ratio;
               return (
                 <Link key={n.id} href="/notes" className="group block w-full text-left">
-                  <Card className="flex items-center gap-4 overflow-hidden p-3 transition duration-300 group-hover:-translate-y-0.5 group-hover:shadow-[var(--shadow-md)]">
+                  <Card className="card-hover flex animate-fade items-center gap-4 overflow-hidden p-3" style={staggerDelay(i)}>
                     <div className="relative h-20 w-16 shrink-0 overflow-hidden rounded-xl">
                       <SheetPreview sheetType={n.sheetType} backgroundColor="#ffffff" ratio={ratio} width={64} className="h-full w-full" />
                       <span className="absolute left-0 top-0 h-full w-1" style={{ background: n.color }} />
@@ -130,7 +150,7 @@ export default function DashboardPage() {
         <div className="flex flex-col gap-6">
           {/* AI card */}
           <Card className="relative overflow-hidden p-6">
-            <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full ai-gradient opacity-20 blur-2xl" />
+            <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full ai-gradient opacity-20 blur-2xl animate-drift" />
             <div className="relative">
               <div className="flex items-center gap-3">
                 <AiOrb size={40} active />
@@ -159,9 +179,13 @@ export default function DashboardPage() {
             <div className="mb-3 flex items-center gap-2 text-[15px] font-semibold tracking-tight text-foreground">
               <Clock size={16} className="text-muted-foreground" /> Activité récente
             </div>
-            <ul className="space-y-3">
-              {mockHistoryItems.slice(0, 4).map((h) => (
-                <li key={h.id} className="flex gap-3">
+            <ul className="space-y-1">
+              {mockHistoryItems.slice(0, 4).map((h, i) => (
+                <li
+                  key={h.id}
+                  className="flex animate-fade items-start gap-3 rounded-xl p-2 -m-2 transition-colors duration-300 hover:bg-secondary/60"
+                  style={staggerDelay(i)}
+                >
                   <div className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
                   <div className="min-w-0">
                     <div className="truncate text-sm text-foreground">{h.title}</div>
