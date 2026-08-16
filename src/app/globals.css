@@ -181,6 +181,31 @@ body {
 }
 .animate-drift { animation: distill-drift 8s var(--ease-signature) infinite; }
 
+/* Grain de papier réutilisable partout dans l'app (aperçus de feuilles des
+ * carnets…) — même technique que .landing-grain (bruit encodé en data-URI,
+ * aucune requête réseau) mais nom générique puisqu'elle n'est plus scopée à
+ * la landing. Un peu plus marquée que .landing-grain : posée ici sur un
+ * fond blanc de miniature plutôt que sur le fond crème/sombre de la page. */
+.paper-grain {
+  position: relative;
+  isolation: isolate;
+}
+.paper-grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.05;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+}
+.dark .paper-grain::after {
+  opacity: 0.07;
+  mix-blend-mode: overlay;
+}
+
 /* Utilitaire pour l'effet de retournement des flashcards */
 .flip-card {
   perspective: 1500px;

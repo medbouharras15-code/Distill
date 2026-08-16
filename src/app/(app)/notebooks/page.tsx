@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { SheetPreview } from "@/components/notes/SheetPreview";
-import { Badge, Card, buttonClasses } from "@/components/ui";
+import { Badge, Card, buttonClasses, staggerDelay } from "@/components/ui";
 import { mockNotebooks } from "@/lib/appMockData";
 import { Dots, Plus, Star } from "@/lib/icons";
 import { PAPER_SIZES, SHEET_TYPES } from "@/lib/notes/sheets";
@@ -54,20 +54,34 @@ export default function NotebooksPage() {
       </div>
 
       <div className="mt-6 grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4">
-        {list.map((n) => {
+        {list.map((n, i) => {
           const ratio = PAPER_SIZES.find((p) => p.value === n.paperSize)?.ratio ?? PAPER_SIZES[0].ratio;
           return (
-            <Link key={n.id} href="/notes" className="group text-left">
-              <Card className="overflow-hidden transition-all duration-300 group-hover:-translate-y-1">
-                <div className="relative h-36 overflow-hidden">
-                  <SheetPreview sheetType={n.sheetType} backgroundColor="#ffffff" ratio={ratio} width={200} className="h-full w-full" />
+            <Link key={n.id} href="/notes" className="group block animate-fade text-left" style={staggerDelay(i)}>
+              <Card className="card-hover relative overflow-hidden">
+                {/* Léger bain de couleur au survol, dans la teinte du carnet —
+                    donne un sentiment d'identité propre à chaque carnet plutôt
+                    qu'une grille uniforme. */}
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0 z-0 opacity-0 transition-opacity duration-500 group-hover:opacity-100"
+                  style={{ background: `radial-gradient(140% 70% at 50% 0%, color-mix(in srgb, ${n.color} 16%, transparent), transparent 70%)` }}
+                />
+                <div className="relative z-10 h-36 overflow-hidden paper-grain">
+                  <SheetPreview
+                    sheetType={n.sheetType}
+                    backgroundColor="#ffffff"
+                    ratio={ratio}
+                    width={200}
+                    className="h-full w-full shadow-[0_10px_22px_-16px_rgba(18,33,27,0.55)] transition-transform duration-500 group-hover:scale-[1.03]"
+                  />
                   {n.favorite && (
-                    <span className="absolute right-2.5 top-2.5 text-primary">
+                    <span className="absolute right-2.5 top-2.5 z-[2] text-primary drop-shadow-sm">
                       <Star size={17} />
                     </span>
                   )}
                 </div>
-                <div className="p-4">
+                <div className="relative z-10 p-4">
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
@@ -94,9 +108,9 @@ export default function NotebooksPage() {
             </Link>
           );
         })}
-        <Link href="/notebooks/new" className="group">
-          <div className="flex h-full min-h-[220px] flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border text-muted-foreground transition hover:border-primary hover:text-primary">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full border border-current">
+        <Link href="/notebooks/new" className="group block animate-fade" style={staggerDelay(list.length)}>
+          <div className="flex h-full min-h-[220px] flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border text-muted-foreground transition-all duration-300 ease-[var(--ease-signature)] hover:border-primary hover:bg-secondary/30 hover:text-primary">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full border border-current transition-transform duration-300 group-hover:scale-110">
               <Plus size={22} />
             </div>
             <span className="text-sm font-medium">Créer un carnet</span>
