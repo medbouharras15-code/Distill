@@ -7,7 +7,7 @@ import FlashcardView from "@/components/FlashcardView";
 import { AiOrb } from "@/components/Brand";
 import { Badge, buttonClasses } from "@/components/ui";
 import { Close } from "@/lib/icons";
-import { FREE_GENERATIONS_LIMIT, isSubscribed } from "@/lib/billing";
+import { FREE_GENERATIONS_LIMIT, IS_FREE_LIMIT_OVERRIDDEN, isSubscribed } from "@/lib/billing";
 import { parseJsonResponse, useSubscriptionActions } from "@/lib/useSubscriptionActions";
 import type { DistillResult, QuizDifficulty, QuizGenerationResult } from "@/lib/types";
 import { QuizView } from "./QuizView";
@@ -293,9 +293,10 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
           {subscribed ? (
             <Badge className="bg-accent-light/50 text-accent-dark">✦ Abonné — accès illimité</Badge>
           ) : (
-            <span className="text-xs text-muted-foreground">
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
               {remaining} génération{remaining !== 1 ? "s" : ""} gratuite{remaining !== 1 ? "s" : ""} restante
               {remaining !== 1 ? "s" : ""}
+              {IS_FREE_LIMIT_OVERRIDDEN && <Badge className="bg-amber-100 text-amber-800">Limite de test</Badge>}
             </span>
           )}
           <button
