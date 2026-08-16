@@ -42,10 +42,21 @@ export interface DistillRequestBody {
   text?: string;
   image?: DistillRequestFile;
   pdf?: DistillRequestFile;
-  /** Présent uniquement si l'étudiant a coché "Générer aussi un QCM de
-   * révision" — absent, le comportement (prompt, forme de la réponse) est
-   * strictement identique à avant l'introduction du QCM. */
-  quizDifficulty?: QuizDifficulty;
+}
+
+/** Corps de la requête vers /api/distill/quiz — appel séparé de
+ * /api/distill, lancé une fois le résumé/les flashcards déjà affichés (voir
+ * @/components/notes/AiPanel). Même matière source (texte/photo/PDF) que le
+ * premier appel, mais la difficulté est cette fois obligatoire. */
+export interface QuizRequestBody {
+  text?: string;
+  image?: DistillRequestFile;
+  pdf?: DistillRequestFile;
+  quizDifficulty: QuizDifficulty;
+}
+
+export interface QuizGenerationResult {
+  quiz: QuizQuestion[];
 }
 
 export interface Profile {

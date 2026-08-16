@@ -9,7 +9,7 @@ import { Badge, buttonClasses } from "@/components/ui";
 import { Close } from "@/lib/icons";
 import { FREE_GENERATIONS_LIMIT, isSubscribed } from "@/lib/billing";
 import { parseJsonResponse, useSubscriptionActions } from "@/lib/useSubscriptionActions";
-import type { DistillResult, QuizDifficulty } from "@/lib/types";
+import type { DistillResult, QuizDifficulty, QuizGenerationResult } from "@/lib/types";
 import { QuizView } from "./QuizView";
 
 // Vercel limite la taille d'une requête à ~4,5 Mo. Le base64 gonfle les
@@ -121,6 +121,12 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
   const [dismissedCheckoutBanner, setDismissedCheckoutBanner] = useState(false);
   const [quizRequested, setQuizRequested] = useState(false);
   const [quizDifficulty, setQuizDifficulty] = useState<QuizDifficulty>("easy");
+  // État du QCM, généré par un appel séparé (/api/distill/quiz) une fois le
+  // résumé/les flashcards déjà affichés — voir generateQuiz. Indépendant de
+  // `result`/`error`, qui ne concernent que le premier appel.
+  const [quizRequestedForResult, setQuizRequestedForResult] = useState(false);
+  const [quizLoading, setQuizLoading] = useState(false);
+  const [quizError, setQuizError] = useState<string | null>(null);
 
   const subscribed = isSubscribed({ subscription_status: subscriptionStatus });
   const remaining = subscribed ? Infinity : Math.max(0, FREE_GENERATIONS_LIMIT - localGenerationsUsed);
@@ -149,6 +155,52 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
     setPdfFile(file);
   }
 
+  /** Génère uniquement le QCM (/api/distill/quiz), en arrière-plan pendant
+   * que l'utilisateur consulte déjà le résumé/les flashcards. Gestion
+   * d'erreur indépendante du premier appel : un échec ici n'affecte jamais
+   * `result` (résumé/flashcards restent affichés), seul l'onglet QCM
+   * affiche l'erreur avec un bouton pour réessayer cette seule partie. */
+  async function generateQuiz(source: { text?: string; imageData: string | null; pdfData: string | null }) {
+    setQuizLoading(true);
+    setQuizError(null);
+    try {
+      const res = await fetch("/api/distill/quiz", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: source.text,
+          image: source.imageData ? { data: source.imageData, mediaType: "image/jpeg" } : undefined,
+          pdf: source.pdfData ? { data: source.pdfData, mediaType: "application/pdf" } : undefined,
+          quizDifficulty,
+        }),
+      });
+
+      const payload = await parseJsonResponse(res);
+      if (!res.ok) {
+        throw new Error(typeof payload.error === "string" ? payload.error : "Impossible de générer le QCM.");
+      }
+
+      const { quiz } = payload as unknown as QuizGenerationResult;
+      setResult((prev) => (prev ? { ...prev, quiz } : prev));
+    } catch (err) {
+      setQuizError(err instanceof Error ? err.message : "Une erreur est survenue.");
+    } finally {
+      setQuizLoading(false);
+    }
+  }
+
+  /** Relance uniquement le QCM après un échec — recompresse la photo si
+   * besoin (rare, contrairement au premier appel qui réutilise directement
+   * les données déjà compressées). */
+  async function retryQuiz() {
+    if (quizLoading) return;
+    const [imageData, pdfData] = await Promise.all([
+      imageFile ? resizeImageToJpeg(imageFile) : Promise.resolve(null),
+      pdfFile ? fileToBase64(pdfFile) : Promise.resolve(null),
+    ]);
+    await generateQuiz({ text: text.trim() || undefined, imageData, pdfData });
+  }
+
   async function handleSubmit() {
     if (!hasInput || loading || limitReached) return;
     setLoading(true);
@@ -162,6 +214,8 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
         pdfFile ? fileToBase64(pdfFile) : Promise.resolve(null),
       ]);
 
+      // Premier appel : résumé + flashcards uniquement, exactement comme
+      // avant l'introduction du QCM — celui-ci n'est jamais envoyé ici.
       const res = await fetch("/api/distill", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -169,7 +223,6 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
           text: text.trim() || undefined,
           image: imageData ? { data: imageData, mediaType: "image/jpeg" } : undefined,
           pdf: pdfData ? { data: pdfData, mediaType: "application/pdf" } : undefined,
-          quizDifficulty: quizRequested ? quizDifficulty : undefined,
         }),
       });
 
@@ -187,6 +240,14 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
       if (!subscribed) {
         setLocalGenerationsUsed((n) => n + 1);
       }
+
+      // Deuxième appel, en arrière-plan : l'utilisateur voit déjà le résumé
+      // et les flashcards pendant que le QCM se génère. Réutilise les
+      // données déjà compressées ci-dessus, pas besoin de recompresser.
+      if (quizRequested) {
+        setQuizRequestedForResult(true);
+        void generateQuiz({ text: text.trim() || undefined, imageData, pdfData });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Une erreur est survenue.");
     } finally {
@@ -200,6 +261,9 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
     setText("");
     setImageFile(null);
     setPdfFile(null);
+    setQuizRequestedForResult(false);
+    setQuizLoading(false);
+    setQuizError(null);
   }
 
   return (
@@ -295,7 +359,7 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
                 >
                   Flashcards ({result.flashcards.length})
                 </button>
-                {result.quiz && (
+                {quizRequestedForResult && (
                   <button
                     type="button"
                     onClick={() => setTab("quiz")}
@@ -303,7 +367,7 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
                       tab === "quiz" ? "bg-card text-accent-dark shadow-[var(--shadow-sm)]" : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
-                    QCM ({result.quiz.length})
+                    QCM{result.quiz ? ` (${result.quiz.length})` : ""}
                   </button>
                 )}
               </div>
@@ -312,8 +376,22 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
               </button>
             </div>
 
-            {tab === "quiz" && result.quiz ? (
-              <QuizView quiz={result.quiz} />
+            {tab === "quiz" ? (
+              result.quiz ? (
+                <QuizView quiz={result.quiz} />
+              ) : quizError ? (
+                <div className="flex animate-fade flex-col items-center gap-3 rounded-xl border border-red-200 bg-red-50/40 p-6 text-center">
+                  <p className="text-sm text-red-700">{quizError}</p>
+                  <button type="button" onClick={retryQuiz} className={buttonClasses("outline", "sm")}>
+                    Réessayer
+                  </button>
+                </div>
+              ) : (
+                <div className="flex animate-fade flex-col items-center justify-center gap-3 py-16 text-center">
+                  <span className="h-6 w-6 animate-spin rounded-full border-2 border-accent border-t-transparent" aria-hidden="true" />
+                  <p className="text-sm text-muted-foreground">Génération de votre QCM en cours…</p>
+                </div>
+              )
             ) : tab === "summary" ? (
               <article className="prose-summary animate-fade rounded-2xl border border-border bg-background p-5 shadow-[var(--shadow-sm)]">
                 <ReactMarkdown
