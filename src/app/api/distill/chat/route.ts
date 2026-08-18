@@ -10,6 +10,7 @@ import {
   fetchPdfFromBlob,
   missingApiKeyResponse,
   validateImageSize,
+  withCacheControl,
 } from "@/lib/distillServer";
 import type { ChatCitation, ChatRequestBody, ChatResponseBody } from "@/lib/types";
 
@@ -105,6 +106,13 @@ export async function POST(request: Request) {
     const sourceContent = buildContentBlocks({ text, image, pdf: pdfFile }) as Anthropic.ContentBlockParam[];
     const client = new Anthropic({ apiKey });
 
+    // Le contenu source est identique à chaque appel de cette conversation
+    // (même PDF/photo/texte relu à chaque message) : on marque son dernier
+    // bloc pour la mise en cache Anthropic (TTL 5 min) afin que Claude ne le
+    // retraite en entier qu'une fois par tranche de 5 minutes au lieu de le
+    // refacturer intégralement à chaque tour (voir withCacheControl).
+    const cachedSourceContent = withCacheControl(sourceContent);
+
     // Claude exige une conversation où les rôles alternent strictement en
     // commençant par "user". Les notes sources n'ont donc de sens que
     // rattachées au tout premier message "user" reconstruit ici : sur le
@@ -113,13 +121,19 @@ export async function POST(request: Request) {
     // tours suivants s'enchaînant ensuite normalement.
     const messages: Anthropic.MessageParam[] = [];
     if (history.length === 0) {
-      messages.push({ role: "user", content: [...sourceContent, { type: "text", text: question }] });
+      messages.push({ role: "user", content: [...cachedSourceContent, { type: "text", text: question }] });
     } else {
       const [firstTurn, ...restTurns] = history;
-      messages.push({ role: "user", content: [...sourceContent, { type: "text", text: firstTurn.content }] });
+      messages.push({ role: "user", content: [...cachedSourceContent, { type: "text", text: firstTurn.content }] });
       for (const turn of restTurns) {
         messages.push({ role: turn.role, content: turn.content });
       }
+      // Deuxième point d'ancrage, gratuit dans la limite de 4 par requête :
+      // cache aussi l'historique déjà échangé (hors nouvelle question), qui
+      // grandit à chaque tour mais reste identique d'un appel à l'autre pour
+      // les tours déjà passés.
+      const lastHistoryMessage = messages[messages.length - 1];
+      lastHistoryMessage.content = withCacheControl(lastHistoryMessage.content);
       messages.push({ role: "user", content: question });
     }
 

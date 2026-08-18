@@ -152,6 +152,30 @@ export function buildContentBlocks({
   return content;
 }
 
+/** Marque le dernier bloc d'un contenu (chaîne ou tableau de blocs) pour la
+ * mise en cache Anthropic (TTL 5 min par défaut) : tout ce qui précède ce
+ * bloc est mis en cache côté serveur Anthropic et relu à ~10 % du prix
+ * normal au prochain appel partageant le même préfixe — à condition que les
+ * octets soient strictement identiques (le moindre changement avant ce bloc
+ * invalide le cache, silencieusement, sans erreur). Utilisé pour le contenu
+ * source (PDF/photo/texte) de /api/distill/chat, renvoyé intégralement à
+ * chaque message d'une même conversation. */
+export function withCacheControl(
+  content: string | Anthropic.ContentBlockParam[],
+): Anthropic.ContentBlockParam[] {
+  const blocks: Anthropic.ContentBlockParam[] =
+    typeof content === "string" ? [{ type: "text", text: content }] : content;
+  if (blocks.length === 0) return blocks;
+  const last = blocks[blocks.length - 1];
+  // Assertion nécessaire : le type ContentBlockParam est une union incluant
+  // des blocs (ex. ThinkingBlockParam) qui n'acceptent pas cache_control,
+  // mais en pratique seuls des blocs text/image/document transitent ici.
+  return [
+    ...blocks.slice(0, -1),
+    { ...last, cache_control: { type: "ephemeral" } } as Anthropic.ContentBlockParam,
+  ];
+}
+
 /** Vrai si l'erreur signale que le contenu dépasse une limite de capacité
  * du modèle (nombre de pages PDF, longueur de contexte) plutôt qu'un autre
  * type de problème (limite de débit, authentification, requête invalide

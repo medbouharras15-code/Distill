@@ -102,6 +102,20 @@ export function ChatView({ text, imageFile, pdfFile }: ChatViewProps) {
   const [activeCitation, setActiveCitation] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const threadEndRef = useRef<HTMLDivElement>(null);
+  // Mémorise le JPEG redimensionné pour la photo source le temps de la
+  // session : recalculer un ré-encodage à chaque message produirait des
+  // octets légèrement différents d'un appel à l'autre et casserait la mise
+  // en cache Anthropic côté serveur (qui exige un préfixe strictement
+  // identique). Indexé par référence de File : une nouvelle photo invalide
+  // naturellement l'entrée.
+  const imageDataCache = useRef<{ file: File; data: Promise<string> } | null>(null);
+
+  function getCachedImageData(file: File): Promise<string> {
+    if (imageDataCache.current?.file !== file) {
+      imageDataCache.current = { file, data: resizeImageToJpeg(file) };
+    }
+    return imageDataCache.current.data;
+  }
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -126,7 +140,7 @@ export function ChatView({ text, imageFile, pdfFile }: ChatViewProps) {
 
     try {
       const [imageData, pdfRef] = await Promise.all([
-        imageFile ? resizeImageToJpeg(imageFile) : Promise.resolve(null),
+        imageFile ? getCachedImageData(imageFile) : Promise.resolve(null),
         pdfFile ? uploadPdfToBlob(pdfFile) : Promise.resolve(null),
       ]);
 
