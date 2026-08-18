@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getUserAndProfile } from "@/lib/auth";
 import { FREE_GENERATIONS_LIMIT, isSubscribed } from "@/lib/billing";
 import {
+  SHARED_TASK_SYSTEM_PROMPT,
   anthropicErrorResponse,
   buildContentBlocks,
   callClaudeWithFallback,
@@ -11,15 +12,19 @@ import {
   fetchPdfFromBlob,
   missingApiKeyResponse,
   validateImageSize,
+  withCacheControl,
 } from "@/lib/distillServer";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { DistillRequestBody, DistillResult } from "@/lib/types";
 
-// Le prompt exact demandé pour transformer les notes en résumé + flashcards.
-// Le QCM est généré séparément par /api/distill/quiz (appel indépendant,
-// lancé une fois ce résumé affiché) : cette route n'en a plus la charge, ce
-// qui garde le premier affichage rapide comme avant l'introduction du QCM.
-const SYSTEM_PROMPT = `Tu es un expert pédagogique. Génère un résumé structuré (titre, sections, points clés en gras) et 8 à 10 flashcards (question/réponse) à partir de ce contenu. Réponds uniquement en JSON : {"summary": "...", "flashcards": [{"question": "...", "answer": "..."}]}`;
+// Instructions propres au résumé — placées dans le message utilisateur
+// (après le contenu source mis en cache) plutôt que dans le system prompt,
+// qui reste volontairement générique et partagé avec /api/distill/quiz :
+// voir SHARED_TASK_SYSTEM_PROMPT dans distillServer.ts. Le QCM est généré
+// séparément par /api/distill/quiz (appel indépendant, lancé une fois ce
+// résumé affiché) : cette route n'en a plus la charge, ce qui garde le
+// premier affichage rapide comme avant l'introduction du QCM.
+const RESUME_INSTRUCTIONS = `Génère un résumé structuré (titre, sections, points clés en gras) et 8 à 10 flashcards (question/réponse) à partir de ce contenu. Format JSON attendu : {"summary": "...", "flashcards": [{"question": "...", "answer": "..."}]}`;
 
 // Depuis le passage des PDF à Vercel Blob, cette route peut recevoir des
 // documents nettement plus lourds (jusqu'à 15 Mo) qu'auparavant — Claude met
@@ -109,10 +114,24 @@ export async function POST(request: Request) {
       }
     }
 
-    const content = buildContentBlocks({ text, image, pdf: pdfFile });
+    // Le contenu source est mis en cache (voir withCacheControl) : le même
+    // PDF/photo/texte est renvoyé quelques secondes plus tard, à l'identique,
+    // par /api/distill/quiz pour générer le QCM — ce dernier peut alors le
+    // relire depuis le cache Anthropic au lieu de le retraiter en entier.
+    const sourceContent = buildContentBlocks({ text, image, pdf: pdfFile }) as Anthropic.ContentBlockParam[];
+    const content = [...withCacheControl(sourceContent), { type: "text" as const, text: RESUME_INSTRUCTIONS }];
     const client = new Anthropic({ apiKey });
 
-    const response = await callClaudeWithFallback(client, { maxTokens: 4096, system: SYSTEM_PROMPT, content });
+    const response = await callClaudeWithFallback(client, {
+      maxTokens: 4096,
+      system: SHARED_TASK_SYSTEM_PROMPT,
+      content,
+    });
+
+    // Diagnostic temporaire (même log que /api/distill/chat) pour vérifier
+    // que /api/distill/quiz relit bien ce contenu source depuis le cache
+    // quelques secondes plus tard. À retirer une fois la vérification faite.
+    console.log("[distill] usage Anthropic :", response.usage);
 
     if (response.stop_reason === "refusal") {
       return NextResponse.json(

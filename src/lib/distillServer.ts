@@ -14,6 +14,19 @@ import type { DistillRequestFile, QuizQuestion } from "@/lib/types";
 export const MODEL = "claude-haiku-4-5";
 export const FALLBACK_MODEL = "claude-sonnet-4-6";
 
+/** System prompt volontairement générique et identique entre /api/distill et
+ * /api/distill/quiz — les instructions propres à chaque tâche (format du
+ * résumé, nombre de questions/difficulté du QCM) vivent dans le message
+ * utilisateur, après le contenu source mis en cache (voir withCacheControl
+ * ci-dessous). Le cache Anthropic est un match de préfixe cumulé (tools →
+ * system → messages) : le moindre octet différent dans le system invaliderait
+ * le cache du contenu source qui le suit, empêchant l'appel QCM de relire le
+ * PDF/photo/texte déjà mis en cache par l'appel résumé qui le précède de
+ * quelques secondes. Garder ce system gelé et partagé est ce qui permet aux
+ * deux routes de partager la même entrée de cache pour un même contenu. */
+export const SHARED_TASK_SYSTEM_PROMPT =
+  "Tu es un expert pédagogique. Réponds uniquement en JSON, sans aucun texte en dehors du JSON.";
+
 export function base64ByteLength(base64: string): number {
   const cleaned = base64.replace(/=+$/, "");
   return Math.floor((cleaned.length * 3) / 4);

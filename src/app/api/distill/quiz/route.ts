@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getUserAndProfile } from "@/lib/auth";
 import { FREE_GENERATIONS_LIMIT, isSubscribed } from "@/lib/billing";
 import {
+  SHARED_TASK_SYSTEM_PROMPT,
   anthropicErrorResponse,
   buildContentBlocks,
   callClaudeWithFallback,
@@ -12,24 +13,29 @@ import {
   isQuizQuestion,
   missingApiKeyResponse,
   validateImageSize,
+  withCacheControl,
 } from "@/lib/distillServer";
 import type { QuizDifficulty, QuizQuestion, QuizRequestBody } from "@/lib/types";
 
 const QUIZ_QUESTION_COUNT = 12;
 
-function buildQuizSystemPrompt(difficulty: QuizDifficulty): string {
+// Instructions propres au QCM — placées dans le message utilisateur (après
+// le contenu source mis en cache) plutôt que dans le system prompt, qui
+// reste volontairement générique et partagé avec /api/distill : voir
+// SHARED_TASK_SYSTEM_PROMPT dans distillServer.ts.
+function buildQuizInstructions(difficulty: QuizDifficulty): string {
   const difficultyInstruction =
     difficulty === "hard"
       ? "difficile : questions pointues, distracteurs plausibles et proches de la bonne réponse"
       : "facile : questions directes, distracteurs clairement différents de la bonne réponse";
 
-  return `Tu es un expert pédagogique. Génère un QCM de ${QUIZ_QUESTION_COUNT} questions à partir de ce contenu, niveau ${difficultyInstruction}, dans l'esprit d'un examen :
+  return `Génère un QCM de ${QUIZ_QUESTION_COUNT} questions à partir de ce contenu, niveau ${difficultyInstruction}, dans l'esprit d'un examen :
 - Chaque question a un énoncé clair et 4 ou 5 propositions de réponse.
 - Certaines questions ont UNE SEULE bonne réponse, d'autres en ont PLUSIEURS (2 ou plus) — mélange les deux types aléatoirement dans l'ordre des questions, sans jamais l'indiquer dans l'énoncé ni dans les propositions : l'étudiant doit le déduire par lui-même en lisant les choix, exactement comme dans un vrai examen.
 - Vise un mélange équilibré entre questions à réponse unique et à réponses multiples (ni l'un ni l'autre en écrasante majorité).
 - Pour chaque question, fournis une courte explication (1 à 2 phrases) justifiant la ou les bonnes réponses.
 - Chaque proposition a un identifiant "id" à une seule lettre, unique au sein de sa question ("a", "b", "c", "d", éventuellement "e").
-Réponds uniquement en JSON : {"quiz": [{"question": "...", "choices": [{"id": "a", "text": "..."}, {"id": "b", "text": "..."}], "correctChoiceIds": ["a"], "explanation": "..."}]}`;
+Format JSON attendu : {"quiz": [{"question": "...", "choices": [{"id": "a", "text": "..."}, {"id": "b", "text": "..."}], "correctChoiceIds": ["a"], "explanation": "..."}]}`;
 }
 
 // Même contenu source que /api/distill (texte/photo/PDF) : peut prendre un
@@ -117,14 +123,30 @@ export async function POST(request: Request) {
       }
     }
 
-    const content = buildContentBlocks({ text, image, pdf: pdfFile });
+    // Même contenu source que /api/distill, avec la même mise en cache (voir
+    // withCacheControl) : si cet appel arrive dans les 5 minutes suivant
+    // l'appel résumé (déroulement normal, voir @/components/notes/AiPanel),
+    // il relit le PDF/photo/texte depuis le cache Anthropic au lieu de le
+    // retraiter en entier — à condition que le system prompt soit identique
+    // aux deux appels, d'où SHARED_TASK_SYSTEM_PROMPT.
+    const sourceContent = buildContentBlocks({ text, image, pdf: pdfFile }) as Anthropic.ContentBlockParam[];
+    const content = [
+      ...withCacheControl(sourceContent),
+      { type: "text" as const, text: buildQuizInstructions(difficulty) },
+    ];
     const client = new Anthropic({ apiKey });
 
     const response = await callClaudeWithFallback(client, {
       maxTokens: 8192,
-      system: buildQuizSystemPrompt(difficulty),
+      system: SHARED_TASK_SYSTEM_PROMPT,
       content,
     });
+
+    // Diagnostic temporaire (même log que /api/distill/chat) pour vérifier
+    // que cet appel relit bien le contenu source depuis le cache écrit par
+    // /api/distill quelques secondes plus tôt. À retirer une fois la
+    // vérification faite.
+    console.log("[distill/quiz] usage Anthropic :", response.usage);
 
     if (response.stop_reason === "refusal") {
       return NextResponse.json(
