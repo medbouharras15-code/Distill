@@ -15,7 +15,7 @@ import {
 } from "@/lib/distillServer";
 import type { QuizDifficulty, QuizQuestion, QuizRequestBody } from "@/lib/types";
 
-const QUIZ_QUESTION_COUNT = 20;
+const QUIZ_QUESTION_COUNT = 12;
 
 function buildQuizSystemPrompt(difficulty: QuizDifficulty): string {
   const difficultyInstruction =
@@ -33,12 +33,12 @@ Réponds uniquement en JSON : {"quiz": [{"question": "...", "choices": [{"id": "
 }
 
 // Même contenu source que /api/distill (texte/photo/PDF) : peut prendre un
-// certain temps pour 20 questions, même marge que la route principale.
+// certain temps pour 12 questions, même marge que la route principale.
 export const maxDuration = 300;
 
 /** Génère uniquement le QCM, dans un appel séparé de /api/distill — lancé
  * par le client une fois le résumé/les flashcards déjà affichés, pour ne
- * pas faire attendre l'utilisateur derrière les 20 questions. Le compteur
+ * pas faire attendre l'utilisateur derrière les 12 questions. Le compteur
  * de générations gratuites n'est PAS incrémenté ici : /api/distill l'a déjà
  * fait pour l'ensemble de cette distillation (résumé + flashcards + QCM
  * compte pour une seule génération). On vérifie tout de même que le compte
