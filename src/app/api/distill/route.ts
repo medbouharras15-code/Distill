@@ -3,10 +3,10 @@ import { NextResponse } from "next/server";
 import { getUserAndProfile } from "@/lib/auth";
 import { FREE_GENERATIONS_LIMIT, isSubscribed } from "@/lib/billing";
 import {
-  MODEL,
   anthropicErrorResponse,
   buildContentBlocks,
   callClaudeRaw,
+  callClaudeWithFallback,
   deletePdfBlob,
   extractJson,
   fetchPdfFromBlob,
@@ -114,12 +114,7 @@ export async function POST(request: Request) {
     const content = buildContentBlocks({ text, image, pdf: pdfFile });
     const client = new Anthropic({ apiKey });
 
-    const response = await client.messages.create({
-      model: MODEL,
-      max_tokens: 4096,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content }],
-    });
+    const response = await callClaudeWithFallback(client, { maxTokens: 4096, system: SYSTEM_PROMPT, content });
 
     if (response.stop_reason === "refusal") {
       return NextResponse.json(

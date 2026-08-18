@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { getUserAndProfile } from "@/lib/auth";
 import {
-  MODEL,
+  FALLBACK_MODEL,
   anthropicErrorResponse,
   buildContentBlocks,
   deletePdfBlob,
@@ -123,8 +123,12 @@ export async function POST(request: Request) {
       messages.push({ role: "user", content: question });
     }
 
+    // Volontairement pas encore couvert par la stratégie de repli Haiku→
+    // Sonnet de /api/distill et /api/distill/quiz (MODEL y désigne
+    // maintenant Haiku) — cette route reste sur FALLBACK_MODEL (Sonnet,
+    // l'ancien modèle par défaut) le temps qu'on la traite séparément.
     const response = await client.messages.create({
-      model: MODEL,
+      model: FALLBACK_MODEL,
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
       messages,

@@ -4,7 +4,16 @@ import { NextResponse } from "next/server";
 import { MAX_IMAGE_FILE_BYTES, MAX_PDF_FILE_BYTES } from "@/lib/fileSizeLimits";
 import type { DistillRequestFile, QuizQuestion } from "@/lib/types";
 
-export const MODEL = "claude-sonnet-4-6";
+// Modèle par défaut pour /api/distill et /api/distill/quiz — Haiku, ~3×
+// moins cher que le modèle précédent (voir @/lib/modelComparison pour le
+// détail des prix). FALLBACK_MODEL prend automatiquement le relais quand
+// le contenu dépasse ce que Haiku peut traiter (voir
+// callClaudeWithFallback ci-dessous) : sa fenêtre de contexte plus large
+// (1M contre 200K) accepte jusqu'à 600 pages de PDF contre 100 pour Haiku.
+// /api/distill/chat reste volontairement sur FALLBACK_MODEL directement
+// (pas encore couvert par cette stratégie, voir sa propre route).
+export const MODEL = "claude-haiku-4-5";
+export const FALLBACK_MODEL = "claude-sonnet-4-6";
 
 export function base64ByteLength(base64: string): number {
   const cleaned = base64.replace(/=+$/, "");
@@ -178,6 +187,55 @@ export async function callClaudeRaw(
   }
 
   return textBlock.text;
+}
+
+/** Vrai si l'erreur signale que le contenu dépasse une limite de capacité
+ * du modèle (nombre de pages PDF, longueur de contexte) plutôt qu'un autre
+ * type de problème (limite de débit, authentification, requête invalide
+ * pour une autre raison) — seul ce cas déclenche le repli automatique de
+ * callClaudeWithFallback vers un modèle à plus grande fenêtre de contexte.
+ * Toute autre erreur remonte normalement, sans repli. */
+export function isModelCapacityError(error: unknown): boolean {
+  if (!(error instanceof Anthropic.BadRequestError)) return false;
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("pdf pages") ||
+    message.includes("context length") ||
+    message.includes("maximum context") ||
+    message.includes("too long")
+  );
+}
+
+/** Appelle Claude avec le modèle par défaut (MODEL, Haiku) et bascule
+ * automatiquement et silencieusement vers FALLBACK_MODEL (Sonnet) si le
+ * contenu dépasse ce que Haiku peut traiter — jamais pour un autre type
+ * d'erreur, qui remonte à l'appelant exactement comme avant. Une requête
+ * rejetée par l'API avant tout traitement par le modèle (comme un dépassement
+ * de pages PDF) n'est pas facturée : le repli coûte un peu de latence sur
+ * les rares contenus trop volumineux, pas un appel payant gaspillé. Le
+ * repli n'est jamais visible pour l'utilisateur — seulement journalisé
+ * côté serveur pour un suivi opérationnel. */
+export async function callClaudeWithFallback(
+  client: Anthropic,
+  { maxTokens, system, content }: { maxTokens: number; system: string; content: Anthropic.MessageParam["content"] },
+): Promise<Anthropic.Message> {
+  try {
+    return await client.messages.create({
+      model: MODEL,
+      max_tokens: maxTokens,
+      system,
+      messages: [{ role: "user", content }],
+    });
+  } catch (error) {
+    if (!isModelCapacityError(error)) throw error;
+    console.log(`Repli automatique ${MODEL} → ${FALLBACK_MODEL} : contenu hors de portée du modèle par défaut.`);
+    return client.messages.create({
+      model: FALLBACK_MODEL,
+      max_tokens: maxTokens,
+      system,
+      messages: [{ role: "user", content }],
+    });
+  }
 }
 
 /** Traduit une erreur de l'appel à Claude en réponse HTTP — même
