@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
+import { buildFakeQuizResult, IS_SIMULATION_ENABLED } from "@/lib/aiSimulation";
 import { getUserAndProfile } from "@/lib/auth";
 import { FREE_GENERATIONS_LIMIT, isSubscribed } from "@/lib/billing";
 import {
@@ -111,64 +112,75 @@ export async function POST(request: Request) {
   // propre copie — voir @/components/notes/AiPanel.
   let pdfFile: { data: string; mediaType: string } | undefined;
   try {
-    if (pdf) {
-      try {
-        const { data } = await fetchPdfFromBlob(pdf.url);
-        pdfFile = { data, mediaType: "application/pdf" };
-      } catch (error) {
+    let quiz: QuizQuestion[];
+
+    if (IS_SIMULATION_ENABLED) {
+      // Mode simulation (Preview uniquement, voir aiSimulation.ts) :
+      // aucun appel réel à Claude, ni téléchargement du PDF — on renvoie
+      // directement un QCM factice pour tester l'interface sans coût.
+      quiz = await buildFakeQuizResult(QUIZ_QUESTION_COUNT);
+    } else {
+      if (pdf) {
+        try {
+          const { data } = await fetchPdfFromBlob(pdf.url);
+          pdfFile = { data, mediaType: "application/pdf" };
+        } catch (error) {
+          return NextResponse.json(
+            { error: error instanceof Error ? error.message : "Impossible de récupérer le PDF téléversé." },
+            { status: 400 },
+          );
+        }
+      }
+
+      // Même contenu source que /api/distill, avec la même mise en cache
+      // (voir withCacheControl) : si cet appel arrive dans les 5 minutes
+      // suivant l'appel résumé (déroulement normal, voir
+      // @/components/notes/AiPanel), il relit le PDF/photo/texte depuis le
+      // cache Anthropic au lieu de le retraiter en entier — à condition que
+      // le system prompt soit identique aux deux appels, d'où
+      // SHARED_TASK_SYSTEM_PROMPT.
+      const sourceContent = buildContentBlocks({ text, image, pdf: pdfFile }) as Anthropic.ContentBlockParam[];
+      const content = [
+        ...withCacheControl(sourceContent),
+        { type: "text" as const, text: buildQuizInstructions(difficulty) },
+      ];
+      const client = new Anthropic({ apiKey });
+
+      const response = await callClaudeWithFallback(client, {
+        maxTokens: 8192,
+        system: SHARED_TASK_SYSTEM_PROMPT,
+        content,
+      });
+
+      // Diagnostic temporaire (même log que /api/distill/chat) pour vérifier
+      // que cet appel relit bien le contenu source depuis le cache écrit par
+      // /api/distill quelques secondes plus tôt. À retirer une fois la
+      // vérification faite.
+      console.log("[distill/quiz] usage Anthropic :", response.usage);
+
+      if (response.stop_reason === "refusal") {
         return NextResponse.json(
-          { error: error instanceof Error ? error.message : "Impossible de récupérer le PDF téléversé." },
-          { status: 400 },
+          { error: "Le modèle n'a pas pu générer de QCM pour ce contenu. Essayez avec un autre texte ou fichier." },
+          { status: 422 },
         );
       }
+
+      const textBlock = response.content.find((block) => block.type === "text");
+      if (!textBlock || textBlock.type !== "text") {
+        return NextResponse.json({ error: "Le modèle n'a renvoyé aucun contenu exploitable." }, { status: 502 });
+      }
+
+      const candidate = extractJson(textBlock.text) as { quiz?: unknown };
+      if (!candidate || !Array.isArray(candidate.quiz) || !candidate.quiz.every(isQuizQuestion)) {
+        return NextResponse.json(
+          { error: "La réponse du modèle ne correspond pas au format de QCM attendu. Réessayez." },
+          { status: 502 },
+        );
+      }
+      quiz = candidate.quiz as QuizQuestion[];
     }
 
-    // Même contenu source que /api/distill, avec la même mise en cache (voir
-    // withCacheControl) : si cet appel arrive dans les 5 minutes suivant
-    // l'appel résumé (déroulement normal, voir @/components/notes/AiPanel),
-    // il relit le PDF/photo/texte depuis le cache Anthropic au lieu de le
-    // retraiter en entier — à condition que le system prompt soit identique
-    // aux deux appels, d'où SHARED_TASK_SYSTEM_PROMPT.
-    const sourceContent = buildContentBlocks({ text, image, pdf: pdfFile }) as Anthropic.ContentBlockParam[];
-    const content = [
-      ...withCacheControl(sourceContent),
-      { type: "text" as const, text: buildQuizInstructions(difficulty) },
-    ];
-    const client = new Anthropic({ apiKey });
-
-    const response = await callClaudeWithFallback(client, {
-      maxTokens: 8192,
-      system: SHARED_TASK_SYSTEM_PROMPT,
-      content,
-    });
-
-    // Diagnostic temporaire (même log que /api/distill/chat) pour vérifier
-    // que cet appel relit bien le contenu source depuis le cache écrit par
-    // /api/distill quelques secondes plus tôt. À retirer une fois la
-    // vérification faite.
-    console.log("[distill/quiz] usage Anthropic :", response.usage);
-
-    if (response.stop_reason === "refusal") {
-      return NextResponse.json(
-        { error: "Le modèle n'a pas pu générer de QCM pour ce contenu. Essayez avec un autre texte ou fichier." },
-        { status: 422 },
-      );
-    }
-
-    const textBlock = response.content.find((block) => block.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
-      return NextResponse.json({ error: "Le modèle n'a renvoyé aucun contenu exploitable." }, { status: 502 });
-    }
-
-    const parsed = extractJson(textBlock.text) as { quiz?: unknown };
-    if (!parsed || !Array.isArray(parsed.quiz) || !parsed.quiz.every(isQuizQuestion)) {
-      return NextResponse.json(
-        { error: "La réponse du modèle ne correspond pas au format de QCM attendu. Réessayez." },
-        { status: 502 },
-      );
-    }
-
-    return NextResponse.json({ quiz: parsed.quiz as QuizQuestion[] });
+    return NextResponse.json({ quiz });
   } catch (error) {
     return anthropicErrorResponse(error);
   } finally {

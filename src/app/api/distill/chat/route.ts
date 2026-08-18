@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
+import { buildFakeChatResponse, IS_SIMULATION_ENABLED } from "@/lib/aiSimulation";
 import { getUserAndProfile } from "@/lib/auth";
 import {
   FALLBACK_MODEL,
@@ -86,109 +87,119 @@ export async function POST(request: Request) {
 
   let pdfFile: { data: string; mediaType: string } | undefined;
   try {
-    if (pdf) {
-      try {
-        const { data } = await fetchPdfFromBlob(pdf.url);
-        pdfFile = { data, mediaType: "application/pdf" };
-      } catch (error) {
+    let parsed: ChatResponseBody;
+
+    if (IS_SIMULATION_ENABLED) {
+      // Mode simulation (Preview uniquement, voir aiSimulation.ts) :
+      // aucun appel réel à Claude, ni téléchargement du PDF — on renvoie
+      // directement une réponse factice pour tester l'interface sans coût.
+      parsed = await buildFakeChatResponse(question);
+    } else {
+      if (pdf) {
+        try {
+          const { data } = await fetchPdfFromBlob(pdf.url);
+          pdfFile = { data, mediaType: "application/pdf" };
+        } catch (error) {
+          return NextResponse.json(
+            { error: error instanceof Error ? error.message : "Impossible de récupérer le PDF téléversé." },
+            { status: 400 },
+          );
+        }
+      }
+
+      // buildContentBlocks ne renvoie jamais une chaîne brute (toujours un
+      // tableau de blocs construit localement) — le type large de sa
+      // signature (partagée avec /api/distill) l'autorise en théorie, d'où
+      // cette précision de type pour pouvoir l'étendre avec le bloc texte de
+      // la question ci-dessous.
+      const sourceContent = buildContentBlocks({ text, image, pdf: pdfFile }) as Anthropic.ContentBlockParam[];
+      const client = new Anthropic({ apiKey });
+
+      // Le contenu source est identique à chaque appel de cette conversation
+      // (même PDF/photo/texte relu à chaque message) : on marque son dernier
+      // bloc pour la mise en cache Anthropic (TTL 5 min) afin que Claude ne le
+      // retraite en entier qu'une fois par tranche de 5 minutes au lieu de le
+      // refacturer intégralement à chaque tour (voir withCacheControl).
+      const cachedSourceContent = withCacheControl(sourceContent);
+
+      // Claude exige une conversation où les rôles alternent strictement en
+      // commençant par "user". Les notes sources n'ont donc de sens que
+      // rattachées au tout premier message "user" reconstruit ici : sur le
+      // premier tour, c'est la question elle-même ; sur les suivants, c'est
+      // la première question déjà posée (déjà présente dans `history`), les
+      // tours suivants s'enchaînant ensuite normalement.
+      const messages: Anthropic.MessageParam[] = [];
+      if (history.length === 0) {
+        messages.push({ role: "user", content: [...cachedSourceContent, { type: "text", text: question }] });
+      } else {
+        const [firstTurn, ...restTurns] = history;
+        messages.push({ role: "user", content: [...cachedSourceContent, { type: "text", text: firstTurn.content }] });
+        for (const turn of restTurns) {
+          messages.push({ role: turn.role, content: turn.content });
+        }
+        // Deuxième point d'ancrage, gratuit dans la limite de 4 par requête :
+        // cache aussi l'historique déjà échangé (hors nouvelle question), qui
+        // grandit à chaque tour mais reste identique d'un appel à l'autre pour
+        // les tours déjà passés.
+        const lastHistoryMessage = messages[messages.length - 1];
+        lastHistoryMessage.content = withCacheControl(lastHistoryMessage.content);
+        messages.push({ role: "user", content: question });
+      }
+
+      // Volontairement pas encore couvert par la stratégie de repli Haiku→
+      // Sonnet de /api/distill et /api/distill/quiz (MODEL y désigne
+      // maintenant Haiku) — cette route reste sur FALLBACK_MODEL (Sonnet,
+      // l'ancien modèle par défaut) le temps qu'on la traite séparément.
+      const response = await client.messages.create({
+        model: FALLBACK_MODEL,
+        max_tokens: 4096,
+        system: SYSTEM_PROMPT,
+        messages,
+      });
+
+      // Diagnostic temporaire pour vérifier le fonctionnement du prompt
+      // caching (voir cachedSourceContent ci-dessus) : cache_read_input_tokens
+      // > 0 confirme une lecture depuis le cache, cache_creation_input_tokens
+      // > 0 une écriture. À retirer une fois la vérification faite.
+      console.log("[chat] usage Anthropic :", response.usage);
+
+      if (response.stop_reason === "refusal") {
         return NextResponse.json(
-          { error: error instanceof Error ? error.message : "Impossible de récupérer le PDF téléversé." },
-          { status: 400 },
+          { error: "Le modèle n'a pas pu répondre à cette question. Essayez de la reformuler." },
+          { status: 422 },
         );
       }
-    }
-
-    // buildContentBlocks ne renvoie jamais une chaîne brute (toujours un
-    // tableau de blocs construit localement) — le type large de sa
-    // signature (partagée avec /api/distill) l'autorise en théorie, d'où
-    // cette précision de type pour pouvoir l'étendre avec le bloc texte de
-    // la question ci-dessous.
-    const sourceContent = buildContentBlocks({ text, image, pdf: pdfFile }) as Anthropic.ContentBlockParam[];
-    const client = new Anthropic({ apiKey });
-
-    // Le contenu source est identique à chaque appel de cette conversation
-    // (même PDF/photo/texte relu à chaque message) : on marque son dernier
-    // bloc pour la mise en cache Anthropic (TTL 5 min) afin que Claude ne le
-    // retraite en entier qu'une fois par tranche de 5 minutes au lieu de le
-    // refacturer intégralement à chaque tour (voir withCacheControl).
-    const cachedSourceContent = withCacheControl(sourceContent);
-
-    // Claude exige une conversation où les rôles alternent strictement en
-    // commençant par "user". Les notes sources n'ont donc de sens que
-    // rattachées au tout premier message "user" reconstruit ici : sur le
-    // premier tour, c'est la question elle-même ; sur les suivants, c'est
-    // la première question déjà posée (déjà présente dans `history`), les
-    // tours suivants s'enchaînant ensuite normalement.
-    const messages: Anthropic.MessageParam[] = [];
-    if (history.length === 0) {
-      messages.push({ role: "user", content: [...cachedSourceContent, { type: "text", text: question }] });
-    } else {
-      const [firstTurn, ...restTurns] = history;
-      messages.push({ role: "user", content: [...cachedSourceContent, { type: "text", text: firstTurn.content }] });
-      for (const turn of restTurns) {
-        messages.push({ role: turn.role, content: turn.content });
+      // Une réponse tronquée par la limite de tokens ne peut jamais former un
+      // JSON valide (coupée en plein milieu) — mieux vaut le dire clairement
+      // que de laisser extractJson échouer plus bas avec une erreur générique.
+      if (response.stop_reason === "max_tokens") {
+        return NextResponse.json(
+          { error: "La réponse était trop longue et a été coupée. Reformulez votre question de façon plus précise." },
+          { status: 502 },
+        );
       }
-      // Deuxième point d'ancrage, gratuit dans la limite de 4 par requête :
-      // cache aussi l'historique déjà échangé (hors nouvelle question), qui
-      // grandit à chaque tour mais reste identique d'un appel à l'autre pour
-      // les tours déjà passés.
-      const lastHistoryMessage = messages[messages.length - 1];
-      lastHistoryMessage.content = withCacheControl(lastHistoryMessage.content);
-      messages.push({ role: "user", content: question });
-    }
 
-    // Volontairement pas encore couvert par la stratégie de repli Haiku→
-    // Sonnet de /api/distill et /api/distill/quiz (MODEL y désigne
-    // maintenant Haiku) — cette route reste sur FALLBACK_MODEL (Sonnet,
-    // l'ancien modèle par défaut) le temps qu'on la traite séparément.
-    const response = await client.messages.create({
-      model: FALLBACK_MODEL,
-      max_tokens: 4096,
-      system: SYSTEM_PROMPT,
-      messages,
-    });
+      const textBlock = response.content.find((block) => block.type === "text");
+      if (!textBlock || textBlock.type !== "text") {
+        return NextResponse.json({ error: "Le modèle n'a renvoyé aucun contenu exploitable." }, { status: 502 });
+      }
 
-    // Diagnostic temporaire pour vérifier le fonctionnement du prompt
-    // caching (voir cachedSourceContent ci-dessus) : cache_read_input_tokens
-    // > 0 confirme une lecture depuis le cache, cache_creation_input_tokens
-    // > 0 une écriture. À retirer une fois la vérification faite.
-    console.log("[chat] usage Anthropic :", response.usage);
-
-    if (response.stop_reason === "refusal") {
-      return NextResponse.json(
-        { error: "Le modèle n'a pas pu répondre à cette question. Essayez de la reformuler." },
-        { status: 422 },
-      );
-    }
-    // Une réponse tronquée par la limite de tokens ne peut jamais former un
-    // JSON valide (coupée en plein milieu) — mieux vaut le dire clairement
-    // que de laisser extractJson échouer plus bas avec une erreur générique.
-    if (response.stop_reason === "max_tokens") {
-      return NextResponse.json(
-        { error: "La réponse était trop longue et a été coupée. Reformulez votre question de façon plus précise." },
-        { status: 502 },
-      );
-    }
-
-    const textBlock = response.content.find((block) => block.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
-      return NextResponse.json({ error: "Le modèle n'a renvoyé aucun contenu exploitable." }, { status: 502 });
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = extractJson(textBlock.text);
-    } catch {
-      return NextResponse.json(
-        { error: "La réponse du modèle n'a pas pu être interprétée. Réessayez." },
-        { status: 502 },
-      );
-    }
-    if (!isChatResponse(parsed)) {
-      return NextResponse.json(
-        { error: "La réponse du modèle ne correspond pas au format attendu. Réessayez." },
-        { status: 502 },
-      );
+      let candidate: unknown;
+      try {
+        candidate = extractJson(textBlock.text);
+      } catch {
+        return NextResponse.json(
+          { error: "La réponse du modèle n'a pas pu être interprétée. Réessayez." },
+          { status: 502 },
+        );
+      }
+      if (!isChatResponse(candidate)) {
+        return NextResponse.json(
+          { error: "La réponse du modèle ne correspond pas au format attendu. Réessayez." },
+          { status: 502 },
+        );
+      }
+      parsed = candidate;
     }
 
     return NextResponse.json(parsed satisfies ChatResponseBody);

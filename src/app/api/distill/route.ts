@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
+import { buildFakeDistillResult, IS_SIMULATION_ENABLED } from "@/lib/aiSimulation";
 import { getUserAndProfile } from "@/lib/auth";
 import { FREE_GENERATIONS_LIMIT, isSubscribed } from "@/lib/billing";
 import {
@@ -102,64 +103,74 @@ export async function POST(request: Request) {
   // temporaire sur Blob une fois l'appel à Claude terminé — succès ou échec.
   let pdfFile: { data: string; mediaType: string } | undefined;
   try {
-    if (pdf) {
-      try {
-        const { data } = await fetchPdfFromBlob(pdf.url);
-        pdfFile = { data, mediaType: "application/pdf" };
-      } catch (error) {
+    let parsed: DistillResult;
+
+    if (IS_SIMULATION_ENABLED) {
+      // Mode simulation (Preview uniquement, voir aiSimulation.ts) :
+      // aucun appel réel à Claude, ni téléchargement du PDF — on renvoie
+      // directement un résultat factice pour tester l'interface sans coût.
+      parsed = await buildFakeDistillResult();
+    } else {
+      if (pdf) {
+        try {
+          const { data } = await fetchPdfFromBlob(pdf.url);
+          pdfFile = { data, mediaType: "application/pdf" };
+        } catch (error) {
+          return NextResponse.json(
+            { error: error instanceof Error ? error.message : "Impossible de récupérer le PDF téléversé." },
+            { status: 400 },
+          );
+        }
+      }
+
+      // Le contenu source est mis en cache (voir withCacheControl) : le même
+      // PDF/photo/texte est renvoyé quelques secondes plus tard, à l'identique,
+      // par /api/distill/quiz pour générer le QCM — ce dernier peut alors le
+      // relire depuis le cache Anthropic au lieu de le retraiter en entier.
+      const sourceContent = buildContentBlocks({ text, image, pdf: pdfFile }) as Anthropic.ContentBlockParam[];
+      const content = [...withCacheControl(sourceContent), { type: "text" as const, text: RESUME_INSTRUCTIONS }];
+      const client = new Anthropic({ apiKey });
+
+      const response = await callClaudeWithFallback(client, {
+        maxTokens: 4096,
+        system: SHARED_TASK_SYSTEM_PROMPT,
+        content,
+      });
+
+      // Diagnostic temporaire (même log que /api/distill/chat) pour vérifier
+      // que /api/distill/quiz relit bien ce contenu source depuis le cache
+      // quelques secondes plus tard. À retirer une fois la vérification faite.
+      console.log("[distill] usage Anthropic :", response.usage);
+
+      if (response.stop_reason === "refusal") {
         return NextResponse.json(
-          { error: error instanceof Error ? error.message : "Impossible de récupérer le PDF téléversé." },
-          { status: 400 },
+          {
+            error:
+              "Le modèle n'a pas pu traiter ce contenu. Essayez avec un autre texte ou fichier.",
+          },
+          { status: 422 },
         );
       }
-    }
 
-    // Le contenu source est mis en cache (voir withCacheControl) : le même
-    // PDF/photo/texte est renvoyé quelques secondes plus tard, à l'identique,
-    // par /api/distill/quiz pour générer le QCM — ce dernier peut alors le
-    // relire depuis le cache Anthropic au lieu de le retraiter en entier.
-    const sourceContent = buildContentBlocks({ text, image, pdf: pdfFile }) as Anthropic.ContentBlockParam[];
-    const content = [...withCacheControl(sourceContent), { type: "text" as const, text: RESUME_INSTRUCTIONS }];
-    const client = new Anthropic({ apiKey });
+      const textBlock = response.content.find((block) => block.type === "text");
+      if (!textBlock || textBlock.type !== "text") {
+        return NextResponse.json(
+          { error: "Le modèle n'a renvoyé aucun contenu exploitable." },
+          { status: 502 },
+        );
+      }
 
-    const response = await callClaudeWithFallback(client, {
-      maxTokens: 4096,
-      system: SHARED_TASK_SYSTEM_PROMPT,
-      content,
-    });
-
-    // Diagnostic temporaire (même log que /api/distill/chat) pour vérifier
-    // que /api/distill/quiz relit bien ce contenu source depuis le cache
-    // quelques secondes plus tard. À retirer une fois la vérification faite.
-    console.log("[distill] usage Anthropic :", response.usage);
-
-    if (response.stop_reason === "refusal") {
-      return NextResponse.json(
-        {
-          error:
-            "Le modèle n'a pas pu traiter ce contenu. Essayez avec un autre texte ou fichier.",
-        },
-        { status: 422 },
-      );
-    }
-
-    const textBlock = response.content.find((block) => block.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
-      return NextResponse.json(
-        { error: "Le modèle n'a renvoyé aucun contenu exploitable." },
-        { status: 502 },
-      );
-    }
-
-    const parsed = extractJson(textBlock.text);
-    if (!isDistillResult(parsed)) {
-      return NextResponse.json(
-        {
-          error:
-            "La réponse du modèle ne correspond pas au format attendu. Réessayez.",
-        },
-        { status: 502 },
-      );
+      const candidate = extractJson(textBlock.text);
+      if (!isDistillResult(candidate)) {
+        return NextResponse.json(
+          {
+            error:
+              "La réponse du modèle ne correspond pas au format attendu. Réessayez.",
+          },
+          { status: 502 },
+        );
+      }
+      parsed = candidate;
     }
 
     // Ne compte que pour les comptes non abonnés — un abonné actif n'a pas

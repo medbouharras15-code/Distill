@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import FileDropZone from "@/components/FileDropZone";
 import { AiOrb, DistillMark } from "@/components/Brand";
 import { Badge, Card, Eyebrow, buttonClasses, staggerDelay } from "@/components/ui";
+import { IS_SIMULATION_ENABLED } from "@/lib/aiSimulation";
 import { Cards, Chat, Close, Doc, Pen, Quiz, Sparkle } from "@/lib/icons";
 import { resizeImageToJpeg, uploadPdfToBlob } from "@/lib/aiMedia";
 import { FREE_GENERATIONS_LIMIT, IS_FREE_LIMIT_OVERRIDDEN, isSubscribed } from "@/lib/billing";
@@ -398,15 +399,24 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
         </div>
 
         <div className="relative mt-3 flex flex-wrap items-center justify-between gap-2">
-          {subscribed ? (
-            <Badge className="bg-accent-light/50 text-accent-dark">✦ Abonné — accès illimité</Badge>
-          ) : (
-            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              {remaining} génération{remaining !== 1 ? "s" : ""} gratuite{remaining !== 1 ? "s" : ""} restante
-              {remaining !== 1 ? "s" : ""}
-              {IS_FREE_LIMIT_OVERRIDDEN && <Badge className="bg-amber-100 text-amber-800">Limite de test</Badge>}
-            </span>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Indépendant du statut d'abonnement (contrairement au badge
+             * "Limite de test" ci-dessous) : le mode simulation n'a aucun
+             * rapport avec la facturation, il doit rester visible dans tous
+             * les cas dès qu'il est actif. */}
+            {IS_SIMULATION_ENABLED && (
+              <Badge className="bg-purple-100 text-purple-800">🧪 Mode simulation</Badge>
+            )}
+            {subscribed ? (
+              <Badge className="bg-accent-light/50 text-accent-dark">✦ Abonné — accès illimité</Badge>
+            ) : (
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                {remaining} génération{remaining !== 1 ? "s" : ""} gratuite{remaining !== 1 ? "s" : ""} restante
+                {remaining !== 1 ? "s" : ""}
+                {IS_FREE_LIMIT_OVERRIDDEN && <Badge className="bg-amber-100 text-amber-800">Limite de test</Badge>}
+              </span>
+            )}
+          </div>
           <button
             type="button"
             onClick={subscribed ? cancel : subscribe}
