@@ -1,16 +1,17 @@
 "use client";
 
-import { upload } from "@vercel/blob/client";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import FileDropZone from "@/components/FileDropZone";
 import { AiOrb, DistillMark } from "@/components/Brand";
 import { Badge, Card, Eyebrow, buttonClasses, staggerDelay } from "@/components/ui";
-import { Cards, Close, Doc, Pen, Quiz, Sparkle } from "@/lib/icons";
+import { Cards, Chat, Close, Doc, Pen, Quiz, Sparkle } from "@/lib/icons";
+import { resizeImageToJpeg, uploadPdfToBlob } from "@/lib/aiMedia";
 import { FREE_GENERATIONS_LIMIT, IS_FREE_LIMIT_OVERRIDDEN, isSubscribed } from "@/lib/billing";
 import { MAX_PDF_FILE_BYTES } from "@/lib/fileSizeLimits";
 import { parseJsonResponse, useSubscriptionActions } from "@/lib/useSubscriptionActions";
 import type { DistillResult, QuizDifficulty, QuizGenerationResult } from "@/lib/types";
+import { ChatView } from "./ChatView";
 import { FlashcardDeck } from "./FlashcardDeck";
 import { PhotoIcon } from "./icons";
 import { QuizView } from "./QuizView";
@@ -18,14 +19,7 @@ import { QuizView } from "./QuizView";
 const MAX_RAW_IMAGE_BYTES = 20 * 1024 * 1024; // simple garde-fou avant compression
 const MAX_PDF_BYTES_LABEL = (MAX_PDF_FILE_BYTES / (1024 * 1024)).toFixed(0); // "15" pour l'affichage
 
-// Les photos sont redimensionnées et recompressées côté client : une photo
-// d'iPad de plusieurs Mo devient une poignée de centaines de Ko avant envoi,
-// ce qui évite à la fois de dépasser la taille de requête autorisée et de
-// ralentir inutilement l'analyse par Claude.
-const MAX_IMAGE_DIMENSION = 1568;
-const IMAGE_JPEG_QUALITY = 0.85;
-
-type Tab = "summary" | "flashcards" | "quiz";
+type Tab = "summary" | "flashcards" | "quiz" | "chat";
 
 interface AiPanelProps {
   subscriptionStatus: string;
@@ -38,7 +32,7 @@ interface AiPanelProps {
  * soulève et retombe en boucle (goutte qui se distille), plutôt qu'un
  * spinner générique. Utilisé pour toute attente propre à l'IA (ici, la
  * génération du QCM en arrière-plan). */
-function DistillingLoader({ label }: { label: string }) {
+export function DistillingLoader({ label }: { label: string }) {
   return (
     <div className="flex animate-fade flex-col items-center justify-center gap-4 py-16 text-center">
       <div className="relative flex h-14 w-14 shrink-0 items-center justify-center">
@@ -203,71 +197,6 @@ function SummaryView({ markdown }: { markdown: string }) {
       </div>
     </Card>
   );
-}
-
-/** Téléverse le PDF directement du navigateur vers Vercel Blob (jeton émis
- * par @/app/api/upload/pdf) — il ne transite jamais par le corps de la
- * requête vers /api/distill ou /api/distill/quiz, ce qui permet des PDF
- * bien plus lourds que la limite de 4,5 Mo des Functions Vercel. Chaque
- * appel (premier envoi, QCM en arrière-plan, réessai du QCM) téléverse sa
- * propre copie : le serveur supprime la sienne juste après usage, donc rien
- * n'est partagé ni réutilisé entre appels. */
-async function uploadPdfToBlob(file: File): Promise<{ url: string; mediaType: "application/pdf" }> {
-  const blob = await upload(file.name, file, {
-    access: "private",
-    handleUploadUrl: "/api/upload/pdf",
-  });
-  return { url: blob.url, mediaType: "application/pdf" };
-}
-
-/** Redimensionne et recompresse une image (JPEG) via un canvas, quel que
- * soit son format d'origine. Réduit fortement le poids des photos avant
- * l'envoi au serveur. */
-function resizeImageToJpeg(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const objectUrl = URL.createObjectURL(file);
-    const img = new Image();
-
-    img.onload = () => {
-      URL.revokeObjectURL(objectUrl);
-
-      let { naturalWidth: width, naturalHeight: height } = img;
-      if (!width || !height) {
-        reject(new Error("Cette image n'a pas pu être lue. Essayez un autre fichier."));
-        return;
-      }
-      if (Math.max(width, height) > MAX_IMAGE_DIMENSION) {
-        const scale = MAX_IMAGE_DIMENSION / Math.max(width, height);
-        width = Math.round(width * scale);
-        height = Math.round(height * scale);
-      }
-
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        reject(new Error("Cet appareil ne permet pas de traiter l'image."));
-        return;
-      }
-      ctx.drawImage(img, 0, 0, width, height);
-
-      const dataUrl = canvas.toDataURL("image/jpeg", IMAGE_JPEG_QUALITY);
-      const base64 = dataUrl.split(",")[1];
-      if (!base64) {
-        reject(new Error("Cette image n'a pas pu être compressée."));
-        return;
-      }
-      resolve(base64);
-    };
-
-    img.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      reject(new Error("Cette image n'a pas pu être ouverte. Essayez un format JPG ou PNG."));
-    };
-
-    img.src = objectUrl;
-  });
 }
 
 /** Panneau IA de l'éditeur — reprend à l'identique le comportement de
@@ -442,6 +371,7 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
     { id: "summary", label: "Résumé", icon: Doc },
     { id: "flashcards", label: "Flashcards", icon: Cards },
     { id: "quiz", label: "QCM", icon: Quiz },
+    { id: "chat", label: "Explication", icon: Chat },
   ];
 
   return (
@@ -565,6 +495,8 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
                 )
               ) : tab === "summary" ? (
                 <SummaryView markdown={result.summary} />
+              ) : tab === "chat" ? (
+                <ChatView text={text} imageFile={imageFile} pdfFile={pdfFile} />
               ) : (
                 <FlashcardDeck cards={result.flashcards} />
               )}

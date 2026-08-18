@@ -204,3 +204,14 @@ export const Users = (p: IconProps) => (
     <path d="M16 5.5a3 3 0 0 1 0 5.5M15.5 13.2A5.5 5.5 0 0 1 20.5 19" />
   </Base>
 );
+export const Chat = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4H6.5A2.5 2.5 0 0 1 4 13.5v-7Z" />
+    <path d="M8.5 8.8h7M8.5 11.8h4.5" />
+  </Base>
+);
+export const Send = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M4.5 12 19.5 5l-5.8 15-2.9-6.8L4.5 12Z" strokeLinejoin="round" />
+  </Base>
+);

@@ -70,6 +70,42 @@ export interface QuizGenerationResult {
   quiz: QuizQuestion[];
 }
 
+/** Citation d'un passage exact des notes sources, retournée par le modèle
+ * à l'appui d'une réponse du Mode Explication (voir /api/distill/chat).
+ * `quote` doit être un extrait mot pour mot du texte source — recherché
+ * côté client comme sous-chaîne exacte pour un éventuel surlignage. */
+export interface ChatCitation {
+  quote: string;
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  /** Toujours vide côté "user" ; peut être vide côté "assistant" si aucune
+   * citation directe n'était pertinente pour cette réponse. */
+  citations?: ChatCitation[];
+}
+
+/** Corps de la requête vers /api/distill/chat — même matière source
+ * (texte/photo/PDF) que /api/distill, plus l'historique de la conversation
+ * en cours et la nouvelle question. Le PDF est re-téléversé sur Vercel Blob
+ * à chaque message, comme pour /api/distill/quiz : chaque appel gère sa
+ * propre copie temporaire. */
+export interface ChatRequestBody {
+  text?: string;
+  image?: DistillRequestFile;
+  pdf?: PdfBlobReference;
+  /** Tours précédents de la conversation, sans les citations (non
+   * nécessaires pour la génération de la réponse suivante). */
+  history: { role: "user" | "assistant"; content: string }[];
+  question: string;
+}
+
+export interface ChatResponseBody {
+  answer: string;
+  citations: ChatCitation[];
+}
+
 export interface Profile {
   id: string;
   email: string | null;
