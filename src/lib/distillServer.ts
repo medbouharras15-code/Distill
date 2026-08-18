@@ -144,6 +144,42 @@ export function buildContentBlocks({
   return content;
 }
 
+/** Variante brute d'un appel à Claude, pour le mode comparaison de modèles
+ * (voir @/lib/modelComparison) — même contenu/prompt que l'appel principal,
+ * modèle et budget de tokens arbitraires, aucune validation de forme :
+ * chaque appelant applique son propre extractJson + sa propre validation,
+ * identiques à celles de l'appel principal. Lève systématiquement une
+ * erreur explicite plutôt que de renvoyer une réponse HTTP — c'est
+ * l'appelant qui décide comment traiter un échec de la comparaison (jamais
+ * en faisant échouer la génération principale, déjà réussie). */
+export async function callClaudeRaw(
+  client: Anthropic,
+  {
+    model,
+    maxTokens,
+    system,
+    content,
+  }: { model: string; maxTokens: number; system: string; content: Anthropic.MessageParam["content"] },
+): Promise<string> {
+  const response = await client.messages.create({
+    model,
+    max_tokens: maxTokens,
+    system,
+    messages: [{ role: "user", content }],
+  });
+
+  if (response.stop_reason === "refusal") {
+    throw new Error("Le modèle de comparaison a refusé de traiter ce contenu.");
+  }
+
+  const textBlock = response.content.find((block) => block.type === "text");
+  if (!textBlock || textBlock.type !== "text") {
+    throw new Error("Le modèle de comparaison n'a renvoyé aucun contenu exploitable.");
+  }
+
+  return textBlock.text;
+}
+
 /** Traduit une erreur de l'appel à Claude en réponse HTTP — même
  * comportement pour /api/distill et /api/distill/quiz. */
 export function anthropicErrorResponse(error: unknown): NextResponse {

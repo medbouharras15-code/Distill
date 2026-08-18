@@ -6,6 +6,7 @@ import {
   MODEL,
   anthropicErrorResponse,
   buildContentBlocks,
+  callClaudeRaw,
   deletePdfBlob,
   extractJson,
   fetchPdfFromBlob,
@@ -13,7 +14,8 @@ import {
   missingApiKeyResponse,
   validateImageSize,
 } from "@/lib/distillServer";
-import type { QuizDifficulty, QuizQuestion, QuizRequestBody } from "@/lib/types";
+import { COMPARISON_MODEL, IS_MODEL_COMPARISON_ENABLED } from "@/lib/modelComparison";
+import type { QuizDifficulty, QuizGenerationResult, QuizQuestion, QuizRequestBody } from "@/lib/types";
 
 const QUIZ_QUESTION_COUNT = 20;
 
@@ -147,7 +149,31 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({ quiz: parsed.quiz as QuizQuestion[] });
+    const result: QuizGenerationResult = { quiz: parsed.quiz as QuizQuestion[] };
+
+    // Mode comparaison (Preview/dev uniquement, voir @/lib/modelComparison) :
+    // même principe que /api/distill — second appel best-effort, jamais de
+    // conséquence sur le QCM principal déjà généré avec succès.
+    if (IS_MODEL_COMPARISON_ENABLED && body.compareWithHaiku) {
+      try {
+        const compareText = await callClaudeRaw(client, {
+          model: COMPARISON_MODEL,
+          maxTokens: 8192,
+          system: buildQuizSystemPrompt(difficulty),
+          content,
+        });
+        const compareParsed = extractJson(compareText) as { quiz?: unknown };
+        if (compareParsed && Array.isArray(compareParsed.quiz) && compareParsed.quiz.every(isQuizQuestion)) {
+          result.comparison = { model: COMPARISON_MODEL, quiz: compareParsed.quiz as QuizQuestion[] };
+        } else {
+          result.comparisonError = "La réponse du modèle de comparaison ne correspond pas au format de QCM attendu.";
+        }
+      } catch (error) {
+        result.comparisonError = error instanceof Error ? error.message : "Le modèle de comparaison a échoué.";
+      }
+    }
+
+    return NextResponse.json(result satisfies QuizGenerationResult);
   } catch (error) {
     return anthropicErrorResponse(error);
   } finally {

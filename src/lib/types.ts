@@ -24,11 +24,26 @@ export interface QuizQuestion {
   explanation?: string;
 }
 
+/** Résultat équivalent généré par le modèle de comparaison (voir
+ * @/lib/modelComparison) — même forme que le résultat principal, pour
+ * affichage côte à côte. N'existe que lorsque le mode comparaison est actif
+ * (Preview/dev) ET explicitement demandé pour cette génération. */
+export interface DistillComparisonResult {
+  model: string;
+  summary: string;
+  flashcards: Flashcard[];
+}
+
 export interface DistillResult {
   summary: string;
   flashcards: Flashcard[];
   /** Absent si l'étudiant n'a pas demandé de QCM lors de la génération. */
   quiz?: QuizQuestion[];
+  /** Présent uniquement en mode comparaison de modèles. */
+  comparison?: DistillComparisonResult;
+  /** Message d'échec de la comparaison seule — n'affecte jamais `summary`/
+   * `flashcards`, déjà générés avec succès par le modèle principal. */
+  comparisonError?: string;
 }
 
 export interface DistillRequestFile {
@@ -53,6 +68,9 @@ export interface DistillRequestBody {
   text?: string;
   image?: DistillRequestFile;
   pdf?: PdfBlobReference;
+  /** Demande un second appel de comparaison (voir @/lib/modelComparison) —
+   * sans effet si le mode n'est pas activé côté serveur (Preview/dev). */
+  compareWithHaiku?: boolean;
 }
 
 /** Corps de la requête vers /api/distill/quiz — appel séparé de
@@ -64,10 +82,20 @@ export interface QuizRequestBody {
   image?: DistillRequestFile;
   pdf?: PdfBlobReference;
   quizDifficulty: QuizDifficulty;
+  /** Voir DistillRequestBody.compareWithHaiku — même principe. */
+  compareWithHaiku?: boolean;
+}
+
+/** Voir DistillComparisonResult — même principe pour le QCM. */
+export interface QuizComparisonResult {
+  model: string;
+  quiz: QuizQuestion[];
 }
 
 export interface QuizGenerationResult {
   quiz: QuizQuestion[];
+  comparison?: QuizComparisonResult;
+  comparisonError?: string;
 }
 
 /** Citation d'un passage exact des notes sources, retournée par le modèle

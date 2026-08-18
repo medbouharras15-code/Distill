@@ -6,12 +6,14 @@ import {
   MODEL,
   anthropicErrorResponse,
   buildContentBlocks,
+  callClaudeRaw,
   deletePdfBlob,
   extractJson,
   fetchPdfFromBlob,
   missingApiKeyResponse,
   validateImageSize,
 } from "@/lib/distillServer";
+import { COMPARISON_MODEL, IS_MODEL_COMPARISON_ENABLED } from "@/lib/modelComparison";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { DistillRequestBody, DistillResult } from "@/lib/types";
 
@@ -162,7 +164,32 @@ export async function POST(request: Request) {
         .eq("id", user.id);
     }
 
-    return NextResponse.json(parsed satisfies DistillResult);
+    const result: DistillResult = { ...parsed };
+
+    // Mode comparaison (Preview/dev uniquement, voir @/lib/modelComparison) :
+    // un second appel, best-effort, sur le même contenu et le même prompt.
+    // Un échec ici ne fait jamais échouer la requête — le résultat principal
+    // est déjà généré avec succès à ce stade.
+    if (IS_MODEL_COMPARISON_ENABLED && body.compareWithHaiku) {
+      try {
+        const compareText = await callClaudeRaw(client, {
+          model: COMPARISON_MODEL,
+          maxTokens: 4096,
+          system: SYSTEM_PROMPT,
+          content,
+        });
+        const compareParsed = extractJson(compareText);
+        if (isDistillResult(compareParsed)) {
+          result.comparison = { model: COMPARISON_MODEL, summary: compareParsed.summary, flashcards: compareParsed.flashcards };
+        } else {
+          result.comparisonError = "La réponse du modèle de comparaison ne correspond pas au format attendu.";
+        }
+      } catch (error) {
+        result.comparisonError = error instanceof Error ? error.message : "Le modèle de comparaison a échoué.";
+      }
+    }
+
+    return NextResponse.json(result satisfies DistillResult);
   } catch (error) {
     return anthropicErrorResponse(error);
   } finally {
