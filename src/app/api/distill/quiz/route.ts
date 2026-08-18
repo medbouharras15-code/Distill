@@ -14,7 +14,7 @@ import {
   missingApiKeyResponse,
   validateImageSize,
 } from "@/lib/distillServer";
-import { COMPARISON_MODEL, IS_MODEL_COMPARISON_ENABLED } from "@/lib/modelComparison";
+import { COMPARISON_MODEL, IS_MODEL_COMPARISON_ENABLED, describeComparisonError } from "@/lib/modelComparison";
 import type { QuizDifficulty, QuizGenerationResult, QuizQuestion, QuizRequestBody } from "@/lib/types";
 
 const QUIZ_QUESTION_COUNT = 20;
@@ -169,7 +169,7 @@ export async function POST(request: Request) {
           result.comparisonError = "La réponse du modèle de comparaison ne correspond pas au format de QCM attendu.";
         }
       } catch (error) {
-        result.comparisonError = error instanceof Error ? error.message : "Le modèle de comparaison a échoué.";
+        result.comparisonError = describeComparisonError(error);
       }
     }
 

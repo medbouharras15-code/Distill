@@ -13,7 +13,7 @@ import {
   missingApiKeyResponse,
   validateImageSize,
 } from "@/lib/distillServer";
-import { COMPARISON_MODEL, IS_MODEL_COMPARISON_ENABLED } from "@/lib/modelComparison";
+import { COMPARISON_MODEL, IS_MODEL_COMPARISON_ENABLED, describeComparisonError } from "@/lib/modelComparison";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { DistillRequestBody, DistillResult } from "@/lib/types";
 
@@ -185,7 +185,7 @@ export async function POST(request: Request) {
           result.comparisonError = "La réponse du modèle de comparaison ne correspond pas au format attendu.";
         }
       } catch (error) {
-        result.comparisonError = error instanceof Error ? error.message : "Le modèle de comparaison a échoué.";
+        result.comparisonError = describeComparisonError(error);
       }
     }
 
