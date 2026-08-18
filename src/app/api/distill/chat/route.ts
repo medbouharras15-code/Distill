@@ -19,7 +19,7 @@ import type { ChatCitation, ChatRequestBody, ChatResponseBody } from "@/lib/type
 // s'attend normalement à voir des pièces jointes. Le prompt système ne
 // porte que la consigne de comportement.
 const SYSTEM_PROMPT = `Tu es un tuteur pédagogique qui répond aux questions d'un étudiant EXCLUSIVEMENT à partir des notes de cours fournies dans la conversation — jamais à partir de connaissances générales externes, même si tu les connais. Si la réponse ne se trouve pas dans ces notes, dis-le clairement plutôt que d'inventer ou de compléter avec des connaissances générales.
-Pour chaque réponse, cite les passages exacts des notes qui la justifient : copie-les mot pour mot, sans les reformuler ni les résumer, afin qu'ils puissent être retrouvés tels quels dans le texte source.
+Pour chaque réponse, cite les passages exacts des notes qui la justifient : copie-les mot pour mot, sans les reformuler ni les résumer, afin qu'ils puissent être retrouvés tels quels dans le texte source. Garde chaque citation courte (une phrase, jamais un paragraphe entier ni une liste complète) : plusieurs citations courtes valent mieux qu'une longue.
 Réponds uniquement en JSON : {"answer": "...", "citations": [{"quote": "..."}]}. "citations" est un tableau vide si aucune citation directe n'appuie la réponse (par exemple si tu indiques que l'information est absente des notes).`;
 
 // Même marge que /api/distill : le PDF peut être volumineux et Claude doit
@@ -125,7 +125,7 @@ export async function POST(request: Request) {
 
     const response = await client.messages.create({
       model: MODEL,
-      max_tokens: 2048,
+      max_tokens: 4096,
       system: SYSTEM_PROMPT,
       messages,
     });
@@ -136,13 +136,30 @@ export async function POST(request: Request) {
         { status: 422 },
       );
     }
+    // Une réponse tronquée par la limite de tokens ne peut jamais former un
+    // JSON valide (coupée en plein milieu) — mieux vaut le dire clairement
+    // que de laisser extractJson échouer plus bas avec une erreur générique.
+    if (response.stop_reason === "max_tokens") {
+      return NextResponse.json(
+        { error: "La réponse était trop longue et a été coupée. Reformulez votre question de façon plus précise." },
+        { status: 502 },
+      );
+    }
 
     const textBlock = response.content.find((block) => block.type === "text");
     if (!textBlock || textBlock.type !== "text") {
       return NextResponse.json({ error: "Le modèle n'a renvoyé aucun contenu exploitable." }, { status: 502 });
     }
 
-    const parsed = extractJson(textBlock.text);
+    let parsed: unknown;
+    try {
+      parsed = extractJson(textBlock.text);
+    } catch {
+      return NextResponse.json(
+        { error: "La réponse du modèle n'a pas pu être interprétée. Réessayez." },
+        { status: 502 },
+      );
+    }
     if (!isChatResponse(parsed)) {
       return NextResponse.json(
         { error: "La réponse du modèle ne correspond pas au format attendu. Réessayez." },
