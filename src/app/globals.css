@@ -214,6 +214,79 @@ body {
   mix-blend-mode: overlay;
 }
 
+/* ─────────────────────────────────────────────────────────────
+   Panneau IA — signature visuelle reprise du Figma Make (source,
+   génération, onglets, résumé, flashcards, QCM). Purement des
+   utilitaires de mouvement/texture ; aucune ne porte de logique.
+   ───────────────────────────────────────────────────────────── */
+
+/* Entrée d'un contenu qui vient de "se déposer" (section de résumé,
+ * carte de correction QCM…) — fondu + léger flou qui se dissipe, comme de
+ * l'encre qui se fixe sur le papier plutôt qu'un simple slide. */
+@keyframes distill-ink-settle {
+  from { opacity: 0; filter: blur(2px); transform: translateY(9px); }
+  to { opacity: 1; filter: blur(0); transform: translateY(0); }
+}
+.animate-ink-settle { animation: distill-ink-settle 0.55s var(--ease-signature) both; }
+
+/* Changement d'onglet (Résumé/Flashcards/QCM) — le nouveau contenu entre
+ * avec un léger settle plutôt qu'un simple fondu statique. */
+@keyframes distill-tab-enter {
+  from { opacity: 0; transform: scale(0.97) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.animate-tab-enter { animation: distill-tab-enter 0.4s var(--ease-signature) both; }
+
+/* Apparition du score final du QCM. */
+@keyframes distill-score-rise {
+  from { opacity: 0; transform: translateY(18px) scale(0.85); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.animate-score-rise { animation: distill-score-rise 0.6s var(--ease-signature) both; }
+
+/* Goutte qui descend et se dissipe — moment signature sur un très bon
+ * score au QCM, même geste que .landing-drop (hero de la landing) mais en
+ * un seul passage descendant plutôt qu'un rebond à l'arrivée : ici la
+ * goutte "tombe" en signe de réussite plutôt qu'elle ne se dépose. */
+@keyframes distill-droplet-descend {
+  0% { opacity: 0; transform: translateY(-26px) scale(0.4); }
+  22% { opacity: 1; transform: translateY(0) scale(1.15); }
+  60% { opacity: 1; transform: translateY(6px) scale(1); }
+  100% { opacity: 0; transform: translateY(34px) scale(0.55); }
+}
+.animate-droplet-descend { animation: distill-droplet-descend 2.2s var(--ease-signature) forwards; }
+
+/* Ombres empilées derrière la flashcard active, pour suggérer un jeu de
+ * cartes plutôt qu'une carte isolée — purement décoratif (::after/::before
+ * n'ont pas de contenu interactif). */
+.flashcard-stack::before,
+.flashcard-stack::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid var(--border);
+  background: var(--card);
+  z-index: -1;
+}
+.flashcard-stack::before {
+  transform: translateY(7px) scale(0.965);
+  opacity: 0.55;
+}
+.flashcard-stack::after {
+  transform: translateY(13px) scale(0.93);
+  opacity: 0.3;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-ink-settle,
+  .animate-tab-enter,
+  .animate-score-rise,
+  .animate-droplet-descend {
+    animation: none !important;
+  }
+}
+
 /* Continuité entre écrans (Dashboard → Mes carnets → …, voir AppShell) via
  * le <ViewTransition> de React/l'API View Transitions du navigateur.
  * pointer-events: none pendant la transition — sinon le calque de capture

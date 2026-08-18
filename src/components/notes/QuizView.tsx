@@ -1,17 +1,27 @@
 "use client";
 
 import { useState } from "react";
-import { buttonClasses } from "@/components/ui";
-import { Check, Close } from "@/lib/icons";
+import { Card, buttonClasses } from "@/components/ui";
+import { Check, Close, Sparkle } from "@/lib/icons";
+import { DistillMark } from "@/components/Brand";
 import type { QuizQuestion } from "@/lib/types";
 
 interface QuizViewProps {
   quiz: QuizQuestion[];
 }
 
+/** Score à partir duquel le moment signature (goutte) se joue à la
+ * correction — seuil purement décoratif, n'affecte jamais le calcul du
+ * score lui-même (isExactMatch, ci-dessous, inchangé). */
+const PERFECT_SCORE_THRESHOLD = 0.75;
+
 function isExactMatch(selected: Set<string>, correct: string[]): boolean {
   if (selected.size !== correct.length) return false;
   return correct.every((id) => selected.has(id));
+}
+
+function choiceLetter(index: number): string {
+  return String.fromCharCode(65 + index);
 }
 
 /** QCM de révision (choix unique ou multiple selon la question, jamais
@@ -22,6 +32,7 @@ function isExactMatch(selected: Set<string>, correct: string[]): boolean {
 export function QuizView({ quiz }: QuizViewProps) {
   const [answers, setAnswers] = useState<Record<number, Set<string>>>({});
   const [submitted, setSubmitted] = useState(false);
+  const [showDroplet, setShowDroplet] = useState(false);
 
   function toggleChoice(questionIndex: number, choiceId: string, isMultiple: boolean) {
     if (submitted) return;
@@ -40,107 +51,231 @@ export function QuizView({ quiz }: QuizViewProps) {
     });
   }
 
+  function submit() {
+    setSubmitted(true);
+    const finalScore = quiz.reduce(
+      (total, q, i) => total + (isExactMatch(answers[i] ?? new Set(), q.correctChoiceIds) ? 1 : 0),
+      0,
+    );
+    if (quiz.length > 0 && finalScore / quiz.length >= PERFECT_SCORE_THRESHOLD) {
+      window.setTimeout(() => setShowDroplet(true), 500);
+      window.setTimeout(() => setShowDroplet(false), 3000);
+    }
+  }
+
   function retry() {
     setAnswers({});
     setSubmitted(false);
+    setShowDroplet(false);
   }
 
   const answeredCount = Object.values(answers).filter((s) => s.size > 0).length;
   const score = submitted
     ? quiz.reduce((total, q, i) => total + (isExactMatch(answers[i] ?? new Set(), q.correctChoiceIds) ? 1 : 0), 0)
     : 0;
+  const pct = submitted && quiz.length > 0 ? Math.round((score / quiz.length) * 100) : 0;
+  const scoreMessage =
+    pct === 100
+      ? "Parfait — tout est acquis."
+      : pct >= 75
+        ? "Très bon travail, continue ainsi."
+        : pct >= 50
+          ? "Bonne base — relis les points manqués."
+          : "À retravailler, les explications vont t'aider.";
+
+  if (!submitted) {
+    return (
+      <div className="animate-fade">
+        <div className="space-y-4">
+          {quiz.map((q, i) => {
+            const isMultiple = q.correctChoiceIds.length >= 2;
+            const selected = answers[i] ?? new Set<string>();
+
+            return (
+              <Card key={i} className="paper-grain overflow-hidden p-0">
+                <div className="border-b border-border px-5 py-3.5">
+                  <div className="flex items-baseline gap-3">
+                    <span className="font-mono text-[11px] text-muted-foreground">
+                      {i + 1}/{quiz.length}
+                    </span>
+                    <p className="text-[14px] font-medium leading-snug text-foreground">{q.question}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5 p-3.5">
+                  {q.choices.map((choice, ci) => {
+                    const isChecked = selected.has(choice.id);
+                    return (
+                      <label
+                        key={choice.id}
+                        className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 text-left text-[13.5px] leading-snug transition ${
+                          isChecked
+                            ? "border-primary bg-accent-light/40 font-medium shadow-[0_0_0_1px_var(--primary)]"
+                            : "border-border bg-background/60 hover:border-primary/40 hover:bg-accent-light/20"
+                        }`}
+                      >
+                        <input
+                          type={isMultiple ? "checkbox" : "radio"}
+                          name={`quiz-q${i}`}
+                          checked={isChecked}
+                          onChange={() => toggleChoice(i, choice.id, isMultiple)}
+                          className="sr-only"
+                        />
+                        <span
+                          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 text-[10px] font-bold transition ${
+                            isChecked ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground"
+                          }`}
+                        >
+                          {isChecked ? <Check size={11} /> : choiceLetter(ci)}
+                        </span>
+                        <span className="text-foreground/90">{choice.text}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+
+        <div className="sticky bottom-0 mt-4 -mx-4 border-t border-border bg-card/95 px-4 py-3 backdrop-blur">
+          <button type="button" onClick={submit} className={buttonClasses("primary", "lg", "w-full rounded-2xl")}>
+            Valider mes réponses
+          </button>
+          {answeredCount < quiz.length && (
+            <p className="mt-1.5 text-center text-[11px] text-muted-foreground">
+              {quiz.length - answeredCount} question{quiz.length - answeredCount !== 1 ? "s" : ""} sans réponse — comptée
+              {quiz.length - answeredCount !== 1 ? "s" : ""} comme incorrecte
+              {quiz.length - answeredCount !== 1 ? "s" : ""}.
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="animate-fade">
-      {submitted && (
-        <div className="mb-4 rounded-xl border border-accent-light bg-accent-light/30 p-4 text-center">
-          <div className="font-display text-2xl font-medium text-accent-dark">
-            {score} / {quiz.length}
-          </div>
-          <div className="text-xs text-accent-dark/80">Score final</div>
-        </div>
-      )}
-
-      <div className="space-y-4">
-        {quiz.map((q, i) => {
-          const isMultiple = q.correctChoiceIds.length >= 2;
-          const selected = answers[i] ?? new Set<string>();
-          const correct = submitted && isExactMatch(selected, q.correctChoiceIds);
-
-          return (
+    <div className="animate-fade space-y-5">
+      {/* Carte de score */}
+      <Card className="paper-grain relative overflow-hidden p-7 text-center animate-score-rise">
+        {showDroplet && (
+          <div className="pointer-events-none absolute inset-0 z-20 flex items-start justify-center pt-4" aria-hidden="true">
             <div
-              key={i}
-              className={`rounded-xl border p-4 transition ${
-                submitted ? (correct ? "border-accent-light bg-accent-light/10" : "border-red-200 bg-red-50/40") : "border-border"
+              className="animate-droplet-descend text-primary"
+              style={{ filter: "drop-shadow(0 0 12px color-mix(in srgb, var(--ai-2) 60%, transparent))" }}
+            >
+              <DistillMark size={40} />
+            </div>
+          </div>
+        )}
+
+        {pct >= 75 && (
+          <div
+            className="pointer-events-none absolute inset-0 opacity-30"
+            aria-hidden="true"
+            style={{
+              background:
+                "radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--ai-2) 30%, transparent) 0%, transparent 65%)",
+            }}
+          />
+        )}
+
+        <div className="relative">
+          <div className="mb-1 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">Score final</div>
+          <div
+            className="mt-3 font-display text-6xl font-medium tabular-nums tracking-tight"
+            style={{ color: pct >= 75 ? "var(--ai-1)" : "var(--foreground)" }}
+          >
+            {score}
+            <span className="text-3xl text-muted-foreground">/{quiz.length}</span>
+          </div>
+          <div className="mt-2 font-display text-lg font-medium text-foreground">{scoreMessage}</div>
+
+          <div className="mx-auto mt-5 h-2 max-w-xs overflow-hidden rounded-full bg-secondary">
+            <div
+              className="h-full rounded-full transition-all duration-1000"
+              style={{
+                width: `${pct}%`,
+                background: pct >= 75 ? "linear-gradient(90deg, var(--ai-1), var(--ai-2))" : "var(--primary)",
+                transitionDelay: "200ms",
+              }}
+            />
+          </div>
+          <div className="mt-2 font-mono text-[12px] text-muted-foreground">{pct}%</div>
+        </div>
+      </Card>
+
+      {/* Correction détaillée */}
+      {quiz.map((q, i) => {
+        const selected = answers[i] ?? new Set<string>();
+        const correct = isExactMatch(selected, q.correctChoiceIds);
+
+        return (
+          <Card key={i} className="paper-grain overflow-hidden p-0">
+            <div
+              className={`flex items-center gap-3 border-b px-5 py-3.5 ${
+                correct
+                  ? "border-[color-mix(in_srgb,var(--ai-1)_20%,var(--border))] bg-[color-mix(in_srgb,var(--ai-1)_5%,transparent)]"
+                  : "border-red-200 bg-red-50/50 dark:border-red-900/40 dark:bg-red-950/20"
               }`}
             >
-              <div className="flex items-start justify-between gap-2">
-                <p className="text-sm font-medium leading-snug text-foreground">
-                  {i + 1}. {q.question}
-                </p>
-                {submitted && (
-                  <span className={`shrink-0 ${correct ? "text-accent-dark" : "text-red-600"}`}>
-                    {correct ? <Check size={16} /> : <Close size={16} />}
-                  </span>
-                )}
-              </div>
+              <span
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-white ${
+                  correct ? "bg-[var(--ai-1)]" : "bg-red-500"
+                }`}
+              >
+                {correct ? <Check size={13} /> : <Close size={13} />}
+              </span>
+              <p className="text-[14px] font-medium leading-snug text-foreground">{q.question}</p>
+            </div>
 
-              <div className="mt-3 space-y-1.5">
-                {q.choices.map((choice) => {
-                  const isChecked = selected.has(choice.id);
-                  const isCorrectChoice = q.correctChoiceIds.includes(choice.id);
-                  let optionClass = "border-border";
-                  if (submitted) {
-                    if (isCorrectChoice) optionClass = "border-accent-light bg-accent-light/40";
-                    else if (isChecked) optionClass = "border-red-200 bg-red-50";
-                  }
-                  return (
-                    <label
-                      key={choice.id}
-                      className={`flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-sm transition ${optionClass} ${
-                        submitted ? "cursor-default" : "hover:border-accent/50"
+            <div className="space-y-1.5 p-3.5">
+              {q.choices.map((choice, ci) => {
+                const isCorrectChoice = q.correctChoiceIds.includes(choice.id);
+                const isUserChoice = selected.has(choice.id);
+                return (
+                  <div
+                    key={choice.id}
+                    className={`flex items-center gap-3 rounded-xl border p-3 text-[13.5px] leading-snug ${
+                      isCorrectChoice
+                        ? "border-[color-mix(in_srgb,var(--ai-1)_35%,transparent)] bg-[color-mix(in_srgb,var(--ai-1)_8%,transparent)] font-medium"
+                        : isUserChoice
+                          ? "border-red-300 bg-red-50 text-red-700 line-through opacity-70 dark:border-red-800 dark:bg-red-950/30 dark:text-red-400"
+                          : "border-border bg-background/40 text-muted-foreground"
+                    }`}
+                  >
+                    <span
+                      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 text-[10px] font-bold ${
+                        isCorrectChoice
+                          ? "border-[var(--ai-1)] bg-[var(--ai-1)] text-white"
+                          : isUserChoice
+                            ? "border-red-500 bg-red-500 text-white"
+                            : "border-border"
                       }`}
                     >
-                      <input
-                        type={isMultiple ? "checkbox" : "radio"}
-                        name={`quiz-q${i}`}
-                        checked={isChecked}
-                        disabled={submitted}
-                        onChange={() => toggleChoice(i, choice.id, isMultiple)}
-                        className="shrink-0 accent-accent"
-                      />
-                      <span className="text-foreground/90">{choice.text}</span>
-                    </label>
-                  );
-                })}
-              </div>
-
-              {submitted && q.explanation && <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{q.explanation}</p>}
+                      {isCorrectChoice ? <Check size={11} /> : isUserChoice ? <Close size={11} /> : choiceLetter(ci)}
+                    </span>
+                    {choice.text}
+                  </div>
+                );
+              })}
             </div>
-          );
-        })}
-      </div>
 
-      <div className="sticky bottom-0 mt-4 -mx-4 border-t border-border bg-card/95 px-4 py-3 backdrop-blur">
-        {submitted ? (
-          <button type="button" onClick={retry} className={buttonClasses("outline", "sm", "w-full")}>
-            ↺ Recommencer le QCM
-          </button>
-        ) : (
-          <>
-            <button type="button" onClick={() => setSubmitted(true)} className={buttonClasses("primary", "sm", "w-full")}>
-              Valider mes réponses
-            </button>
-            {answeredCount < quiz.length && (
-              <p className="mt-1.5 text-center text-[11px] text-muted-foreground">
-                {quiz.length - answeredCount} question{quiz.length - answeredCount !== 1 ? "s" : ""} sans réponse — comptée
-                {quiz.length - answeredCount !== 1 ? "s" : ""} comme incorrecte
-                {quiz.length - answeredCount !== 1 ? "s" : ""}.
-              </p>
+            {q.explanation && (
+              <div className="border-t border-border bg-secondary/40 px-5 py-3.5">
+                <div className="flex items-start gap-2.5 text-[13px] text-muted-foreground">
+                  <Sparkle size={14} className="mt-0.5 shrink-0 text-primary" />
+                  <span className="leading-relaxed">{q.explanation}</span>
+                </div>
+              </div>
             )}
-          </>
-        )}
-      </div>
+          </Card>
+        );
+      })}
+
+      <button type="button" onClick={retry} className={buttonClasses("outline", "lg", "w-full rounded-2xl")}>
+        Recommencer le QCM
+      </button>
     </div>
   );
 }

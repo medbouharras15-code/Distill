@@ -4,14 +4,15 @@ import { upload } from "@vercel/blob/client";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import FileDropZone from "@/components/FileDropZone";
-import FlashcardView from "@/components/FlashcardView";
 import { AiOrb, DistillMark } from "@/components/Brand";
-import { Badge, buttonClasses } from "@/components/ui";
-import { Close } from "@/lib/icons";
+import { Badge, Card, Eyebrow, buttonClasses, staggerDelay } from "@/components/ui";
+import { Cards, Close, Doc, Pen, Quiz, Sparkle } from "@/lib/icons";
 import { FREE_GENERATIONS_LIMIT, IS_FREE_LIMIT_OVERRIDDEN, isSubscribed } from "@/lib/billing";
 import { MAX_PDF_FILE_BYTES } from "@/lib/fileSizeLimits";
 import { parseJsonResponse, useSubscriptionActions } from "@/lib/useSubscriptionActions";
 import type { DistillResult, QuizDifficulty, QuizGenerationResult } from "@/lib/types";
+import { FlashcardDeck } from "./FlashcardDeck";
+import { PhotoIcon } from "./icons";
 import { QuizView } from "./QuizView";
 
 const MAX_RAW_IMAGE_BYTES = 20 * 1024 * 1024; // simple garde-fou avant compression
@@ -48,6 +49,159 @@ function DistillingLoader({ label }: { label: string }) {
       </div>
       <p className="text-sm text-muted-foreground">{label}</p>
     </div>
+  );
+}
+
+/** Écran de génération (résumé + flashcards) affiché pendant `loading` — à
+ * la place du formulaire, plutôt qu'un simple bouton désactivé. Les trois
+ * repères (Lecture/Structuration/Génération) pulsent en boucle décalée :
+ * on n'a aucun signal réel de progression par étape (un seul appel réseau,
+ * pas de streaming), donc ils restent volontairement indéterminés — jamais
+ * de fausse coche "terminé" qui prétendrait suivre une progression qu'on
+ * n'a pas. */
+function GeneratingState({ quizNext }: { quizNext: boolean }) {
+  const steps = ["Lecture", "Structuration", "Génération"];
+  return (
+    <div className="flex animate-fade flex-col items-center justify-center gap-8 py-14 text-center">
+      <div className="relative flex items-center justify-center">
+        <div
+          className="absolute h-28 w-28 rounded-full opacity-60"
+          style={{ background: "radial-gradient(ellipse, color-mix(in srgb, var(--ai-2) 20%, transparent) 0%, transparent 70%)" }}
+          aria-hidden="true"
+        />
+        <span className="relative z-10 text-primary animate-distill-loop" aria-hidden="true">
+          <DistillMark size={44} />
+        </span>
+      </div>
+
+      <div>
+        <div className="font-display text-lg font-medium tracking-tight text-foreground">Distillation en cours</div>
+        <div className="mt-1.5 text-sm text-muted-foreground">
+          Résumé et flashcards en préparation{quizNext ? " · QCM à suivre" : ""}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3">
+        {steps.map((step, i) => (
+          <div key={step} className="flex items-center gap-3">
+            <div className="flex flex-col items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-primary animate-aipulse" style={staggerDelay(i, 300)} aria-hidden="true" />
+              <span className="text-[11px] text-muted-foreground">{step}</span>
+            </div>
+            {i < steps.length - 1 && <div className="h-px w-5 bg-border" aria-hidden="true" />}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Carte de statut (non interactive) pour la source "texte" — accompagne
+ * visuellement les cartes Photo/PDF sans dupliquer la zone de saisie : le
+ * texte reste toujours combinable avec une photo et/ou un PDF, exactement
+ * comme avant (contrairement à une sélection exclusive d'une seule
+ * source). */
+function TextSourceStatus({ charCount }: { charCount: number }) {
+  const active = charCount > 0;
+  return (
+    <div
+      className={`relative flex flex-col items-start gap-3 rounded-2xl border p-4 text-left transition-all duration-200 ${
+        active ? "border-accent bg-accent-light/30 shadow-[var(--shadow-sm)]" : "border-border bg-card"
+      }`}
+    >
+      {active && <span className="absolute right-3.5 top-3.5 h-2 w-2 rounded-full bg-primary" aria-hidden="true" />}
+      <span
+        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition ${
+          active ? "bg-accent text-accent-foreground" : "bg-background-alt text-muted-foreground"
+        }`}
+      >
+        <Pen size={18} />
+      </span>
+      <div>
+        <div className="text-[13px] font-semibold text-foreground">Coller du texte</div>
+        <div className="mt-0.5 text-[12px] text-muted-foreground">
+          {active ? `${charCount} caractères` : "Un paragraphe, un cours, des notes"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Sélecteur de difficulté du QCM — pilule glissante, même valeur/setter
+ * qu'avant (quizDifficulty/setQuizDifficulty), seul l'habillage change. */
+function DifficultyToggle({ value, onChange }: { value: QuizDifficulty; onChange: (d: QuizDifficulty) => void }) {
+  return (
+    <div className="relative flex rounded-xl border border-border bg-secondary p-1">
+      <span
+        className="absolute top-1 h-[calc(100%-8px)] w-[calc(50%-4px)] rounded-lg bg-card shadow-[var(--shadow-sm)] transition-all duration-300"
+        style={{ left: value === "easy" ? "4px" : "calc(50% + 0px)" }}
+        aria-hidden="true"
+      />
+      {(["easy", "hard"] as const).map((d) => (
+        <button
+          key={d}
+          type="button"
+          onClick={() => onChange(d)}
+          className={`relative z-10 flex h-8 w-20 items-center justify-center rounded-lg text-[12.5px] font-medium transition-colors duration-200 ${
+            value === d ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          {d === "easy" ? "Facile" : "Difficile"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Résumé — même donnée qu'avant (une seule chaîne Markdown renvoyée par
+ * Claude, voir /api/distill), habillée en carte "hero" avec halo IA et
+ * titres de section marqués d'un repère — pas de numérotation (ça
+ * demanderait un compteur muté pendant le rendu, contraire aux règles de
+ * pureté des composants). */
+function SummaryView({ markdown }: { markdown: string }) {
+  return (
+    <Card className="paper-grain relative animate-tab-enter overflow-hidden p-6">
+      <div
+        className="pointer-events-none absolute -right-14 -top-14 h-44 w-44 rounded-full opacity-50"
+        style={{ background: "radial-gradient(ellipse, color-mix(in srgb, var(--ai-2) 22%, transparent) 0%, transparent 68%)" }}
+        aria-hidden="true"
+      />
+      <div className="relative">
+        <div className="mb-4 flex items-center gap-2.5">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full ai-gradient text-white">
+            <DistillMark size={14} />
+          </span>
+          <Eyebrow>Résumé IA</Eyebrow>
+        </div>
+
+        <article className="prose-summary">
+          <ReactMarkdown
+            components={{
+              h1: (p) => <h1 className="mb-3 font-display text-xl font-medium tracking-[-0.01em] text-foreground" {...p} />,
+              h2: (p) => (
+                <div className="mb-2.5 mt-6 flex items-center gap-2.5 first:mt-0">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-hidden="true" />
+                  <h2 className="font-display text-[15px] font-medium tracking-tight text-foreground" {...p} />
+                </div>
+              ),
+              h3: (p) => <h3 className="mb-1.5 mt-3 font-display text-[14px] text-foreground" {...p} />,
+              p: (p) => <p className="mb-2.5 text-sm leading-relaxed text-foreground/90" {...p} />,
+              strong: (p) => <strong className="font-semibold text-accent-dark" {...p} />,
+              ul: (p) => <ul className="mb-2.5 list-disc space-y-1.5 pl-5 text-sm text-foreground/90 marker:text-primary/60" {...p} />,
+              ol: (p) => <ol className="mb-2.5 list-decimal space-y-1.5 pl-5 text-sm text-foreground/90" {...p} />,
+            }}
+          >
+            {markdown}
+          </ReactMarkdown>
+        </article>
+
+        <div className="mt-5 flex items-center justify-center gap-1.5 border-t border-border pt-4 text-[12px] text-muted-foreground">
+          <span className="ai-text flex items-center gap-1 font-medium">
+            <Sparkle size={12} /> Généré par IA Distill
+          </span>
+        </div>
+      </div>
+    </Card>
   );
 }
 
@@ -284,6 +438,12 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
     setQuizError(null);
   }
 
+  const TAB_CONFIG: { id: Tab; label: string; icon: typeof Doc }[] = [
+    { id: "summary", label: "Résumé", icon: Doc },
+    { id: "flashcards", label: "Flashcards", icon: Cards },
+    { id: "quiz", label: "QCM", icon: Quiz },
+  ];
+
   return (
     <div className="flex h-full flex-col bg-card">
       {/* En-tête */}
@@ -358,156 +518,138 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
 
         {result ? (
           <div className="animate-fade">
-            <div className="mb-4 flex items-center justify-between gap-2">
-              <div className="flex gap-1.5 rounded-full bg-background-alt p-1">
-                <button
-                  type="button"
-                  onClick={() => setTab("summary")}
-                  className={`rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-200 ${
-                    tab === "summary" ? "bg-card text-accent-dark shadow-[var(--shadow-sm)]" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Résumé
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTab("flashcards")}
-                  className={`rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-200 ${
-                    tab === "flashcards" ? "bg-card text-accent-dark shadow-[var(--shadow-sm)]" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Flashcards ({result.flashcards.length})
-                </button>
-                {quizRequestedForResult && (
-                  <button
-                    type="button"
-                    onClick={() => setTab("quiz")}
-                    className={`rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-200 ${
-                      tab === "quiz" ? "bg-card text-accent-dark shadow-[var(--shadow-sm)]" : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    QCM{result.quiz ? ` (${result.quiz.length})` : ""}
-                  </button>
-                )}
+            <div className="mb-6 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1 rounded-2xl border border-border bg-card p-1.5 shadow-[var(--shadow-sm)]">
+                {TAB_CONFIG.map(({ id, label, icon: Icon }) => {
+                  if (id === "quiz" && !quizRequestedForResult) return null;
+                  const on = tab === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setTab(id)}
+                      className={`relative flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-[12.5px] font-medium transition-all duration-200 ${
+                        on ? "bg-foreground text-background shadow-[var(--shadow-sm)]" : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <Icon size={13} />
+                      {label}
+                      {id === "flashcards" && ` (${result.flashcards.length})`}
+                      {id === "quiz" && result.quiz ? ` (${result.quiz.length})` : ""}
+                    </button>
+                  );
+                })}
               </div>
-              <button type="button" onClick={reset} className={buttonClasses("outline", "sm")}>
-                ↺ Nouvelle
+              <button
+                type="button"
+                onClick={reset}
+                className="flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-[12px] text-muted-foreground shadow-[var(--shadow-sm)] transition hover:text-foreground"
+              >
+                <Sparkle size={12} /> Nouvelle analyse
               </button>
             </div>
 
-            {tab === "quiz" ? (
-              result.quiz ? (
-                <QuizView quiz={result.quiz} />
-              ) : quizError ? (
-                <div className="flex animate-fade flex-col items-center gap-3 rounded-xl border border-red-200 bg-red-50/40 p-6 text-center">
-                  <p className="text-sm text-red-700">{quizError}</p>
-                  <button type="button" onClick={() => void generateQuiz()} className={buttonClasses("outline", "sm")}>
-                    Réessayer
-                  </button>
-                </div>
+            <div key={tab}>
+              {tab === "quiz" ? (
+                result.quiz ? (
+                  <QuizView quiz={result.quiz} />
+                ) : quizError ? (
+                  <div className="flex animate-fade flex-col items-center gap-3 rounded-xl border border-red-200 bg-red-50/40 p-6 text-center">
+                    <p className="text-sm text-red-700">{quizError}</p>
+                    <button type="button" onClick={() => void generateQuiz()} className={buttonClasses("outline", "sm")}>
+                      Réessayer
+                    </button>
+                  </div>
+                ) : (
+                  <DistillingLoader label="Génération de votre QCM en cours…" />
+                )
+              ) : tab === "summary" ? (
+                <SummaryView markdown={result.summary} />
               ) : (
-                <DistillingLoader label="Génération de votre QCM en cours…" />
-              )
-            ) : tab === "summary" ? (
-              <article className="prose-summary animate-fade rounded-2xl border border-border bg-background p-5 shadow-[var(--shadow-sm)]">
-                <ReactMarkdown
-                  components={{
-                    h1: (p) => <h1 className="mb-3 font-display text-lg text-foreground" {...p} />,
-                    h2: (p) => <h2 className="mt-4 mb-2 font-display text-base text-foreground first:mt-0" {...p} />,
-                    h3: (p) => <h3 className="mt-3 mb-1.5 font-display text-[15px] text-foreground" {...p} />,
-                    p: (p) => <p className="mb-2.5 text-sm leading-relaxed text-foreground/90" {...p} />,
-                    strong: (p) => <strong className="font-semibold text-accent-dark" {...p} />,
-                    ul: (p) => <ul className="mb-2.5 list-disc space-y-1 pl-5 text-sm text-foreground/90" {...p} />,
-                    ol: (p) => <ol className="mb-2.5 list-decimal space-y-1 pl-5 text-sm text-foreground/90" {...p} />,
-                  }}
-                >
-                  {result.summary}
-                </ReactMarkdown>
-              </article>
-            ) : (
-              <div className="animate-fade space-y-4">
-                {result.flashcards.map((card, i) => (
-                  <FlashcardView key={i} card={card} index={i} />
-                ))}
-              </div>
-            )}
+                <FlashcardDeck cards={result.flashcards} />
+              )}
+            </div>
           </div>
         ) : (
           <div className="animate-fade">
-            <label className="mb-2 block text-sm font-medium text-foreground">Collez le texte de vos notes</label>
-            <textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="Collez ici le contenu de votre cours..."
-              rows={6}
-              className="mb-4 w-full resize-y rounded-xl border border-border bg-background-alt p-3 text-sm text-foreground transition placeholder:text-muted-foreground focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-light"
-            />
-
-            <div className="mb-4 flex flex-col gap-3">
-              <FileDropZone
-                label="Photo de notes manuscrites"
-                hint="Compressée automatiquement"
-                accept="image/*"
-                file={imageFile}
-                onSelect={selectImage}
-                onClear={() => setImageFile(null)}
-              />
-              <FileDropZone
-                label="PDF de cours"
-                hint={`Cours scanné ou texte (${MAX_PDF_BYTES_LABEL} Mo max.)`}
-                accept="application/pdf"
-                file={pdfFile}
-                onSelect={selectPdf}
-                onClear={() => setPdfFile(null)}
-              />
-            </div>
-
-            <div className="mb-4 rounded-xl border border-border bg-background-alt p-3">
-              <label className="flex cursor-pointer items-center gap-2.5 text-sm font-medium text-foreground">
-                <input
-                  type="checkbox"
-                  checked={quizRequested}
-                  onChange={(e) => setQuizRequested(e.target.checked)}
-                  className="h-4 w-4 shrink-0 accent-accent"
-                />
-                Générer aussi un QCM de révision
-              </label>
-              {quizRequested && (
-                <div className="mt-3 flex items-center gap-2.5">
-                  <span className="text-xs text-muted-foreground">Difficulté</span>
-                  <div className="flex gap-1 rounded-full bg-secondary p-1">
-                    {(["easy", "hard"] as const).map((d) => (
-                      <button
-                        key={d}
-                        type="button"
-                        onClick={() => setQuizDifficulty(d)}
-                        className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                          quizDifficulty === d ? "bg-card text-accent-dark shadow-[var(--shadow-sm)]" : "text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        {d === "easy" ? "Facile" : "Difficile"}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2.5 text-xs text-red-700">{error}</p>}
-
-            {limitReached ? (
-              <button type="button" onClick={subscribe} disabled={billingLoading} className={buttonClasses("primary", "lg", "w-full")}>
-                {billingLoading ? "Redirection vers le paiement…" : "Limite atteinte — S'abonner pour continuer"}
-              </button>
+            {loading ? (
+              <GeneratingState quizNext={quizRequested} />
             ) : (
-              <button type="button" onClick={handleSubmit} disabled={!hasInput || loading} className={buttonClasses("primary", "lg", "w-full")}>
-                {loading && (
-                  <span className="text-[var(--primary-foreground)] animate-distill-loop" aria-hidden="true">
-                    <DistillMark size={16} />
-                  </span>
+              <>
+                <Eyebrow>Source de contenu</Eyebrow>
+                <div className="mt-3 grid grid-cols-1 gap-3">
+                  <TextSourceStatus charCount={text.trim().length} />
+                  <FileDropZone
+                    label="Photo de notes manuscrites"
+                    hint="JPG, PNG — compressée automatiquement"
+                    icon={<PhotoIcon className="h-5 w-5" />}
+                    accept="image/*"
+                    file={imageFile}
+                    onSelect={selectImage}
+                    onClear={() => setImageFile(null)}
+                  />
+                  <FileDropZone
+                    label="PDF de cours"
+                    hint={`Cours scanné ou texte (${MAX_PDF_BYTES_LABEL} Mo max.)`}
+                    icon={<Doc size={20} />}
+                    accept="application/pdf"
+                    file={pdfFile}
+                    onSelect={selectPdf}
+                    onClear={() => setPdfFile(null)}
+                  />
+                </div>
+
+                <textarea
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  placeholder="Collez ici le contenu de votre cours..."
+                  rows={6}
+                  className="paper-grain mt-4 w-full resize-y rounded-2xl border border-border bg-card p-4 text-sm leading-relaxed text-foreground shadow-[var(--shadow-sm)] transition placeholder:text-muted-foreground/60 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-light"
+                />
+
+                <div className="mt-4 rounded-2xl border border-border bg-card p-4 shadow-[var(--shadow-sm)]">
+                  <label className="flex cursor-pointer items-center gap-2.5 text-sm font-medium text-foreground">
+                    <input
+                      type="checkbox"
+                      checked={quizRequested}
+                      onChange={(e) => setQuizRequested(e.target.checked)}
+                      className="h-4 w-4 shrink-0 accent-accent"
+                    />
+                    Générer aussi un QCM de révision
+                  </label>
+                  {quizRequested && (
+                    <div className="mt-3 flex items-center gap-2.5">
+                      <span className="text-xs text-muted-foreground">Difficulté</span>
+                      <DifficultyToggle value={quizDifficulty} onChange={setQuizDifficulty} />
+                    </div>
+                  )}
+                </div>
+
+                {error && <p className="mt-4 rounded-lg bg-red-50 px-3 py-2.5 text-xs text-red-700">{error}</p>}
+
+                {limitReached ? (
+                  <button
+                    type="button"
+                    onClick={subscribe}
+                    disabled={billingLoading}
+                    className={buttonClasses("primary", "lg", "mt-4 w-full rounded-2xl shadow-[0_2px_4px_rgba(0,0,0,0.08),0_16px_40px_-16px_var(--primary)]")}
+                  >
+                    {billingLoading ? "Redirection vers le paiement…" : "Limite atteinte — S'abonner pour continuer"}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleSubmit}
+                    disabled={!hasInput}
+                    className={buttonClasses("primary", "lg", "mt-4 w-full rounded-2xl shadow-[0_2px_4px_rgba(0,0,0,0.08),0_16px_40px_-16px_var(--primary)]")}
+                  >
+                    <span className="relative flex h-4 w-4 items-center justify-center">
+                      <DistillMark size={16} />
+                    </span>
+                    Distiller mes notes
+                  </button>
                 )}
-                {loading ? "Distillation en cours…" : "Distiller mes notes"}
-              </button>
+              </>
             )}
           </div>
         )}
