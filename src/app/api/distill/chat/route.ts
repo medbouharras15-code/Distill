@@ -148,6 +148,12 @@ export async function POST(request: Request) {
       messages,
     });
 
+    // Diagnostic temporaire pour vérifier le fonctionnement du prompt
+    // caching (voir cachedSourceContent ci-dessus) : cache_read_input_tokens
+    // > 0 confirme une lecture depuis le cache, cache_creation_input_tokens
+    // > 0 une écriture. À retirer une fois la vérification faite.
+    console.log("[chat] usage Anthropic :", response.usage);
+
     if (response.stop_reason === "refusal") {
       return NextResponse.json(
         { error: "Le modèle n'a pas pu répondre à cette question. Essayez de la reformuler." },
