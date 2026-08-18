@@ -241,6 +241,19 @@ export async function callClaudeWithFallback(
 /** Traduit une erreur de l'appel à Claude en réponse HTTP — même
  * comportement pour /api/distill et /api/distill/quiz. */
 export function anthropicErrorResponse(error: unknown): NextResponse {
+  // Log systématique, quel que soit le type d'erreur : avant ce correctif,
+  // seul le cas générique non reconnu (dernière branche ci-dessous) passait
+  // par console.error — les erreurs typées Anthropic (RateLimitError, ou
+  // APIError générique qui couvre surcharge/timeout/requête invalide...) ne
+  // laissaient aucune trace, rendant un échec après le repli automatique
+  // Haiku → Sonnet (voir callClaudeWithFallback) invisible dans les logs.
+  console.error(
+    "Erreur lors de l'appel à Claude :",
+    error instanceof Anthropic.APIError
+      ? { name: error.name, status: error.status, message: error.message }
+      : error,
+  );
+
   if (error instanceof Anthropic.AuthenticationError) {
     return NextResponse.json({ error: "Clé API Anthropic invalide." }, { status: 401 });
   }
@@ -254,7 +267,6 @@ export function anthropicErrorResponse(error: unknown): NextResponse {
     return NextResponse.json({ error: `Erreur de l'API Claude : ${error.message}` }, { status: error.status ?? 500 });
   }
 
-  console.error("Erreur inattendue lors de l'appel à Claude :", error);
   return NextResponse.json({ error: "Une erreur inattendue est survenue." }, { status: 500 });
 }
 
