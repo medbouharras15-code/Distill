@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import FileDropZone from "@/components/FileDropZone";
 import { AiOrb, DistillMark } from "@/components/Brand";
@@ -9,9 +9,8 @@ import { Cards, Chat, Close, Doc, Pen, Quiz, Sparkle } from "@/lib/icons";
 import { resizeImageToJpeg, uploadPdfToBlob } from "@/lib/aiMedia";
 import { FREE_GENERATIONS_LIMIT, IS_FREE_LIMIT_OVERRIDDEN, isSubscribed } from "@/lib/billing";
 import { MAX_PDF_FILE_BYTES } from "@/lib/fileSizeLimits";
-import { COMPARISON_MODEL_LABEL, IS_MODEL_COMPARISON_ENABLED } from "@/lib/modelComparison";
 import { parseJsonResponse, useSubscriptionActions } from "@/lib/useSubscriptionActions";
-import type { DistillResult, QuizComparisonResult, QuizDifficulty, QuizGenerationResult, QuizQuestion } from "@/lib/types";
+import type { DistillResult, QuizDifficulty, QuizGenerationResult } from "@/lib/types";
 import { ChatView } from "./ChatView";
 import { FlashcardDeck } from "./FlashcardDeck";
 import { PhotoIcon } from "./icons";
@@ -200,51 +199,6 @@ function SummaryView({ markdown }: { markdown: string }) {
   );
 }
 
-/** Bandeau de comparaison de modèles (mode Preview/dev uniquement, voir
- * @/lib/modelComparison) — habille n'importe quel contenu de résultat avec
- * un en-tête distinctif, pour qu'il ne soit jamais confondu avec le
- * résultat principal généré par le modèle habituel. */
-function ComparisonPanel({ model, children }: { model: string; children: ReactNode }) {
-  return (
-    <div className="mt-5 rounded-2xl border-2 border-dashed border-amber-300/70 p-4 dark:border-amber-800/50">
-      <div className="mb-3 flex items-center gap-2">
-        <Badge className="bg-amber-100 text-amber-800">Comparaison</Badge>
-        <span className="text-xs font-medium text-muted-foreground">{model}</span>
-      </div>
-      {children}
-    </div>
-  );
-}
-
-/** Aperçu QCM en lecture seule pour le mode comparaison — les bonnes
- * réponses sont déjà révélées (pas de flux de réponse/validation dupliqué,
- * ce serait excessif pour un outil de test temporaire) : on veut juger la
- * qualité des questions générées, pas repasser le QCM. */
-function QuizComparisonPreview({ quiz }: { quiz: QuizQuestion[] }) {
-  return (
-    <div className="space-y-3">
-      {quiz.map((q, i) => (
-        <div key={i} className="rounded-xl border border-border bg-card p-3.5">
-          <p className="text-[13px] font-medium leading-snug text-foreground">
-            {i + 1}. {q.question}
-          </p>
-          <ul className="mt-2 space-y-1">
-            {q.choices.map((c) => {
-              const isCorrect = q.correctChoiceIds.includes(c.id);
-              return (
-                <li key={c.id} className={`text-[12.5px] ${isCorrect ? "font-medium text-accent-dark" : "text-muted-foreground"}`}>
-                  {isCorrect ? "✓ " : "· "}
-                  {c.text}
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 /** Panneau IA de l'éditeur — reprend à l'identique le comportement de
  * l'ancien écran DistillApp (coller texte/photo/PDF → résumé/flashcards,
  * gestion d'abonnement) dans le panneau latéral de `/notes`, comme convenu.
@@ -272,14 +226,6 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
   const [quizRequestedForResult, setQuizRequestedForResult] = useState(false);
   const [quizLoading, setQuizLoading] = useState(false);
   const [quizError, setQuizError] = useState<string | null>(null);
-  // Mode comparaison de modèles (Preview/dev uniquement) — voir
-  // @/lib/modelComparison. La case n'est même rendue que si
-  // IS_MODEL_COMPARISON_ENABLED, donc jamais visible ni cochable en
-  // production ; le serveur revérifie de toute façon indépendamment avant
-  // de faire le moindre appel supplémentaire.
-  const [compareWithHaiku, setCompareWithHaiku] = useState(false);
-  const [quizComparison, setQuizComparison] = useState<QuizComparisonResult | null>(null);
-  const [quizComparisonError, setQuizComparisonError] = useState<string | null>(null);
 
   const subscribed = isSubscribed({ subscription_status: subscriptionStatus });
   const remaining = subscribed ? Infinity : Math.max(0, FREE_GENERATIONS_LIMIT - localGenerationsUsed);
@@ -336,7 +282,6 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
           image: imageData ? { data: imageData, mediaType: "image/jpeg" } : undefined,
           pdf: pdfRef ?? undefined,
           quizDifficulty,
-          compareWithHaiku,
         }),
       });
 
@@ -345,10 +290,8 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
         throw new Error(typeof payload.error === "string" ? payload.error : "Impossible de générer le QCM.");
       }
 
-      const { quiz, comparison, comparisonError } = payload as unknown as QuizGenerationResult;
+      const { quiz } = payload as unknown as QuizGenerationResult;
       setResult((prev) => (prev ? { ...prev, quiz } : prev));
-      setQuizComparison(comparison ?? null);
-      setQuizComparisonError(comparisonError ?? null);
     } catch (err) {
       setQuizError(err instanceof Error ? err.message : "Une erreur est survenue.");
     } finally {
@@ -380,7 +323,6 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
           text: text.trim() || undefined,
           image: imageData ? { data: imageData, mediaType: "image/jpeg" } : undefined,
           pdf: pdfRef ?? undefined,
-          compareWithHaiku,
         }),
       });
 
@@ -423,8 +365,6 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
     setQuizRequestedForResult(false);
     setQuizLoading(false);
     setQuizError(null);
-    setQuizComparison(null);
-    setQuizComparisonError(null);
   }
 
   const TAB_CONFIG: { id: Tab; label: string; icon: typeof Doc }[] = [
@@ -542,19 +482,7 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
             <div key={tab}>
               {tab === "quiz" ? (
                 result.quiz ? (
-                  <>
-                    <QuizView quiz={result.quiz} />
-                    {quizComparison && (
-                      <ComparisonPanel model={quizComparison.model}>
-                        <QuizComparisonPreview quiz={quizComparison.quiz} />
-                      </ComparisonPanel>
-                    )}
-                    {quizComparisonError && (
-                      <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2.5 text-xs text-amber-800 dark:bg-amber-950/20">
-                        Comparaison indisponible : {quizComparisonError}
-                      </p>
-                    )}
-                  </>
+                  <QuizView quiz={result.quiz} />
                 ) : quizError ? (
                   <div className="flex animate-fade flex-col items-center gap-3 rounded-xl border border-red-200 bg-red-50/40 p-6 text-center">
                     <p className="text-sm text-red-700">{quizError}</p>
@@ -566,19 +494,7 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
                   <DistillingLoader label="Génération de votre QCM en cours…" />
                 )
               ) : tab === "summary" ? (
-                <>
-                  <SummaryView markdown={result.summary} />
-                  {result.comparison && (
-                    <ComparisonPanel model={result.comparison.model}>
-                      <SummaryView markdown={result.comparison.summary} />
-                    </ComparisonPanel>
-                  )}
-                  {result.comparisonError && (
-                    <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2.5 text-xs text-amber-800 dark:bg-amber-950/20">
-                      Comparaison indisponible : {result.comparisonError}
-                    </p>
-                  )}
-                </>
+                <SummaryView markdown={result.summary} />
               ) : tab === "chat" ? (
                 <ChatView text={text} imageFile={imageFile} pdfFile={pdfFile} />
               ) : (
@@ -640,25 +556,6 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
                     </div>
                   )}
                 </div>
-
-                {IS_MODEL_COMPARISON_ENABLED && (
-                  <div className="mt-4 rounded-2xl border border-amber-300/60 bg-amber-50 p-4 dark:border-amber-800/40 dark:bg-amber-950/20">
-                    <label className="flex cursor-pointer items-center gap-2.5 text-sm font-medium text-foreground">
-                      <input
-                        type="checkbox"
-                        checked={compareWithHaiku}
-                        onChange={(e) => setCompareWithHaiku(e.target.checked)}
-                        className="h-4 w-4 shrink-0 accent-amber-600"
-                      />
-                      Comparer avec {COMPARISON_MODEL_LABEL}
-                      <Badge className="bg-amber-100 text-amber-800">Test</Badge>
-                    </label>
-                    <p className="mt-1.5 pl-6 text-xs text-muted-foreground">
-                      Génère aussi une version avec {COMPARISON_MODEL_LABEL} sur le résumé et, si demandé, le QCM —
-                      pour comparer la qualité. Double l&apos;appel (et le coût) de cette génération.
-                    </p>
-                  </div>
-                )}
 
                 {error && <p className="mt-4 rounded-lg bg-red-50 px-3 py-2.5 text-xs text-red-700">{error}</p>}
 

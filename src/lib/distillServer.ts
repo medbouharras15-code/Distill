@@ -5,9 +5,8 @@ import { MAX_IMAGE_FILE_BYTES, MAX_PDF_FILE_BYTES } from "@/lib/fileSizeLimits";
 import type { DistillRequestFile, QuizQuestion } from "@/lib/types";
 
 // Modèle par défaut pour /api/distill et /api/distill/quiz — Haiku, ~3×
-// moins cher que le modèle précédent (voir @/lib/modelComparison pour le
-// détail des prix). FALLBACK_MODEL prend automatiquement le relais quand
-// le contenu dépasse ce que Haiku peut traiter (voir
+// moins cher que le modèle précédent. FALLBACK_MODEL prend automatiquement
+// le relais quand le contenu dépasse ce que Haiku peut traiter (voir
 // callClaudeWithFallback ci-dessous) : sa fenêtre de contexte plus large
 // (1M contre 200K) accepte jusqu'à 600 pages de PDF contre 100 pour Haiku.
 // /api/distill/chat reste volontairement sur FALLBACK_MODEL directement
@@ -151,42 +150,6 @@ export function buildContentBlocks({
   }
 
   return content;
-}
-
-/** Variante brute d'un appel à Claude, pour le mode comparaison de modèles
- * (voir @/lib/modelComparison) — même contenu/prompt que l'appel principal,
- * modèle et budget de tokens arbitraires, aucune validation de forme :
- * chaque appelant applique son propre extractJson + sa propre validation,
- * identiques à celles de l'appel principal. Lève systématiquement une
- * erreur explicite plutôt que de renvoyer une réponse HTTP — c'est
- * l'appelant qui décide comment traiter un échec de la comparaison (jamais
- * en faisant échouer la génération principale, déjà réussie). */
-export async function callClaudeRaw(
-  client: Anthropic,
-  {
-    model,
-    maxTokens,
-    system,
-    content,
-  }: { model: string; maxTokens: number; system: string; content: Anthropic.MessageParam["content"] },
-): Promise<string> {
-  const response = await client.messages.create({
-    model,
-    max_tokens: maxTokens,
-    system,
-    messages: [{ role: "user", content }],
-  });
-
-  if (response.stop_reason === "refusal") {
-    throw new Error("Le modèle de comparaison a refusé de traiter ce contenu.");
-  }
-
-  const textBlock = response.content.find((block) => block.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw new Error("Le modèle de comparaison n'a renvoyé aucun contenu exploitable.");
-  }
-
-  return textBlock.text;
 }
 
 /** Vrai si l'erreur signale que le contenu dépasse une limite de capacité
