@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { buildFakeQuizResult, IS_SIMULATION_ENABLED } from "@/lib/aiSimulation";
+import { logAiUsageEvent } from "@/lib/aiUsage";
 import { getUserAndProfile } from "@/lib/auth";
 import { FREE_GENERATIONS_LIMIT, isSubscribed } from "@/lib/billing";
 import {
@@ -65,7 +66,7 @@ export async function POST(request: Request) {
   if (!auth) {
     return NextResponse.json({ error: "Vous devez être connecté pour générer un QCM." }, { status: 401 });
   }
-  const { profile } = auth;
+  const { user, profile } = auth;
   const subscribed = isSubscribed(profile);
 
   if (!subscribed && profile.generations_used > FREE_GENERATIONS_LIMIT) {
@@ -157,6 +158,10 @@ export async function POST(request: Request) {
       // /api/distill quelques secondes plus tôt. À retirer une fois la
       // vérification faite.
       console.log("[distill/quiz] usage Anthropic :", response.usage);
+
+      // Suivi de consommation (Paramètres > IA Distill) — voir la même
+      // logique dans /api/distill.
+      await logAiUsageEvent({ userId: user.id, category: "generation", model: response.model, usage: response.usage });
 
       if (response.stop_reason === "refusal") {
         return NextResponse.json(

@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { buildFakeChatResponse, IS_SIMULATION_ENABLED } from "@/lib/aiSimulation";
+import { logAiUsageEvent } from "@/lib/aiUsage";
 import { getUserAndProfile } from "@/lib/auth";
 import {
   FALLBACK_MODEL,
@@ -57,6 +58,7 @@ export async function POST(request: Request) {
   if (!auth) {
     return NextResponse.json({ error: "Vous devez être connecté pour utiliser le Mode Explication." }, { status: 401 });
   }
+  const { user } = auth;
 
   let body: ChatRequestBody;
   try {
@@ -162,6 +164,10 @@ export async function POST(request: Request) {
       // > 0 confirme une lecture depuis le cache, cache_creation_input_tokens
       // > 0 une écriture. À retirer une fois la vérification faite.
       console.log("[chat] usage Anthropic :", response.usage);
+
+      // Suivi de consommation (Paramètres > IA Distill) — voir la même
+      // logique dans /api/distill.
+      await logAiUsageEvent({ userId: user.id, category: "chat", model: response.model, usage: response.usage });
 
       if (response.stop_reason === "refusal") {
         return NextResponse.json(

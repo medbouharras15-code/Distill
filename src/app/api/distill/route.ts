@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { buildFakeDistillResult, IS_SIMULATION_ENABLED } from "@/lib/aiSimulation";
+import { logAiUsageEvent } from "@/lib/aiUsage";
 import { getUserAndProfile } from "@/lib/auth";
 import { FREE_GENERATIONS_LIMIT, isSubscribed } from "@/lib/billing";
 import {
@@ -141,6 +142,11 @@ export async function POST(request: Request) {
       // que /api/distill/quiz relit bien ce contenu source depuis le cache
       // quelques secondes plus tard. À retirer une fois la vérification faite.
       console.log("[distill] usage Anthropic :", response.usage);
+
+      // Suivi de consommation (Paramètres > IA Distill) — response.model
+      // reflète le modèle qui a réellement répondu (Haiku ou Sonnet selon
+      // repli). N'échoue jamais la requête si l'écriture échoue.
+      await logAiUsageEvent({ userId: user.id, category: "generation", model: response.model, usage: response.usage });
 
       if (response.stop_reason === "refusal") {
         return NextResponse.json(

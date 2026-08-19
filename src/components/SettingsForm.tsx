@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { AiOrb } from "@/components/Brand";
 import { Badge, Button, Card, buttonClasses } from "@/components/ui";
+import type { MonthlyUsageSummary } from "@/lib/aiUsage";
 import { Bell, Check, Contrast, Crown, LogOut, Pen, Shield, Users } from "@/lib/icons";
 import { setDarkMode, useIsDarkMode } from "@/lib/useTheme";
 
@@ -79,10 +80,56 @@ function DarkModeToggle() {
   );
 }
 
+/** Carte de consommation IA du mois en cours — lecture seule, aucune
+ * possibilité d'achat/dépassement pour l'instant (voir @/lib/aiUsage). La
+ * barre est divisée en deux segments proportionnels à la part de chaque
+ * catégorie dans le total dépensé, sur une largeur totale plafonnée à 100%
+ * du palier (rien n'empêche aujourd'hui le total réel de dépasser le
+ * plafond affiché, purement informatif). */
+function CreditUsageCard({ usage }: { usage: MonthlyUsageSummary }) {
+  const { generationEur, chatEur, totalEur, capEur } = usage;
+  const totalPercent = capEur > 0 ? Math.min(100, (totalEur / capEur) * 100) : 0;
+  const generationShare = totalEur > 0 ? generationEur / totalEur : 0;
+  const generationWidthPercent = totalPercent * generationShare;
+  const chatWidthPercent = totalPercent - generationWidthPercent;
+  const nearCap = totalEur >= capEur * 0.9;
+
+  return (
+    <Card className="p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="font-medium text-foreground">Consommation IA</div>
+          <div className="text-xs text-muted-foreground">Ce mois-ci · palier Étudiant</div>
+        </div>
+        <span className={`text-sm font-medium ${nearCap ? "text-amber-600" : "text-foreground"}`}>
+          {totalEur.toFixed(2)}€ <span className="font-normal text-muted-foreground">/ {capEur.toFixed(2)}€</span>
+        </span>
+      </div>
+
+      <div className="mt-4 flex h-2.5 w-full overflow-hidden rounded-full bg-secondary">
+        <div className="h-full bg-accent transition-all duration-500" style={{ width: `${generationWidthPercent}%` }} />
+        <div className="h-full bg-accent-dark transition-all duration-500" style={{ width: `${chatWidthPercent}%` }} />
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-accent" /> Résumés & QCM · {generationEur.toFixed(2)}€
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-accent-dark" /> Mode Explication · {chatEur.toFixed(2)}€
+        </span>
+      </div>
+    </Card>
+  );
+}
+
 interface SettingsFormProps {
   email: string;
   subscribed: boolean;
   memberSince: string;
+  /** `null` pour les comptes non abonnés (le quota gratuit se mesure en
+   * générations, pas en euros — voir @/lib/aiUsage). */
+  usage: MonthlyUsageSummary | null;
 }
 
 /** Écran Paramètres — sur le modèle du Figma Make (Library.tsx → Settings),
@@ -94,7 +141,7 @@ interface SettingsFormProps {
  * sombre" pilote le vrai thème du site. Le reste (préférences IA,
  * notifications, confidentialité) reste en interrupteurs locaux non
  * persistés, comme le reste de cette phase de refonte. */
-export function SettingsForm({ email, subscribed, memberSince }: SettingsFormProps) {
+export function SettingsForm({ email, subscribed, memberSince, usage }: SettingsFormProps) {
   const [active, setActive] = useState<SettingsSection>("compte");
   const initial = (email[0] ?? "?").toUpperCase();
 
@@ -209,6 +256,7 @@ export function SettingsForm({ email, subscribed, memberSince }: SettingsFormPro
                   </div>
                 </div>
               </Card>
+              {usage && <CreditUsageCard usage={usage} />}
               <Card className="overflow-hidden">
                 <div className="px-5">
                   <SettingsRow title="Suggestions automatiques" desc="Propose un résumé après chaque session de notes.">
