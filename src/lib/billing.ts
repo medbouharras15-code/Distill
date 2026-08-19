@@ -30,10 +30,26 @@ export const FREE_GENERATIONS_LIMIT = hasValidOverride ? rawOverride : DEFAULT_F
  * test est active, plutôt que de le laisser invisible. */
 export const IS_FREE_LIMIT_OVERRIDDEN = hasValidOverride;
 
+/** Même principe que FREE_GENERATIONS_LIMIT ci-dessus, pour simuler un
+ * statut abonné sur un compte de test sans passer par un vrai paiement
+ * Lemon Squeezy : définir NEXT_PUBLIC_SIMULATE_SUBSCRIBED=true
+ * UNIQUEMENT sur l'environnement Preview de Vercel (jamais Production).
+ * isSubscribed() ci-dessous renvoie alors toujours `true`, quel que soit
+ * le vrai subscription_status en base — utile par exemple pour tester la
+ * carte "Consommation IA" de Paramètres > IA Distill, réservée aux
+ * abonnés. Sans danger côté paiement réel : /api/lemonsqueezy/cancel
+ * vérifie le vrai lemonsqueezy_subscription_id du profil (toujours vide
+ * sur un compte jamais réellement abonné), pas cette fonction — un clic
+ * sur "Annuler mon abonnement" renvoie donc juste une erreur propre,
+ * sans jamais appeler l'API Lemon Squeezy pour de vrai. */
+export const IS_SUBSCRIBED_OVERRIDDEN =
+  !isProductionDeployment && process.env.NEXT_PUBLIC_SIMULATE_SUBSCRIBED === "true";
+
 /** Statuts Lemon Squeezy qui donnent un accès illimité à l'outil. */
 const ACTIVE_STATUSES = new Set(["active"]);
 
 export function isSubscribed(profile: Pick<Profile, "subscription_status">): boolean {
+  if (IS_SUBSCRIBED_OVERRIDDEN) return true;
   return ACTIVE_STATUSES.has(profile.subscription_status);
 }
 

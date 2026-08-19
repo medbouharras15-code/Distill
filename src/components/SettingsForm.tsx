@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AiOrb } from "@/components/Brand";
 import { Badge, Button, Card, buttonClasses } from "@/components/ui";
 import type { MonthlyUsageSummary } from "@/lib/aiUsage";
+import { IS_SUBSCRIBED_OVERRIDDEN } from "@/lib/billing";
 import { Bell, Check, Contrast, Crown, LogOut, Pen, Shield, Users } from "@/lib/icons";
 import { setDarkMode, useIsDarkMode } from "@/lib/useTheme";
 
@@ -99,7 +100,9 @@ function CreditUsageCard({ usage }: { usage: MonthlyUsageSummary }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="font-medium text-foreground">Consommation IA</div>
-          <div className="text-xs text-muted-foreground">Ce mois-ci · palier Étudiant</div>
+          <div className="text-xs text-muted-foreground">
+            Ce mois-ci · palier Étudiant{IS_SUBSCRIBED_OVERRIDDEN && " · abonnement simulé"}
+          </div>
         </div>
         <span className={`text-sm font-medium ${nearCap ? "text-amber-600" : "text-foreground"}`}>
           {totalEur.toFixed(2)}€ <span className="font-normal text-muted-foreground">/ {capEur.toFixed(2)}€</span>
@@ -206,6 +209,7 @@ export function SettingsForm({ email, subscribed, memberSince, usage }: Settings
                       <Badge className={subscribed ? "bg-accent text-accent-foreground" : "bg-secondary text-secondary-foreground"}>
                         {subscribed ? "Distill Pro" : "Offre gratuite"}
                       </Badge>
+                      {IS_SUBSCRIBED_OVERRIDDEN && <Badge className="bg-amber-100 text-amber-800">Abonnement simulé</Badge>}
                       <span className="text-xs text-muted-foreground">Membre depuis {memberSince}</span>
                     </div>
                   </div>
