@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { SettingsForm } from "@/components/SettingsForm";
-import { getMonthlyUsageSummary } from "@/lib/aiUsage";
+import { getMonthlyUsageSummaryJetons } from "@/lib/aiUsage";
 import { getUserAndProfile } from "@/lib/auth";
 import { isSubscribed } from "@/lib/billing";
 
@@ -15,9 +15,11 @@ export default async function SettingsPage() {
   );
   const subscribed = isSubscribed(auth.profile);
   // Le suivi de consommation n'a de sens que pour les abonnés — le quota
-  // gratuit se mesure en nombre de générations, pas en euros (voir
+  // gratuit se mesure en nombre de générations, pas en jetons (voir
   // @/lib/aiUsage). Évite une requête inutile pour les comptes gratuits.
-  const usage = subscribed ? await getMonthlyUsageSummary(auth.user.id) : null;
+  // Affiché en jetons uniquement (voir @/lib/jetons) : le calcul en euros
+  // reste interne, jamais montré au client.
+  const usage = subscribed ? await getMonthlyUsageSummaryJetons(auth.user.id) : null;
 
   return (
     <SettingsForm

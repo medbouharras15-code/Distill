@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { DistillMark } from "@/components/Brand";
 import { Close, Send } from "@/lib/icons";
 import { resizeImageToJpeg, uploadPdfToBlob } from "@/lib/aiMedia";
+import { TYPICAL_JETONS } from "@/lib/jetons";
 import { parseJsonResponse } from "@/lib/useSubscriptionActions";
 import type { ChatMessage, ChatResponseBody } from "@/lib/types";
 
@@ -17,6 +18,10 @@ const SUGGESTED_QUESTIONS = [
 const CITATION_CONTEXT_RADIUS = 140;
 
 interface ChatViewProps {
+  /** Pour l'estimation en jetons affichée au-dessus de la barre de saisie
+   * (voir @/lib/jetons) — n'a de sens que pour les abonnés, le quota
+   * gratuit se mesurant en générations, pas en jetons. */
+  subscribed: boolean;
   /** Même matière source que le reste de la session — voir AiPanel.
    * Aucune n'est mutée ici, uniquement relue pour chaque message. */
   text: string;
@@ -94,7 +99,7 @@ function CitationOverlay({ quote, sourceText, onClose }: { quote: string; source
  * cette session du panneau IA (voir /api/distill/chat). Historique tenu
  * uniquement en mémoire ici (aucune persistance serveur), perdu à la
  * fermeture du panneau — comme convenu. */
-export function ChatView({ text, imageFile, pdfFile }: ChatViewProps) {
+export function ChatView({ text, imageFile, pdfFile, subscribed }: ChatViewProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -268,30 +273,37 @@ export function ChatView({ text, imageFile, pdfFile }: ChatViewProps) {
         <div ref={threadEndRef} />
       </div>
 
-      <div className="sticky bottom-0 -mx-4 flex items-end gap-2 border-t border-border bg-card/95 px-4 py-3 backdrop-blur">
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void sendMessage(input);
-            }
-          }}
-          placeholder="Posez une question sur vos notes…"
-          rows={1}
-          className="max-h-32 flex-1 resize-none overflow-y-auto rounded-2xl border border-border bg-card px-3.5 py-2.5 text-[13.5px] leading-relaxed text-foreground transition placeholder:text-muted-foreground/60 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-light"
-        />
-        <button
-          type="button"
-          onClick={() => void sendMessage(input)}
-          disabled={!input.trim() || loading}
-          aria-label="Envoyer la question"
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full ai-gradient text-white shadow-[0_4px_14px_-6px_var(--ai-glow)] transition disabled:opacity-40"
-        >
-          <Send size={16} />
-        </button>
+      <div className="sticky bottom-0 -mx-4 border-t border-border bg-card/95 px-4 py-3 backdrop-blur">
+        {subscribed && (
+          <p className="mb-2 text-center text-[11px] text-muted-foreground">
+            ≈ {TYPICAL_JETONS.messageChat} jetons par message — le coût réel peut varier selon la taille du document.
+          </p>
+        )}
+        <div className="flex items-end gap-2">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void sendMessage(input);
+              }
+            }}
+            placeholder="Posez une question sur vos notes…"
+            rows={1}
+            className="max-h-32 flex-1 resize-none overflow-y-auto rounded-2xl border border-border bg-card px-3.5 py-2.5 text-[13.5px] leading-relaxed text-foreground transition placeholder:text-muted-foreground/60 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-light"
+          />
+          <button
+            type="button"
+            onClick={() => void sendMessage(input)}
+            disabled={!input.trim() || loading}
+            aria-label="Envoyer la question"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full ai-gradient text-white shadow-[0_4px_14px_-6px_var(--ai-glow)] transition disabled:opacity-40"
+          >
+            <Send size={16} />
+          </button>
+        </div>
       </div>
 
       {activeCitation && (

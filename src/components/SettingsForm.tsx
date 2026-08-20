@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { AiOrb } from "@/components/Brand";
 import { Badge, Button, Card, buttonClasses } from "@/components/ui";
-import type { MonthlyUsageSummary } from "@/lib/aiUsage";
+import type { MonthlyUsageSummaryJetons } from "@/lib/aiUsage";
 import { IS_SUBSCRIBED_OVERRIDDEN } from "@/lib/billing";
 import { Bell, Check, Contrast, Crown, LogOut, Pen, Shield, Users } from "@/lib/icons";
 import { setDarkMode, useIsDarkMode } from "@/lib/useTheme";
@@ -81,19 +81,20 @@ function DarkModeToggle() {
   );
 }
 
-/** Carte de consommation IA du mois en cours — lecture seule, aucune
- * possibilité d'achat/dépassement pour l'instant (voir @/lib/aiUsage). La
- * barre est divisée en deux segments proportionnels à la part de chaque
- * catégorie dans le total dépensé, sur une largeur totale plafonnée à 100%
- * du palier (rien n'empêche aujourd'hui le total réel de dépasser le
- * plafond affiché, purement informatif). */
-function CreditUsageCard({ usage }: { usage: MonthlyUsageSummary }) {
-  const { generationEur, chatEur, totalEur, capEur } = usage;
-  const totalPercent = capEur > 0 ? Math.min(100, (totalEur / capEur) * 100) : 0;
-  const generationShare = totalEur > 0 ? generationEur / totalEur : 0;
+/** Carte de consommation IA du mois en cours, affichée en jetons — le
+ * calcul en euros reste la source de vérité interne (voir @/lib/aiUsage),
+ * jamais montré ici. La barre est divisée en deux segments proportionnels
+ * à la part de chaque catégorie dans le total dépensé, sur une largeur
+ * totale plafonnée à 100% du palier (le vrai plafond d'application, avec
+ * sa marge de sécurité intégrée, est le même que celui affiché ici — voir
+ * TIER_CAPS_JETONS dans @/lib/jetons). */
+function CreditUsageCard({ usage }: { usage: MonthlyUsageSummaryJetons }) {
+  const { generationJetons, chatJetons, totalJetons, capJetons } = usage;
+  const totalPercent = capJetons > 0 ? Math.min(100, (totalJetons / capJetons) * 100) : 0;
+  const generationShare = totalJetons > 0 ? generationJetons / totalJetons : 0;
   const generationWidthPercent = totalPercent * generationShare;
   const chatWidthPercent = totalPercent - generationWidthPercent;
-  const nearCap = totalEur >= capEur * 0.9;
+  const nearCap = totalJetons >= capJetons * 0.9;
 
   return (
     <Card className="p-5">
@@ -105,7 +106,7 @@ function CreditUsageCard({ usage }: { usage: MonthlyUsageSummary }) {
           </div>
         </div>
         <span className={`text-sm font-medium ${nearCap ? "text-amber-600" : "text-foreground"}`}>
-          {totalEur.toFixed(2)}€ <span className="font-normal text-muted-foreground">/ {capEur.toFixed(2)}€</span>
+          {totalJetons} <span className="font-normal text-muted-foreground">/ {capJetons} jetons</span>
         </span>
       </div>
 
@@ -116,10 +117,10 @@ function CreditUsageCard({ usage }: { usage: MonthlyUsageSummary }) {
 
       <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-accent" /> Résumés & QCM · {generationEur.toFixed(2)}€
+          <span className="h-2 w-2 rounded-full bg-accent" /> Résumés & QCM · {generationJetons} jetons
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-accent-dark" /> Mode Explication · {chatEur.toFixed(2)}€
+          <span className="h-2 w-2 rounded-full bg-accent-dark" /> Mode Explication · {chatJetons} jetons
         </span>
       </div>
     </Card>
@@ -131,8 +132,8 @@ interface SettingsFormProps {
   subscribed: boolean;
   memberSince: string;
   /** `null` pour les comptes non abonnés (le quota gratuit se mesure en
-   * générations, pas en euros — voir @/lib/aiUsage). */
-  usage: MonthlyUsageSummary | null;
+   * générations, pas en jetons — voir @/lib/aiUsage). */
+  usage: MonthlyUsageSummaryJetons | null;
 }
 
 /** Écran Paramètres — sur le modèle du Figma Make (Library.tsx → Settings),

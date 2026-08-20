@@ -1,6 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { FALLBACK_MODEL, MODEL } from "@/lib/distillServer";
+import { EUR_PER_JETON, jetonsForCostEur, TIER_CAPS_JETONS } from "@/lib/jetons";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -19,18 +20,17 @@ const MODEL_PRICING_USD: Record<string, { input: number; output: number }> = {
   [FALLBACK_MODEL]: { input: 3, output: 15 },
 };
 
-/** Plafond mensuel de consommation IA par palier, en euros — pour l'instant
- * purement informatif (affiché dans Paramètres > IA Distill), aucune
- * application/blocage à ce stade. Seul "etudiant" correspond à une offre
- * réellement achetable aujourd'hui (voir @/components/SubscriptionForm) :
- * un utilisateur abonné (isSubscribed) est donc toujours considéré
- * "etudiant" ici, en attendant qu'Essentiel/Intensif deviennent de vrais
- * paliers achetables avec leur propre colonne sur profiles. */
-export const TIER_CAPS_EUR = {
-  essentiel: 2.5,
-  etudiant: 6,
-  intensif: 12,
-} as const;
+/** Plafond réel appliqué à l'abonné (voir usageCapResponse plus bas),
+ * dérivé du plafond en jetons validé avec l'utilisateur (voir
+ * TIER_CAPS_JETONS dans @/lib/jetons pour le détail de la marge de
+ * sécurité intégrée) plutôt que d'un plafond nominal en euros séparé — la
+ * marge est ainsi une vraie protection financière, pas seulement un
+ * arrondi d'affichage. Seul "etudiant" correspond à une offre réellement
+ * achetable aujourd'hui (voir @/components/SubscriptionForm) : un
+ * utilisateur abonné (isSubscribed) est donc toujours considéré "etudiant"
+ * ici, en attendant qu'Essentiel/Intensif deviennent de vrais paliers
+ * achetables avec leur propre colonne sur profiles. */
+const ACTIVE_TIER_CAP_EUR = TIER_CAPS_JETONS.etudiant * EUR_PER_JETON;
 
 export type UsageCategory = "generation" | "chat";
 
@@ -107,7 +107,7 @@ export interface MonthlyUsageSummary {
  * client "service role" : un utilisateur ne peut lire que ses propres
  * événements, comme pour getUserAndProfile. */
 export async function getMonthlyUsageSummary(userId: string): Promise<MonthlyUsageSummary> {
-  const fallback: MonthlyUsageSummary = { generationEur: 0, chatEur: 0, totalEur: 0, capEur: TIER_CAPS_EUR.etudiant };
+  const fallback: MonthlyUsageSummary = { generationEur: 0, chatEur: 0, totalEur: 0, capEur: ACTIVE_TIER_CAP_EUR };
 
   const supabase = await createClient();
   const startOfMonth = new Date();
@@ -135,7 +135,30 @@ export async function getMonthlyUsageSummary(userId: string): Promise<MonthlyUsa
     }
   }
 
-  return { generationEur, chatEur, totalEur: generationEur + chatEur, capEur: TIER_CAPS_EUR.etudiant };
+  return { generationEur, chatEur, totalEur: generationEur + chatEur, capEur: ACTIVE_TIER_CAP_EUR };
+}
+
+export interface MonthlyUsageSummaryJetons {
+  generationJetons: number;
+  chatJetons: number;
+  totalJetons: number;
+  capJetons: number;
+}
+
+/** Version en jetons de getMonthlyUsageSummary, pour l'affichage côté
+ * client (carte "Consommation IA" de Paramètres > IA Distill) — le calcul
+ * en euros ci-dessus reste la source de vérité interne, jamais montrée au
+ * client. capJetons vient directement de TIER_CAPS_JETONS plutôt que d'une
+ * conversion de capEur, pour éviter tout écart d'arrondi avec la valeur
+ * ronde déjà validée. */
+export async function getMonthlyUsageSummaryJetons(userId: string): Promise<MonthlyUsageSummaryJetons> {
+  const summary = await getMonthlyUsageSummary(userId);
+  return {
+    generationJetons: jetonsForCostEur(summary.generationEur),
+    chatJetons: jetonsForCostEur(summary.chatEur),
+    totalJetons: jetonsForCostEur(summary.totalEur),
+    capJetons: TIER_CAPS_JETONS.etudiant,
+  };
 }
 
 /** Vérifie si l'abonné a déjà atteint son plafond mensuel de consommation
@@ -158,7 +181,7 @@ export async function usageCapResponse(userId: string): Promise<NextResponse | n
 
   return NextResponse.json(
     {
-      error: `Tu as atteint ton plafond de consommation IA pour ce mois-ci (${summary.capEur.toFixed(2)}€ utilisés). Il sera réinitialisé au début du mois prochain.`,
+      error: `Tu as atteint ton plafond de ${TIER_CAPS_JETONS.etudiant} jetons pour ce mois-ci. Il sera réinitialisé au début du mois prochain.`,
       usageCapReached: true,
     },
     { status: 403 },

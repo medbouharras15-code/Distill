@@ -10,6 +10,7 @@ import { Cards, Chat, Close, Doc, Pen, Quiz, Sparkle } from "@/lib/icons";
 import { resizeImageToJpeg, uploadPdfToBlob } from "@/lib/aiMedia";
 import { FREE_GENERATIONS_LIMIT, IS_FREE_LIMIT_OVERRIDDEN, isSubscribed } from "@/lib/billing";
 import { MAX_PDF_FILE_BYTES } from "@/lib/fileSizeLimits";
+import { TYPICAL_JETONS } from "@/lib/jetons";
 import { parseJsonResponse, useSubscriptionActions } from "@/lib/useSubscriptionActions";
 import type { DistillResult, QuizDifficulty, QuizGenerationResult } from "@/lib/types";
 import { ChatView } from "./ChatView";
@@ -506,7 +507,7 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
               ) : tab === "summary" ? (
                 <SummaryView markdown={result.summary} />
               ) : tab === "chat" ? (
-                <ChatView text={text} imageFile={imageFile} pdfFile={pdfFile} />
+                <ChatView text={text} imageFile={imageFile} pdfFile={pdfFile} subscribed={subscribed} />
               ) : (
                 <FlashcardDeck cards={result.flashcards} />
               )}
@@ -590,6 +591,13 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
                     </span>
                     Distiller mes notes
                   </button>
+                )}
+
+                {subscribed && !limitReached && (
+                  <p className="mt-2 text-center text-[11px] text-muted-foreground">
+                    ≈ {quizRequested ? TYPICAL_JETONS.resumeEtQcm : TYPICAL_JETONS.resumeSeul} jetons pour un document
+                    de taille standard — le coût réel peut varier selon la taille du document.
+                  </p>
                 )}
               </>
             )}
