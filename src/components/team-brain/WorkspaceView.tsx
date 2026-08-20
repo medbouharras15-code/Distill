@@ -1,5 +1,6 @@
 import { Card } from "@/components/ui";
 import { Brain, ChevronRight, Clock, Doc, Plus, Users } from "@/lib/icons";
+import { ComingSoonToast, useComingSoonToast } from "./ComingSoonToast";
 import { TEAM_BRAIN_MEMBERS, TEAM_BRAIN_WORKSPACE } from "@/lib/teamBrainMockData";
 import type { TeamBrainProject } from "@/lib/teamBrainMockData";
 
@@ -74,8 +75,11 @@ export function WorkspaceView({
   onOpenProject: (p: TeamBrainProject) => void;
   onMembers: () => void;
 }) {
+  const { visible: comingSoonVisible, trigger: triggerComingSoon } = useComingSoonToast();
+
   return (
     <div className="mx-auto max-w-[860px] animate-fade px-5 py-8 md:px-10 md:py-12">
+      <ComingSoonToast visible={comingSoonVisible} />
       <div className="mb-8 flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">
           <div
@@ -109,6 +113,7 @@ export function WorkspaceView({
           </button>
           <button
             type="button"
+            onClick={triggerComingSoon}
             className="flex items-center gap-2 rounded-xl px-3.5 py-2 text-[13px] font-medium text-white shadow-[var(--shadow-sm)] transition hover:-translate-y-px"
             style={{ background: "linear-gradient(135deg, var(--team), var(--team-2))" }}
           >
@@ -124,6 +129,7 @@ export function WorkspaceView({
 
         <button
           type="button"
+          onClick={triggerComingSoon}
           className="group flex min-h-[148px] flex-col items-center justify-center gap-2 rounded-[22px] border-2 border-dashed border-border text-muted-foreground transition hover:border-[var(--team)] hover:text-foreground"
         >
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary">

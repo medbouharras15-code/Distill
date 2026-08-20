@@ -1,5 +1,6 @@
 import { Badge, Eyebrow } from "@/components/ui";
 import { Brain, ChevronLeft, Clock, Lock, Plus, Shield } from "@/lib/icons";
+import { ComingSoonToast, useComingSoonToast } from "./ComingSoonToast";
 import type { TeamBrainDoc, TeamBrainProject } from "@/lib/teamBrainMockData";
 
 const TYPE_COLORS = { note: "#0c6b52", pdf: "#b5693a", doc: "#4b5d8b" };
@@ -60,8 +61,11 @@ export function ProjectView({
   onBack: () => void;
   onChat: () => void;
 }) {
+  const { visible: comingSoonVisible, trigger: triggerComingSoon } = useComingSoonToast();
+
   return (
     <div className="mx-auto max-w-[760px] animate-fade px-5 py-8 md:px-10 md:py-12">
+      <ComingSoonToast visible={comingSoonVisible} />
       <button
         type="button"
         onClick={onBack}
@@ -108,6 +112,7 @@ export function ProjectView({
 
       <button
         type="button"
+        onClick={triggerComingSoon}
         className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border py-4 text-[13px] text-muted-foreground transition hover:border-[var(--team)] hover:text-foreground"
       >
         <Plus size={16} /> Ajouter un document ou une note

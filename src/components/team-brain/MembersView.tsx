@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Card } from "@/components/ui";
 import { Check, ChevronLeft, Close, Crown, Doc, Plus, Shield, Users } from "@/lib/icons";
+import { ComingSoonToast, useComingSoonToast } from "./ComingSoonToast";
 import { TEAM_BRAIN_MEMBERS, TEAM_BRAIN_ROLE_CONFIG, TEAM_BRAIN_WORKSPACE } from "@/lib/teamBrainMockData";
 import type { TeamBrainMember } from "@/lib/teamBrainMockData";
 
@@ -56,9 +57,11 @@ function MemberCard({ member }: { member: TeamBrainMember }) {
  * l'app). */
 export function MembersView({ onBack }: { onBack: () => void }) {
   const [activeTab, setActiveTab] = useState<MembersTab>("members");
+  const { visible: comingSoonVisible, trigger: triggerComingSoon } = useComingSoonToast();
 
   return (
     <div className="mx-auto max-w-[720px] animate-fade px-5 py-8 md:px-10 md:py-12">
+      <ComingSoonToast visible={comingSoonVisible} />
       <button
         type="button"
         onClick={onBack}
@@ -76,6 +79,7 @@ export function MembersView({ onBack }: { onBack: () => void }) {
         </div>
         <button
           type="button"
+          onClick={triggerComingSoon}
           className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-[13px] font-medium text-white shadow-[var(--shadow-sm)] transition hover:-translate-y-px"
           style={{ background: "linear-gradient(135deg, var(--team), var(--team-2))" }}
         >
