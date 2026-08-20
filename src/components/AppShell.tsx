@@ -6,7 +6,7 @@ import { type ReactNode, ViewTransition } from "react";
 import { AiOrb, Wordmark } from "@/components/Brand";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Badge, buttonClasses } from "@/components/ui";
-import { Books, Clock, Crown, Gear, Home, LogOut, Plus, Question, Search, Star } from "@/lib/icons";
+import { Books, Brain, Clock, Crown, Gear, Home, Lock, LogOut, Plus, Question, Search, Star } from "@/lib/icons";
 
 interface NavItem {
   href: string;
@@ -89,6 +89,30 @@ export function AppShell({ email, subscribed, children }: AppShellProps) {
             <div className="text-[13px] font-semibold">IA Distill</div>
             <div className="truncate text-[11px] text-muted-foreground">Résume & révise</div>
           </div>
+        </Link>
+
+        {/* Team Brain — nouvelle fonctionnalité en aperçu (design uniquement,
+            voir @/components/team-brain) : aucun compte n'a l'abonnement
+            Team correspondant aujourd'hui, d'où le verrouillage visuel
+            (cadenas + badge "Team") plutôt qu'un accès direct. */}
+        <Link
+          href="/team-brain"
+          className="mt-2 flex items-center gap-3 rounded-2xl border border-border bg-gradient-to-br from-secondary/60 to-card p-3 text-left transition hover:border-[color-mix(in_srgb,var(--team-2)_40%,transparent)] hover:shadow-[var(--shadow-md)]"
+        >
+          <span
+            className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full text-white"
+            style={{ background: "linear-gradient(135deg, var(--team) 0%, var(--team-2) 100%)" }}
+          >
+            <Brain size={16} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[13px] font-semibold">Team Brain</span>
+              <Lock size={11} className="text-muted-foreground/60" />
+            </div>
+            <div className="truncate text-[11px] text-muted-foreground">Mémoire d&apos;équipe IA</div>
+          </div>
+          <Badge className="shrink-0 bg-amber-100 text-amber-800">Team</Badge>
         </Link>
 
         <div className="mt-auto space-y-1 pt-4">
