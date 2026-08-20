@@ -50,7 +50,9 @@ export function TeamBrain() {
           onChat={() => setView("chat")}
         />
       )}
-      {view === "chat" && <ChatView project={activeProject} onBack={() => setView("project")} />}
+      {view === "chat" && (
+        <ChatView project={activeProject} onBack={() => setView("project")} onBackToWorkspace={() => setView("workspace")} />
+      )}
       {view === "members" && <MembersView onBack={() => setView("workspace")} />}
     </div>
   );

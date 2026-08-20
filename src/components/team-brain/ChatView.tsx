@@ -115,7 +115,15 @@ function AiBubble({
  * IA et délai de "réflexion" entièrement simulés côté client (setTimeout,
  * pas d'appel réseau) : aucune vraie logique de recherche documentaire,
  * conformément au plan validé. */
-export function ChatView({ project, onBack }: { project: TeamBrainProject; onBack: () => void }) {
+export function ChatView({
+  project,
+  onBack,
+  onBackToWorkspace,
+}: {
+  project: TeamBrainProject;
+  onBack: () => void;
+  onBackToWorkspace: () => void;
+}) {
   const [messages, setMessages] = useState<TeamBrainChatMessage[]>(TEAM_BRAIN_SEED_CHAT);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
@@ -157,15 +165,17 @@ export function ChatView({ project, onBack }: { project: TeamBrainProject; onBac
   return (
     <div className="flex h-full flex-col bg-background">
       <div className="flex items-center gap-3 border-b border-border bg-card/80 px-5 py-3.5 backdrop-blur-md">
-        <button
-          type="button"
-          onClick={onBack}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground"
-        >
-          <ChevronLeft size={16} />
-        </button>
+        <div className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+          <button type="button" onClick={onBackToWorkspace} className="flex items-center gap-1 transition hover:text-foreground">
+            <ChevronLeft size={14} /> Workspace
+          </button>
+          <span className="text-muted-foreground/40">/</span>
+          <button type="button" onClick={onBack} className="transition hover:text-foreground">
+            {project.name}
+          </button>
+        </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="ml-1 flex items-center gap-2.5">
           <div
             className="flex h-8 w-8 items-center justify-center rounded-xl text-white"
             style={{ background: "linear-gradient(135deg, var(--team), var(--team-2))" }}

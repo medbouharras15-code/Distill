@@ -1,5 +1,6 @@
+import Link from "next/link";
 import { Card } from "@/components/ui";
-import { Brain, ChevronRight, Clock, Doc, Plus, Users } from "@/lib/icons";
+import { Brain, ChevronLeft, ChevronRight, Clock, Doc, Plus, Users } from "@/lib/icons";
 import { ComingSoonToast, useComingSoonToast } from "./ComingSoonToast";
 import { TEAM_BRAIN_MEMBERS, TEAM_BRAIN_WORKSPACE } from "@/lib/teamBrainMockData";
 import type { TeamBrainProject } from "@/lib/teamBrainMockData";
@@ -80,6 +81,9 @@ export function WorkspaceView({
   return (
     <div className="mx-auto max-w-[860px] animate-fade px-5 py-8 md:px-10 md:py-12">
       <ComingSoonToast visible={comingSoonVisible} />
+      <Link href="/dashboard" className="mb-6 flex items-center gap-1.5 text-sm text-muted-foreground transition hover:text-foreground">
+        <ChevronLeft size={15} /> Accueil
+      </Link>
       <div className="mb-8 flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">
           <div
