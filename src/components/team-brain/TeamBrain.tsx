@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Card } from "@/components/ui";
+import { ChatView } from "./ChatView";
+import { MembersView } from "./MembersView";
 import { ProjectView } from "./ProjectView";
 import { UpsellView } from "./UpsellView";
 import { WorkspaceView } from "./WorkspaceView";
@@ -10,20 +11,6 @@ import { TEAM_BRAIN_NIKE_DOCS, TEAM_BRAIN_PROJECTS } from "@/lib/teamBrainMockDa
 
 type TeamBrainView = "workspace" | "project" | "chat" | "members";
 
-/** Écran de secours pour les vues pas encore construites (voir étapes
- * suivantes du chantier Team Brain) — évite de casser la navigation locale
- * pendant la construction progressive des 5 vues. À retirer une fois
- * ChatView/MembersView tous les deux construits. */
-function ComingSoonView({ label }: { label: string }) {
-  return (
-    <div className="mx-auto max-w-[700px] px-5 py-16 text-center md:px-10">
-      <Card className="paper-grain p-10">
-        <p className="text-sm text-muted-foreground">Écran « {label} » à venir dans une prochaine étape.</p>
-      </Card>
-    </div>
-  );
-}
-
 /** Racine de la démo Team Brain — design uniquement, aucune logique de
  * paiement/permissions réelle (voir plan validé). Navigation par état local
  * plutôt que par sous-routes Next.js, fidèle à la structure du prototype
@@ -31,8 +18,8 @@ function ComingSoonView({ label }: { label: string }) {
  * personne n'a d'abonnement Team aujourd'hui, l'utilisateur doit
  * explicitement choisir "Explorer la démo" sur l'écran verrouillé.
  *
- * Les documents affichés en vue Projet sont toujours ceux du projet "Client
- * Nike" (TEAM_BRAIN_NIKE_DOCS) quel que soit le projet ouvert — le
+ * Les documents affichés en vue Projet/Chat sont toujours ceux du projet
+ * "Client Nike" (TEAM_BRAIN_NIKE_DOCS) quel que soit le projet ouvert — le
  * prototype Figma Make source n'a de données de démo que pour ce seul
  * projet ; les autres cartes projet de Workspace sont cliquables mais
  * partagent la même liste de documents fictifs. */
@@ -63,8 +50,8 @@ export function TeamBrain() {
           onChat={() => setView("chat")}
         />
       )}
-      {view === "chat" && <ComingSoonView label="Chat" />}
-      {view === "members" && <ComingSoonView label="Membres" />}
+      {view === "chat" && <ChatView project={activeProject} onBack={() => setView("project")} />}
+      {view === "members" && <MembersView onBack={() => setView("workspace")} />}
     </div>
   );
 }
