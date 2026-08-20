@@ -6,7 +6,7 @@ import { type ReactNode, ViewTransition } from "react";
 import { AiOrb, Wordmark } from "@/components/Brand";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Badge, buttonClasses } from "@/components/ui";
-import { Books, Clock, Crown, Gear, Home, LogOut, Plus, Search, Star } from "@/lib/icons";
+import { Books, Clock, Crown, Gear, Home, LogOut, Plus, Question, Search, Star } from "@/lib/icons";
 
 interface NavItem {
   href: string;
@@ -107,6 +107,14 @@ export function AppShell({ email, subscribed, children }: AppShellProps) {
             }`}
           >
             <Gear size={19} className={isActive("/settings") ? "text-primary" : ""} /> Paramètres
+          </Link>
+          <Link
+            href="/faq"
+            className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] transition ${
+              isActive("/faq") ? "bg-secondary font-medium text-foreground" : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+            }`}
+          >
+            <Question size={19} className={isActive("/faq") ? "text-primary" : ""} /> FAQ
           </Link>
           <div className="mt-2 flex w-full items-center gap-1 rounded-2xl border border-border bg-card p-2.5 transition hover:border-primary/40 hover:shadow-[var(--shadow-sm)]">
             <Link href="/profile" className="flex min-w-0 flex-1 items-center gap-3 text-left">
