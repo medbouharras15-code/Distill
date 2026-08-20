@@ -1,8 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { buildFakeChatResponse, IS_SIMULATION_ENABLED } from "@/lib/aiSimulation";
-import { logAiUsageEvent } from "@/lib/aiUsage";
+import { logAiUsageEvent, usageCapResponse } from "@/lib/aiUsage";
 import { getUserAndProfile } from "@/lib/auth";
+import { isSubscribed } from "@/lib/billing";
 import {
   FALLBACK_MODEL,
   anthropicErrorResponse,
@@ -58,7 +59,8 @@ export async function POST(request: Request) {
   if (!auth) {
     return NextResponse.json({ error: "Vous devez être connecté pour utiliser le Mode Explication." }, { status: 401 });
   }
-  const { user } = auth;
+  const { user, profile } = auth;
+  const subscribed = isSubscribed(profile);
 
   let body: ChatRequestBody;
   try {
@@ -97,6 +99,11 @@ export async function POST(request: Request) {
       // directement une réponse factice pour tester l'interface sans coût.
       parsed = await buildFakeChatResponse(question);
     } else {
+      if (subscribed) {
+        const capResponse = await usageCapResponse(user.id);
+        if (capResponse) return capResponse;
+      }
+
       if (pdf) {
         try {
           const { data } = await fetchPdfFromBlob(pdf.url);

@@ -1,4 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import { NextResponse } from "next/server";
 import { FALLBACK_MODEL, MODEL } from "@/lib/distillServer";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -135,4 +136,31 @@ export async function getMonthlyUsageSummary(userId: string): Promise<MonthlyUsa
   }
 
   return { generationEur, chatEur, totalEur: generationEur + chatEur, capEur: TIER_CAPS_EUR.etudiant };
+}
+
+/** Vérifie si l'abonné a déjà atteint son plafond mensuel de consommation
+ * IA — à appeler juste avant tout appel Claude réel (résumé, QCM, chat),
+ * jamais en mode simulation (voir @/lib/aiSimulation, qui court-circuite
+ * l'appel avant même d'atteindre ce point dans chaque route). Ne concerne
+ * que les abonnés : le quota des comptes gratuits reste géré séparément
+ * par generations_used/FREE_GENERATIONS_LIMIT, inchangé. Renvoie une
+ * réponse HTTP prête à l'emploi si le plafond est atteint, sinon `null`
+ * pour laisser l'appelant poursuivre normalement.
+ *
+ * Échoue "ouvert" en cas d'erreur de lecture Supabase : getMonthlyUsageSummary
+ * renvoie déjà un total à 0 dans ce cas (voir son fallback ci-dessus), donc
+ * cette fonction ne bloque jamais à cause d'un problème d'infrastructure
+ * sans rapport — décision explicitement validée plutôt que de bloquer tous
+ * les abonnés à cause d'une panne technique. */
+export async function usageCapResponse(userId: string): Promise<NextResponse | null> {
+  const summary = await getMonthlyUsageSummary(userId);
+  if (summary.totalEur < summary.capEur) return null;
+
+  return NextResponse.json(
+    {
+      error: `Tu as atteint ton plafond de consommation IA pour ce mois-ci (${summary.capEur.toFixed(2)}€ utilisés). Il sera réinitialisé au début du mois prochain.`,
+      usageCapReached: true,
+    },
+    { status: 403 },
+  );
 }

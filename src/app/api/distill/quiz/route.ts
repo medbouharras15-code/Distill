@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { buildFakeQuizResult, IS_SIMULATION_ENABLED } from "@/lib/aiSimulation";
-import { logAiUsageEvent } from "@/lib/aiUsage";
+import { logAiUsageEvent, usageCapResponse } from "@/lib/aiUsage";
 import { getUserAndProfile } from "@/lib/auth";
 import { FREE_GENERATIONS_LIMIT, isSubscribed } from "@/lib/billing";
 import {
@@ -121,6 +121,11 @@ export async function POST(request: Request) {
       // directement un QCM factice pour tester l'interface sans coût.
       quiz = await buildFakeQuizResult(QUIZ_QUESTION_COUNT);
     } else {
+      if (subscribed) {
+        const capResponse = await usageCapResponse(user.id);
+        if (capResponse) return capResponse;
+      }
+
       if (pdf) {
         try {
           const { data } = await fetchPdfFromBlob(pdf.url);
