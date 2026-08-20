@@ -48,6 +48,13 @@
   --ai-3: #9b7cff;
   --ai-glow: rgba(75, 157, 255, 0.28);
 
+  /* Signature Team Brain (design, non fonctionnel) — dégradé ambre chaud,
+   * repris de la palette déjà utilisée pour le palier Intensif/premium
+   * (voir SubscriptionForm.tsx) plutôt qu'une nouvelle couleur de marque. */
+  --team: #d97706;
+  --team-2: #f59e0b;
+  --team-glow: rgba(217, 119, 6, 0.28);
+
   --canvas: #fbfaf6;
   --ink: #16231d;
   --highlight: #f6e58d;
@@ -94,6 +101,10 @@
   --ai-2: #5aa8ff;
   --ai-3: #a98bff;
   --ai-glow: rgba(90, 168, 255, 0.32);
+
+  --team: #f59e0b;
+  --team-2: #fbbf24;
+  --team-glow: rgba(245, 158, 11, 0.32);
 
   --canvas: #101613;
   --ink: #e8ede9;
@@ -321,6 +332,21 @@ body {
   50% { transform: translateY(3px) scale(1.06); opacity: 1; }
 }
 .animate-distill-loop { animation: distill-loop 1.7s var(--ease-signature) infinite; }
+
+/* Indicateur "Team Brain réfléchit" (design, non fonctionnel) — puce qui
+ * rebondit doucement, décalée d'un dot à l'autre via animation-delay inline
+ * (voir ChatView.tsx de Team Brain). */
+@keyframes team-thinking-dot {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-3px); opacity: 1; }
+}
+.animate-team-thinking { animation: team-thinking-dot 1.3s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .animate-team-thinking {
+    animation: none !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-distill-loop {
     animation: none !important;

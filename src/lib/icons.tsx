@@ -222,3 +222,16 @@ export const Send = (p: IconProps) => (
     <path d="M4.5 12 19.5 5l-5.8 15-2.9-6.8L4.5 12Z" strokeLinejoin="round" />
   </Base>
 );
+export const Brain = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M9 4.5a3 3 0 0 0-3 3v.3A3 3 0 0 0 4.5 10.5a3 3 0 0 0 1 5.4A3 3 0 0 0 8.5 19.5 3 3 0 0 0 12 17V7a3 3 0 0 0-3-2.5Z" />
+    <path d="M15 4.5a3 3 0 0 1 3 3v.3a3 3 0 0 1 1.5 2.7 3 3 0 0 1-1 5.4 3 3 0 0 1-3 3.6A3 3 0 0 1 12 17V7a3 3 0 0 1 3-2.5Z" />
+    <path d="M9 9.5h1.5M13.5 9.5H15M8.5 13.5h1.8M13.7 13.5h1.8" />
+  </Base>
+);
+export const FolderOpen = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M4 8V6.5a1.5 1.5 0 0 1 1.5-1.5h3.7l1.8 2h7.5A1.5 1.5 0 0 1 20 8.5" />
+    <path d="M4 8h15.5a1.5 1.5 0 0 1 1.45 1.87l-1.5 6A1.5 1.5 0 0 1 18 17H6a1.5 1.5 0 0 1-1.45-1.13l-1.5-6A1.5 1.5 0 0 1 4.5 8Z" />
+  </Base>
+);
