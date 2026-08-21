@@ -337,3 +337,36 @@ as $$
 $$;
 
 grant execute on function public.team_brain_match_chunks(uuid, vector, integer) to authenticated;
+
+-- Trousseau d'une équipe (étape 4/4, vue Workspace) : email + rôle/statut de
+-- chaque membre, pour afficher un nombre de membres et des avatars fiables.
+-- Nécessaire car les policies RLS de team_members (étape 1) et profiles
+-- n'autorisent respectivement qu'un admin à voir tous les membres, et
+-- chacun à voir uniquement sa propre ligne de profil — un membre normal ne
+-- peut donc reconstituer ni le trousseau ni les emails de ses coéquipiers
+-- par une simple lecture. "security definer" contourne ça, mais seulement
+-- pour les membres actifs de CETTE équipe (vérifié en interne via
+-- team_brain_is_active_member) : la clause where filtre tout le reste,
+-- renvoyant un ensemble vide plutôt qu'une erreur pour qui n'est pas
+-- membre. Réutilisable pour la vue Membres (dernière sous-étape).
+create or replace function public.team_brain_team_roster(p_team_id uuid)
+returns table (
+  user_id uuid,
+  email text,
+  role text,
+  status text,
+  joined_at timestamptz
+)
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select tm.user_id, p.email, tm.role, tm.status, tm.joined_at
+  from public.team_members tm
+  left join public.profiles p on p.id = tm.user_id
+  where tm.team_id = p_team_id
+    and public.team_brain_is_active_member(p_team_id, auth.uid());
+$$;
+
+grant execute on function public.team_brain_team_roster(uuid) to authenticated;

@@ -2,14 +2,17 @@ import Link from "next/link";
 import { Card } from "@/components/ui";
 import { Brain, ChevronLeft, ChevronRight, Clock, Doc, Plus, Users } from "@/lib/icons";
 import { ComingSoonToast, useComingSoonToast } from "./ComingSoonToast";
-import { TEAM_BRAIN_MEMBERS, TEAM_BRAIN_WORKSPACE } from "@/lib/teamBrainMockData";
 import type { TeamBrainProject } from "@/lib/teamBrainMockData";
 
-const STATS = [
-  { label: "Documents indexés", value: "34", icon: Doc },
-  { label: "Questions posées", value: "127", icon: Brain },
-  { label: "Membres actifs", value: "5", icon: Users },
-];
+// Palette déterministe pour les avatars d'initiale unique (un seul
+// caractère depuis l'email, voir @/lib/teamBrainData) — contrairement au
+// mock, on n'a pas de couleur assignée par personne : on en choisit une de
+// façon stable à partir du caractère lui-même, pour que la même personne
+// garde toujours la même couleur d'une carte projet à l'autre.
+const AVATAR_COLORS = ["#b5693a", "#0c6b52", "#4b5d8b", "#6b4b8b", "#4b8b6b", "#8b4b6b"];
+function colorForInitial(initial: string): string {
+  return AVATAR_COLORS[initial.charCodeAt(0) % AVATAR_COLORS.length];
+}
 
 function ProjectCard({ project, onClick }: { project: TeamBrainProject; onClick: () => void }) {
   return (
@@ -49,7 +52,7 @@ function ProjectCard({ project, onClick }: { project: TeamBrainProject; onClick:
               <div
                 key={m + i}
                 className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-card text-[9px] font-bold text-white"
-                style={{ background: TEAM_BRAIN_MEMBERS.find((mb) => mb.initials === m)?.color ?? "#888", zIndex: 4 - i }}
+                style={{ background: colorForInitial(m), zIndex: 4 - i }}
               >
                 {m[0]}
               </div>
@@ -64,19 +67,32 @@ function ProjectCard({ project, onClick }: { project: TeamBrainProject; onClick:
   );
 }
 
-/** Vue d'accueil de la démo Team Brain — grille de projets + statistiques
- * factices. "Nouveau projet" reste décoratif (pas de vraie logique de
- * création, conformément au plan validé). */
+/** Vue d'accueil Team Brain — grille de projets + statistiques, alimentée
+ * soit par de vraies données (équipe réelle, voir @/lib/teamBrainData),
+ * soit par le mock de démo (voir TeamBrain.tsx) : ce composant ne sait pas
+ * laquelle, il affiche simplement ce qu'on lui passe. "Nouveau projet"
+ * reste décoratif dans les deux cas (pas de flux de création, conformément
+ * au plan validé). */
 export function WorkspaceView({
+  teamName,
+  memberCount,
+  documentCount,
   projects,
   onOpenProject,
   onMembers,
 }: {
+  teamName: string;
+  memberCount: number;
+  documentCount: number;
   projects: TeamBrainProject[];
   onOpenProject: (p: TeamBrainProject) => void;
   onMembers: () => void;
 }) {
   const { visible: comingSoonVisible, trigger: triggerComingSoon } = useComingSoonToast();
+  const stats = [
+    { label: "Documents indexés", value: String(documentCount), icon: Doc },
+    { label: "Membres actifs", value: String(memberCount), icon: Users },
+  ];
 
   return (
     <div className="mx-auto max-w-[860px] animate-fade px-5 py-8 md:px-10 md:py-12">
@@ -94,7 +110,7 @@ export function WorkspaceView({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="font-display text-[26px] font-medium tracking-tight text-foreground">{TEAM_BRAIN_WORKSPACE.name}</h1>
+              <h1 className="font-display text-[26px] font-medium tracking-tight text-foreground">{teamName}</h1>
               <span
                 className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium text-white"
                 style={{ background: "linear-gradient(115deg, var(--team), var(--team-2))" }}
@@ -103,7 +119,8 @@ export function WorkspaceView({
               </span>
             </div>
             <p className="text-[13px] text-muted-foreground">
-              {TEAM_BRAIN_WORKSPACE.members} membres · {projects.length} projets actifs
+              {memberCount} membre{memberCount > 1 ? "s" : ""} · {projects.length} projet{projects.length > 1 ? "s" : ""} actif
+              {projects.length > 1 ? "s" : ""}
             </p>
           </div>
         </div>
@@ -143,8 +160,8 @@ export function WorkspaceView({
         </button>
       </div>
 
-      <div className="mt-8 grid grid-cols-3 gap-3">
-        {STATS.map(({ label, value, icon: Icon }) => (
+      <div className="mt-8 grid grid-cols-2 gap-3">
+        {stats.map(({ label, value, icon: Icon }) => (
           <Card key={label} className="flex items-center gap-3 p-4">
             <div
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white"
