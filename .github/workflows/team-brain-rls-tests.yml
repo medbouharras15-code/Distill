@@ -1,22 +1,25 @@
-name: Team Brain — tests de confidentialité RLS
+name: Team Brain — tests automatisés
 
-# Lance tests/team-brain-rls.test.ts contre le projet Supabase de TEST
-# (jamais la production) dont les identifiants sont stockés dans les
+# Lance toute la suite tests/team-brain-*.test.ts contre le projet Supabase
+# de TEST (jamais la production) dont les identifiants sont stockés dans les
 # secrets GitHub ci-dessous. Se lance automatiquement quand ces fichiers
 # changent, et peut aussi être relancé à la main depuis l'onglet Actions
 # (bouton "Run workflow") — pratique quand on n'a pas de terminal sous la
 # main (ex. depuis Safari sur iPad).
 #
 # Secrets requis (Settings → Secrets and variables → Actions → New repository
-# secret), à copier depuis le projet Supabase de TEST, pas celui de prod :
-#   - SUPABASE_TEST_URL
-#   - NEXT_PUBLIC_SUPABASE_ANON_KEY
-#   - SUPABASE_SERVICE_ROLE_KEY
+# secret) :
+#   - SUPABASE_TEST_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
+#     → à copier depuis le projet Supabase de TEST, pas celui de prod.
+#   - VOYAGE_API_KEY → clé Voyage AI (voyageai.com), utilisée par
+#     tests/team-brain-indexing.test.ts pour générer de vrais embeddings.
+#     Sans elle, seule la partie chunkPages (sans réseau) s'exécute.
 
 on:
   push:
     paths:
       - "tests/**"
+      - "src/lib/teamBrainIndexing.ts"
       - "supabase/schema.sql"
       - "vitest.config.mts"
       - "package.json"
@@ -24,7 +27,7 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  rls-tests:
+  team-brain-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,9 +39,10 @@ jobs:
 
       - run: npm ci
 
-      - name: Lancer les tests de confidentialité RLS
+      - name: Lancer les tests Team Brain
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_TEST_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
         run: npm test
