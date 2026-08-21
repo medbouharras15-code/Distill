@@ -162,7 +162,7 @@ describe.skipIf(!CONFIGURED)("team_brain_match_chunks — confidentialité", () 
     });
 
     queryEmbedding = await embedQuery("Quelles sont les informations disponibles pour ce projet ?");
-  }, 30000);
+  });
 
   afterAll(async () => {
     if (!teamId) return;

@@ -14,5 +14,12 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
+    // Les tests d'intégration Team Brain font de vrais appels réseau
+    // (Supabase, Voyage AI) et peuvent désormais réessayer sur une limite
+    // de débit Voyage (voir VOYAGE_MAX_ATTEMPTS dans teamBrainIndexing.ts,
+    // jusqu'à ~40s d'attente cumulée) — délais par défaut de vitest (5s/10s)
+    // bien trop courts pour ça.
+    testTimeout: 120_000,
+    hookTimeout: 120_000,
   },
 });

@@ -18,6 +18,17 @@ const VOYAGE_MODEL = "voyage-4-lite";
 // valeur par défaut du modèle, qui pourrait changer côté Voyage.
 const VOYAGE_OUTPUT_DIMENSION = 1024;
 const VOYAGE_BATCH_SIZE = 100;
+// Sans carte bancaire enregistrée sur le compte Voyage, l'API limite à 3
+// requêtes/minute (429) — observé en pratique dans la suite de tests, qui
+// enchaîne plusieurs appels en quelques secondes. Nouvelle tentative après
+// une pause plutôt que d'échouer immédiatement ; le plafond se lève de
+// lui-même après quelques dizaines de secondes.
+const VOYAGE_MAX_ATTEMPTS = 3;
+const VOYAGE_RETRY_DELAY_MS = 20_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 const CHUNK_SIZE_CHARS = 1500;
 const CHUNK_OVERLAP_CHARS = 200;
@@ -71,25 +82,35 @@ export async function embedTexts(texts: string[], inputType: "document" | "query
   const results: number[][] = [];
   for (let i = 0; i < texts.length; i += VOYAGE_BATCH_SIZE) {
     const batch = texts.slice(i, i + VOYAGE_BATCH_SIZE);
-    const response = await fetch("https://api.voyageai.com/v1/embeddings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        input: batch,
-        model: VOYAGE_MODEL,
-        input_type: inputType,
-        output_dimension: VOYAGE_OUTPUT_DIMENSION,
-      }),
-    });
 
-    if (!response.ok) {
+    let lastError: Error | undefined;
+    for (let attempt = 1; attempt <= VOYAGE_MAX_ATTEMPTS; attempt++) {
+      const response = await fetch("https://api.voyageai.com/v1/embeddings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          input: batch,
+          model: VOYAGE_MODEL,
+          input_type: inputType,
+          output_dimension: VOYAGE_OUTPUT_DIMENSION,
+        }),
+      });
+
+      if (response.ok) {
+        const json = (await response.json()) as { data: { embedding: number[]; index: number }[] };
+        const batchEmbeddings = json.data.sort((a, b) => a.index - b.index).map((d) => d.embedding);
+        results.push(...batchEmbeddings);
+        lastError = undefined;
+        break;
+      }
+
       const body = await response.text();
-      throw new Error(`Échec de la génération des embeddings Voyage (${response.status}) : ${body}`);
+      lastError = new Error(`Échec de la génération des embeddings Voyage (${response.status}) : ${body}`);
+      if (response.status !== 429 || attempt === VOYAGE_MAX_ATTEMPTS) break;
+      await sleep(VOYAGE_RETRY_DELAY_MS);
     }
 
-    const json = (await response.json()) as { data: { embedding: number[]; index: number }[] };
-    const batchEmbeddings = json.data.sort((a, b) => a.index - b.index).map((d) => d.embedding);
-    results.push(...batchEmbeddings);
+    if (lastError) throw lastError;
   }
 
   return results;
