@@ -106,6 +106,29 @@ export interface ChatResponseBody {
   citations: ChatCitation[];
 }
 
+/** Citation d'un chat Team Brain — contrairement à ChatCitation (Mode
+ * Explication, une seule source implicite : les notes de la session), fait
+ * toujours référence à un document précis de l'équipe. */
+export interface TeamBrainChatCitation {
+  documentName: string;
+  pageNumber: number | null;
+  quote: string;
+}
+
+export interface TeamBrainChatRequestBody {
+  projectId: string;
+  question: string;
+  /** Tours précédents de la conversation, sans citations — voir
+   * ChatRequestBody.history pour le même principe. Aucun historique n'est
+   * persisté côté serveur (décision actée à l'étape 1 du chantier). */
+  history?: { role: "user" | "assistant"; content: string }[];
+}
+
+export interface TeamBrainChatResponseBody {
+  answer: string;
+  citations: TeamBrainChatCitation[];
+}
+
 export interface Profile {
   id: string;
   email: string | null;

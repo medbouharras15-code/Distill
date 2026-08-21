@@ -55,12 +55,12 @@ export function chunkPages(pages: SourcePage[]): TextChunk[] {
   return chunks;
 }
 
-/** Génère les embeddings d'une liste de textes via l'API Voyage AI, par
- * lots de VOYAGE_BATCH_SIZE pour rester sous les limites de l'API. Renvoie
- * les vecteurs dans le même ordre que `texts`. `input_type: "document"` :
- * Voyage recommande des embeddings asymétriques indexation/recherche —
- * l'étape 3 utilisera "query" côté recherche. */
-export async function embedChunks(texts: string[]): Promise<number[][]> {
+/** Appelle l'API Voyage AI par lots de VOYAGE_BATCH_SIZE, dans les deux
+ * variantes asymétriques recommandées par Voyage : "document" à
+ * l'indexation (embedChunks), "query" à la recherche (voir
+ * @/lib/teamBrainSearch). Renvoie les vecteurs dans le même ordre que
+ * `texts`. */
+export async function embedTexts(texts: string[], inputType: "document" | "query"): Promise<number[][]> {
   if (texts.length === 0) return [];
 
   const apiKey = process.env.VOYAGE_API_KEY;
@@ -77,7 +77,7 @@ export async function embedChunks(texts: string[]): Promise<number[][]> {
       body: JSON.stringify({
         input: batch,
         model: VOYAGE_MODEL,
-        input_type: "document",
+        input_type: inputType,
         output_dimension: VOYAGE_OUTPUT_DIMENSION,
       }),
     });
@@ -93,6 +93,11 @@ export async function embedChunks(texts: string[]): Promise<number[][]> {
   }
 
   return results;
+}
+
+/** Embeddings d'indexation (chunks de documents) — voir embedTexts. */
+export function embedChunks(texts: string[]): Promise<number[][]> {
+  return embedTexts(texts, "document");
 }
 
 /** Télécharge un PDF Team Brain depuis Vercel Blob. Contrairement à

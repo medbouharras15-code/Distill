@@ -95,12 +95,13 @@ create policy "Un utilisateur voit ses propres événements de consommation IA"
 -- principe que generations_used sur profiles.
 
 -- ═════════════════════════════════════════════════════════════════════
--- 5. Team Brain — fondations réelles (étape 1/4, voir plan validé avec
--- l'utilisateur). Schéma + RLS uniquement à ce stade : le pipeline
--- d'indexation (étape 2) et la recherche/génération (étape 3) viendront
--- écrire/lire ces tables ensuite. La démo visuelle actuelle
--- (@/components/team-brain) continue de fonctionner sur des données mock
--- en parallèle, aucune de ces tables n'est encore branchée à l'interface.
+-- 5. Team Brain — fondations réelles (étapes 1-3/4, voir plan validé avec
+-- l'utilisateur). Schéma + RLS (étape 1), pipeline d'indexation (étape 2,
+-- voir @/lib/teamBrainIndexing.ts) et recherche/génération (étape 3, voir
+-- @/lib/teamBrainSearch.ts et team_brain_match_chunks ci-dessous) sont en
+-- place. Reste l'étape 4 : brancher l'interface réelle à la place des
+-- données mock — la démo visuelle actuelle (@/components/team-brain)
+-- continue de fonctionner sur ces données mock en parallèle jusque-là.
 -- ═════════════════════════════════════════════════════════════════════
 
 create extension if not exists vector;
@@ -295,3 +296,44 @@ create policy "Chunk visible si projet accessible et (partagé ou propriétaire)
 -- écritures passeront par le serveur (étapes 2-4), qui applique ses
 -- propres vérifications d'autorisation avant d'écrire via la clé
 -- "service role" — même principe que le reste du schéma.
+
+-- Recherche par similarité vectorielle (étape 3/4). Volontairement SANS
+-- "security definer" (contrairement aux fonctions d'aide RLS ci-dessus) :
+-- exécutée avec les droits de l'appelant, elle hérite donc automatiquement
+-- des policies RLS déjà posées et testées sur team_brain_chunks et
+-- team_brain_documents (document privé, membre retiré, isolation
+-- inter-équipes...) — aucune logique d'accès à dupliquer ni à re-vérifier
+-- séparément. Appelée uniquement via le client authentifié de session côté
+-- serveur (jamais la clé service_role, qui contournerait RLS et annulerait
+-- cette garantie).
+create or replace function public.team_brain_match_chunks(
+  p_project_id uuid,
+  p_query_embedding vector (1024),
+  p_match_count integer default 8
+)
+returns table (
+  chunk_id uuid,
+  document_id uuid,
+  document_name text,
+  chunk_text text,
+  page_number integer,
+  similarity float
+)
+language sql
+stable
+as $$
+  select
+    c.id as chunk_id,
+    c.document_id,
+    d.name as document_name,
+    c.chunk_text,
+    c.page_number,
+    1 - (c.embedding <=> p_query_embedding) as similarity
+  from public.team_brain_chunks c
+  join public.team_brain_documents d on d.id = c.document_id
+  where c.project_id = p_project_id
+  order by c.embedding <=> p_query_embedding
+  limit p_match_count;
+$$;
+
+grant execute on function public.team_brain_match_chunks(uuid, vector, integer) to authenticated;

@@ -12,14 +12,16 @@ name: Team Brain — tests automatisés
 #   - SUPABASE_TEST_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
 #     → à copier depuis le projet Supabase de TEST, pas celui de prod.
 #   - VOYAGE_API_KEY → clé Voyage AI (voyageai.com), utilisée par
-#     tests/team-brain-indexing.test.ts pour générer de vrais embeddings.
-#     Sans elle, seule la partie chunkPages (sans réseau) s'exécute.
+#     tests/team-brain-indexing.test.ts et tests/team-brain-search.test.ts
+#     pour générer de vrais embeddings. Sans elle, seule la partie chunkPages
+#     (sans réseau) s'exécute.
 
 on:
   push:
     paths:
       - "tests/**"
-      - "src/lib/teamBrainIndexing.ts"
+      - "src/lib/teamBrain*.ts"
+      - "src/app/api/team-brain/**"
       - "supabase/schema.sql"
       - "vitest.config.mts"
       - "package.json"
