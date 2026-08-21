@@ -1,0 +1,44 @@
+name: Team Brain — tests de confidentialité RLS
+
+# Lance tests/team-brain-rls.test.ts contre le projet Supabase de TEST
+# (jamais la production) dont les identifiants sont stockés dans les
+# secrets GitHub ci-dessous. Se lance automatiquement quand ces fichiers
+# changent, et peut aussi être relancé à la main depuis l'onglet Actions
+# (bouton "Run workflow") — pratique quand on n'a pas de terminal sous la
+# main (ex. depuis Safari sur iPad).
+#
+# Secrets requis (Settings → Secrets and variables → Actions → New repository
+# secret), à copier depuis le projet Supabase de TEST, pas celui de prod :
+#   - SUPABASE_TEST_URL
+#   - SUPABASE_TEST_ANON_KEY
+#   - SUPABASE_TEST_SERVICE_ROLE_KEY
+
+on:
+  push:
+    paths:
+      - "tests/**"
+      - "supabase/schema.sql"
+      - "vitest.config.mts"
+      - "package.json"
+      - ".github/workflows/team-brain-rls-tests.yml"
+  workflow_dispatch: {}
+
+jobs:
+  rls-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - run: npm ci
+
+      - name: Lancer les tests de confidentialité RLS
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_TEST_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_TEST_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_TEST_SERVICE_ROLE_KEY }}
+        run: npm test
