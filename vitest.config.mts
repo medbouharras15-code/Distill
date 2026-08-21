@@ -16,11 +16,11 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     // Les tests d'intégration Team Brain font de vrais appels réseau
     // (Supabase, Voyage AI) et peuvent désormais réessayer sur une limite
-    // de débit Voyage (voir VOYAGE_MAX_ATTEMPTS dans teamBrainIndexing.ts,
-    // jusqu'à ~40s d'attente cumulée) — délais par défaut de vitest (5s/10s)
-    // bien trop courts pour ça.
-    testTimeout: 120_000,
-    hookTimeout: 120_000,
+    // de débit Voyage (voir VOYAGE_MAX_ATTEMPTS/VOYAGE_RETRY_DELAY_MS dans
+    // teamBrainIndexing.ts, jusqu'à ~130s d'attente cumulée dans le pire
+    // cas) — délais par défaut de vitest (5s/10s) bien trop courts pour ça.
+    testTimeout: 180_000,
+    hookTimeout: 180_000,
     // Sans compte payant, Voyage AI limite à 3 requêtes/minute par compte
     // (voir VOYAGE_MAX_ATTEMPTS ci-dessus) — un plafond par COMPTE, pas par
     // fichier de test. Vitest exécute les fichiers en parallèle par défaut,

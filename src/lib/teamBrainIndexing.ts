@@ -19,12 +19,13 @@ const VOYAGE_MODEL = "voyage-4-lite";
 const VOYAGE_OUTPUT_DIMENSION = 1024;
 const VOYAGE_BATCH_SIZE = 100;
 // Sans carte bancaire enregistrée sur le compte Voyage, l'API limite à 3
-// requêtes/minute (429) — observé en pratique dans la suite de tests, qui
-// enchaîne plusieurs appels en quelques secondes. Nouvelle tentative après
-// une pause plutôt que d'échouer immédiatement ; le plafond se lève de
-// lui-même après quelques dizaines de secondes.
+// requêtes/minute (429) sur une fenêtre GLISSANTE de 60s (confirmé en
+// pratique : une pause de 20s, répétée 3 fois, ne suffisait pas à
+// retomber sous la limite après une salve de 3 appels — la fenêtre de 60s
+// glissait avec chaque tentative). 65s de pause dépasse donc largement la
+// fenêtre depuis le tout premier appel de la salve.
 const VOYAGE_MAX_ATTEMPTS = 3;
-const VOYAGE_RETRY_DELAY_MS = 20_000;
+const VOYAGE_RETRY_DELAY_MS = 65_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
