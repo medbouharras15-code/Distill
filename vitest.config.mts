@@ -21,5 +21,14 @@ export default defineConfig({
     // bien trop courts pour ça.
     testTimeout: 120_000,
     hookTimeout: 120_000,
+    // Sans compte payant, Voyage AI limite à 3 requêtes/minute par compte
+    // (voir VOYAGE_MAX_ATTEMPTS ci-dessus) — un plafond par COMPTE, pas par
+    // fichier de test. Vitest exécute les fichiers en parallèle par défaut,
+    // ce qui fait se chevaucher les appels de team-brain-indexing.test.ts
+    // et team-brain-search.test.ts et sature la limite en continu, sans
+    // jamais laisser la pause de nouvelle tentative faire effet. Fichiers
+    // exécutés en séquence pour éviter ça — sans impact sur la durée totale
+    // en usage normal (peu de fichiers, chacun déjà rapide).
+    fileParallelism: false,
   },
 });
