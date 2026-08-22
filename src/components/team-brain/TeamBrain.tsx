@@ -17,6 +17,10 @@ const MOCK_WORKSPACE: TeamBrainWorkspaceData = {
   memberCount: TEAM_BRAIN_WORKSPACE.members,
   documentCount: TEAM_BRAIN_PROJECTS.reduce((sum, p) => sum + p.docs, 0),
   projects: TEAM_BRAIN_PROJECTS,
+  // Non utilisé côté démo : ProjectView reçoit toujours TEAM_BRAIN_NIKE_DOCS
+  // directement pour un projet mock (voir plus bas), quel que soit le
+  // projet ouvert — juste présent ici pour satisfaire le type.
+  documentsByProject: {},
 };
 
 /** Racine de Team Brain (étape 4/4, vue Workspace branchée sur de vraies
@@ -32,11 +36,11 @@ const MOCK_WORKSPACE: TeamBrainWorkspaceData = {
  *   création — voir plan validé) → écran verrouillé habituel, avec la démo
  *   sur données mock accessible via "Explorer la démo", inchangée.
  *
- * Project/Chat/Membres restent sur les données mock (TEAM_BRAIN_NIKE_DOCS)
- * même en mode réel : leur branchement est prévu aux sous-étapes suivantes.
- * Ouvrir un vrai projet passe donc `docs={[]}` plutôt que les documents
- * fictifs Nike, qui n'ont aucun rapport avec un vrai projet — une liste
- * vide reste honnête, ProjectView l'affiche déjà correctement. */
+ * Projet est maintenant branché sur les vraies données (documents +
+ * formulaire d'ajout réel, voir ProjectView/AddDocumentForm) ; Chat/Membres
+ * restent sur les données mock (TEAM_BRAIN_NIKE_DOCS/TEAM_BRAIN_SEED_CHAT)
+ * même en mode réel — leur branchement est prévu aux sous-étapes
+ * suivantes. */
 export function TeamBrain({ initialTeam }: { initialTeam: TeamBrainWorkspaceData | null }) {
   const [unlocked, setUnlocked] = useState(Boolean(initialTeam));
   const [view, setView] = useState<TeamBrainView>("workspace");
@@ -71,7 +75,8 @@ export function TeamBrain({ initialTeam }: { initialTeam: TeamBrainWorkspaceData
       {view === "project" && (
         <ProjectView
           project={activeProject}
-          docs={isReal ? [] : TEAM_BRAIN_NIKE_DOCS}
+          docs={isReal ? (workspace.documentsByProject[activeProject.id] ?? []) : TEAM_BRAIN_NIKE_DOCS}
+          isReal={isReal}
           onBack={() => setView("workspace")}
           onChat={() => setView("chat")}
         />

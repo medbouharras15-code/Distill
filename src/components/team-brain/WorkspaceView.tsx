@@ -2,17 +2,8 @@ import Link from "next/link";
 import { Card } from "@/components/ui";
 import { Brain, ChevronLeft, ChevronRight, Clock, Doc, Plus, Users } from "@/lib/icons";
 import { ComingSoonToast, useComingSoonToast } from "./ComingSoonToast";
+import { colorForInitial } from "@/lib/teamBrainData";
 import type { TeamBrainProject } from "@/lib/teamBrainMockData";
-
-// Palette déterministe pour les avatars d'initiale unique (un seul
-// caractère depuis l'email, voir @/lib/teamBrainData) — contrairement au
-// mock, on n'a pas de couleur assignée par personne : on en choisit une de
-// façon stable à partir du caractère lui-même, pour que la même personne
-// garde toujours la même couleur d'une carte projet à l'autre.
-const AVATAR_COLORS = ["#b5693a", "#0c6b52", "#4b5d8b", "#6b4b8b", "#4b8b6b", "#8b4b6b"];
-function colorForInitial(initial: string): string {
-  return AVATAR_COLORS[initial.charCodeAt(0) % AVATAR_COLORS.length];
-}
 
 function ProjectCard({ project, onClick }: { project: TeamBrainProject; onClick: () => void }) {
   return (

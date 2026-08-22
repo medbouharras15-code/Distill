@@ -1,14 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { TeamBrainProject } from "@/lib/teamBrainMockData";
+import type { TeamBrainDoc, TeamBrainProject } from "@/lib/teamBrainMockData";
 
 /**
- * Données réelles du Workspace Team Brain (étape 4/4, vue Workspace) —
- * remplace teamBrainMockData pour les utilisateurs qui appartiennent
- * réellement à une équipe. Lu avec le client authentifié de session : RLS
- * s'applique nativement (voir tests/team-brain-rls.test.ts), sauf pour le
- * trousseau de l'équipe qui passe par team_brain_team_roster (voir
- * supabase/schema.sql) — un membre non admin ne peut pas lire team_members
- * ni profiles au-delà de sa propre ligne.
+ * Données réelles du Workspace/Projet Team Brain (étape 4/4) — remplace
+ * teamBrainMockData pour les utilisateurs qui appartiennent réellement à
+ * une équipe. Lu avec le client authentifié de session : RLS s'applique
+ * nativement (voir tests/team-brain-rls.test.ts), sauf pour le trousseau de
+ * l'équipe qui passe par team_brain_team_roster (voir supabase/schema.sql)
+ * — un membre non admin ne peut pas lire team_members ni profiles au-delà
+ * de sa propre ligne. Fichier sans dépendance serveur (pas de next/server,
+ * pas de secret) : safe à importer depuis un composant "use client" (voir
+ * colorForInitial, réutilisé par WorkspaceView.tsx).
  */
 
 export interface TeamBrainWorkspaceData {
@@ -16,12 +18,23 @@ export interface TeamBrainWorkspaceData {
   memberCount: number;
   documentCount: number;
   projects: TeamBrainProject[];
+  documentsByProject: Record<string, TeamBrainDoc[]>;
 }
 
 interface TeamRosterRow {
   user_id: string;
   email: string | null;
   status: string;
+}
+
+// Palette déterministe pour les avatars d'initiale unique (un seul
+// caractère depuis l'email) — on n'a pas de couleur assignée par personne
+// comme dans le mock : on en choisit une de façon stable à partir du
+// caractère lui-même, pour que la même personne garde toujours la même
+// couleur d'une carte à l'autre.
+const AVATAR_COLORS = ["#b5693a", "#0c6b52", "#4b5d8b", "#6b4b8b", "#4b8b6b", "#8b4b6b"];
+export function colorForInitial(initial: string): string {
+  return AVATAR_COLORS[initial.charCodeAt(0) % AVATAR_COLORS.length];
 }
 
 function formatLastActivity(dateIso: string): string {
@@ -74,7 +87,11 @@ export async function getTeamWorkspaceData(
   const projectIds = (projects ?? []).map((p) => p.id as string);
 
   const [{ data: documents }, { data: projectMembers }, { data: roster }] = await Promise.all([
-    supabase.from("team_brain_documents").select("id, project_id, created_at").eq("team_id", teamId),
+    supabase
+      .from("team_brain_documents")
+      .select("id, project_id, name, doc_type, added_by, is_private, page_count, created_at")
+      .eq("team_id", teamId)
+      .order("created_at", { ascending: false }),
     projectIds.length > 0
       ? supabase.from("team_brain_project_members").select("project_id, user_id").in("project_id", projectIds)
       : Promise.resolve({ data: [] as { project_id: string; user_id: string }[] }),
@@ -89,11 +106,31 @@ export async function getTeamWorkspaceData(
   const initialFor = (userId: string) => (emailByUserId.get(userId)?.[0] ?? "?").toUpperCase();
 
   const docsByProject = new Map<string, { count: number; lastActivity: string | null }>();
+  const documentsByProject: Record<string, TeamBrainDoc[]> = {};
   for (const doc of documents ?? []) {
-    const entry = docsByProject.get(doc.project_id as string) ?? { count: 0, lastActivity: null };
+    const projectId = doc.project_id as string;
+    const createdAt = doc.created_at as string;
+
+    const entry = docsByProject.get(projectId) ?? { count: 0, lastActivity: null };
     entry.count += 1;
-    if (!entry.lastActivity || (doc.created_at as string) > entry.lastActivity) entry.lastActivity = doc.created_at as string;
-    docsByProject.set(doc.project_id as string, entry);
+    if (!entry.lastActivity || createdAt > entry.lastActivity) entry.lastActivity = createdAt;
+    docsByProject.set(projectId, entry);
+
+    const email = emailByUserId.get(doc.added_by as string) ?? "Membre retiré";
+    const initial = initialFor(doc.added_by as string);
+    const list = documentsByProject[projectId] ?? [];
+    list.push({
+      id: doc.id as string,
+      name: doc.name as string,
+      type: doc.doc_type as TeamBrainDoc["type"],
+      addedBy: email,
+      initials: initial,
+      avatarColor: colorForInitial(initial),
+      date: formatLastActivity(createdAt),
+      pages: (doc.page_count as number | null) ?? 1,
+      private: doc.is_private as boolean,
+    });
+    documentsByProject[projectId] = list;
   }
 
   const membersByProject = new Map<string, string[]>();
@@ -121,5 +158,6 @@ export async function getTeamWorkspaceData(
     memberCount: rosterRows.filter((m) => m.status === "active").length,
     documentCount: documents?.length ?? 0,
     projects: realProjects,
+    documentsByProject,
   };
 }

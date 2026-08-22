@@ -1,5 +1,6 @@
 import { Badge, Eyebrow } from "@/components/ui";
 import { Brain, ChevronLeft, Clock, Lock, Plus, Shield } from "@/lib/icons";
+import { AddDocumentForm } from "./AddDocumentForm";
 import { ComingSoonToast, useComingSoonToast } from "./ComingSoonToast";
 import type { TeamBrainDoc, TeamBrainProject } from "@/lib/teamBrainMockData";
 
@@ -48,16 +49,19 @@ function DocRow({ doc }: { doc: TeamBrainDoc }) {
 }
 
 /** Vue d'un projet Team Brain — liste de documents factices. "Ajouter un
- * document" reste décoratif (pas de vraie logique d'ajout, conformément au
- * plan validé). */
+ * document" appelle réellement l'API d'indexation pour un vrai projet
+ * (`isReal`, voir AddDocumentForm.tsx) ; en mode démo, il reste décoratif
+ * comme avant, inchangé. */
 export function ProjectView({
   project,
   docs,
+  isReal,
   onBack,
   onChat,
 }: {
   project: TeamBrainProject;
   docs: TeamBrainDoc[];
+  isReal: boolean;
   onBack: () => void;
   onChat: () => void;
 }) {
@@ -110,13 +114,17 @@ export function ProjectView({
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={triggerComingSoon}
-        className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border py-4 text-[13px] text-muted-foreground transition hover:border-[var(--team)] hover:text-foreground"
-      >
-        <Plus size={16} /> Ajouter un document ou une note
-      </button>
+      {isReal ? (
+        <AddDocumentForm projectId={project.id} />
+      ) : (
+        <button
+          type="button"
+          onClick={triggerComingSoon}
+          className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border py-4 text-[13px] text-muted-foreground transition hover:border-[var(--team)] hover:text-foreground"
+        >
+          <Plus size={16} /> Ajouter un document ou une note
+        </button>
+      )}
 
       <div className="mt-8 flex items-start gap-3 rounded-2xl border border-border bg-card p-4 text-[13px]">
         <Shield size={16} className="mt-0.5 shrink-0" style={{ color: "var(--team)" }} />
