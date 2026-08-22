@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Card } from "@/components/ui";
 import { Check, ChevronLeft, Close, Crown, Doc, Plus, Shield, Users } from "@/lib/icons";
 import { ComingSoonToast, useComingSoonToast } from "./ComingSoonToast";
-import { TEAM_BRAIN_MEMBERS, TEAM_BRAIN_ROLE_CONFIG, TEAM_BRAIN_WORKSPACE } from "@/lib/teamBrainMockData";
+import { TEAM_BRAIN_ROLE_CONFIG } from "@/lib/teamBrainMockData";
 import type { TeamBrainMember } from "@/lib/teamBrainMockData";
 
 type MembersTab = "members" | "roles";
@@ -51,11 +51,22 @@ function MemberCard({ member }: { member: TeamBrainMember }) {
   );
 }
 
-/** Vue membres & permissions de la démo Team Brain — "Inviter" reste
- * décoratif (pas de vraie logique d'ajout/retrait, conformément au plan
- * validé : aucune permission réelle n'est appliquée nulle part dans
- * l'app). */
-export function MembersView({ onBack }: { onBack: () => void }) {
+/** Vue membres & permissions — pilotée par ses props (vraie équipe ou
+ * démo, voir TeamBrain.tsx), comme WorkspaceView. Les descriptions de
+ * rôles et permissions (onglet "Rôles & accès") restent des constantes
+ * partagées (@/lib/teamBrainMockData) : elles décrivent fidèlement le
+ * fonctionnement réel de l'app, pas des données fictives à remplacer.
+ * "Inviter" reste décoratif dans tous les cas (pas de flux d'invitation
+ * par email, jamais construit). */
+export function MembersView({
+  members,
+  teamName,
+  onBack,
+}: {
+  members: TeamBrainMember[];
+  teamName: string;
+  onBack: () => void;
+}) {
   const [activeTab, setActiveTab] = useState<MembersTab>("members");
   const { visible: comingSoonVisible, trigger: triggerComingSoon } = useComingSoonToast();
 
@@ -74,7 +85,7 @@ export function MembersView({ onBack }: { onBack: () => void }) {
         <div>
           <h1 className="font-display text-[26px] font-medium tracking-tight text-foreground">Membres & permissions</h1>
           <p className="mt-1 text-[14px] text-muted-foreground">
-            {TEAM_BRAIN_MEMBERS.length} membres · {TEAM_BRAIN_WORKSPACE.name}
+            {members.length} membre{members.length > 1 ? "s" : ""} · {teamName}
           </p>
         </div>
         <button
@@ -107,7 +118,7 @@ export function MembersView({ onBack }: { onBack: () => void }) {
 
       {activeTab === "members" && (
         <div className="animate-fade space-y-2">
-          {TEAM_BRAIN_MEMBERS.map((m) => (
+          {members.map((m) => (
             <MemberCard key={m.id} member={m} />
           ))}
 
@@ -127,7 +138,7 @@ export function MembersView({ onBack }: { onBack: () => void }) {
           {(Object.entries(TEAM_BRAIN_ROLE_CONFIG) as [keyof typeof TEAM_BRAIN_ROLE_CONFIG, (typeof TEAM_BRAIN_ROLE_CONFIG)[keyof typeof TEAM_BRAIN_ROLE_CONFIG]][]).map(
             ([role, rc]) => {
               const RoleIcon = ROLE_ICONS[role];
-              const memberCount = TEAM_BRAIN_MEMBERS.filter((m) => m.role === role).length;
+              const memberCount = members.filter((m) => m.role === role).length;
               return (
                 <Card key={role} className="p-5">
                   <div className="flex items-start gap-4">

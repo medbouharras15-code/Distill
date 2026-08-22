@@ -95,13 +95,16 @@ create policy "Un utilisateur voit ses propres événements de consommation IA"
 -- principe que generations_used sur profiles.
 
 -- ═════════════════════════════════════════════════════════════════════
--- 5. Team Brain — fondations réelles (étapes 1-3/4, voir plan validé avec
+-- 5. Team Brain — chantier complet (étapes 1-4/4, voir plan validé avec
 -- l'utilisateur). Schéma + RLS (étape 1), pipeline d'indexation (étape 2,
--- voir @/lib/teamBrainIndexing.ts) et recherche/génération (étape 3, voir
--- @/lib/teamBrainSearch.ts et team_brain_match_chunks ci-dessous) sont en
--- place. Reste l'étape 4 : brancher l'interface réelle à la place des
--- données mock — la démo visuelle actuelle (@/components/team-brain)
--- continue de fonctionner sur ces données mock en parallèle jusque-là.
+-- voir @/lib/teamBrainIndexing.ts), recherche/génération (étape 3, voir
+-- @/lib/teamBrainSearch.ts et team_brain_match_chunks ci-dessous) et
+-- interface réelle (étape 4, voir @/lib/teamBrainData.ts et
+-- @/components/team-brain/TeamBrain.tsx) sont en place. La démo visuelle
+-- sur données mock (@/lib/teamBrainMockData) reste accessible via
+-- "Explorer la démo" pour quiconque n'appartient à aucune équipe réelle —
+-- aucun flux de création d'équipe/projet/invitation n'a été construit,
+-- décision explicite (voir plan validé).
 -- ═════════════════════════════════════════════════════════════════════
 
 create extension if not exists vector;

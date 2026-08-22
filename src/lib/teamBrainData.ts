@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { TeamBrainDoc, TeamBrainProject } from "@/lib/teamBrainMockData";
+import type { TeamBrainDoc, TeamBrainMember, TeamBrainProject } from "@/lib/teamBrainMockData";
 
 /**
  * Données réelles du Workspace/Projet Team Brain (étape 4/4) — remplace
@@ -19,12 +19,15 @@ export interface TeamBrainWorkspaceData {
   documentCount: number;
   projects: TeamBrainProject[];
   documentsByProject: Record<string, TeamBrainDoc[]>;
+  roster: TeamBrainMember[];
 }
 
 interface TeamRosterRow {
   user_id: string;
   email: string | null;
+  role: string;
   status: string;
+  joined_at: string | null;
 }
 
 // Palette déterministe pour les avatars d'initiale unique (un seul
@@ -49,6 +52,11 @@ function formatLastActivity(dateIso: string): string {
   if (isSameDay(date, yesterday)) return "Hier";
 
   return new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short" }).format(date);
+}
+
+function formatJoinedSince(dateIso: string | null): string {
+  if (!dateIso) return "Invité·e";
+  return `Depuis ${new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" }).format(new Date(dateIso))}`;
 }
 
 /** Équipe active de l'utilisateur — la première si plusieurs (pas de
@@ -86,7 +94,7 @@ export async function getTeamWorkspaceData(
 
   const projectIds = (projects ?? []).map((p) => p.id as string);
 
-  const [{ data: documents }, { data: projectMembers }, { data: roster }] = await Promise.all([
+  const [{ data: documents }, { data: projectMembers }, { data: rosterRpcData }] = await Promise.all([
     supabase
       .from("team_brain_documents")
       .select("id, project_id, name, doc_type, added_by, is_private, page_count, created_at")
@@ -98,7 +106,7 @@ export async function getTeamWorkspaceData(
     supabase.rpc("team_brain_team_roster", { p_team_id: teamId }),
   ]);
 
-  const rosterRows = (roster ?? []) as TeamRosterRow[];
+  const rosterRows = (rosterRpcData ?? []) as TeamRosterRow[];
   const emailByUserId = new Map<string, string>();
   for (const member of rosterRows) {
     if (member.email) emailByUserId.set(member.user_id, member.email);
@@ -134,11 +142,48 @@ export async function getTeamWorkspaceData(
   }
 
   const membersByProject = new Map<string, string[]>();
+  const projectNamesByUser = new Map<string, string[]>();
+  const projectNameById = new Map<string, string>();
+  for (const p of projects ?? []) projectNameById.set(p.id as string, p.name as string);
+
   for (const pm of projectMembers ?? []) {
-    const list = membersByProject.get(pm.project_id as string) ?? [];
-    list.push(initialFor(pm.user_id as string));
-    membersByProject.set(pm.project_id as string, list);
+    const projectId = pm.project_id as string;
+    const userId = pm.user_id as string;
+
+    const initialsList = membersByProject.get(projectId) ?? [];
+    initialsList.push(initialFor(userId));
+    membersByProject.set(projectId, initialsList);
+
+    const projectName = projectNameById.get(projectId);
+    if (projectName) {
+      const namesList = projectNamesByUser.get(userId) ?? [];
+      namesList.push(projectName);
+      projectNamesByUser.set(userId, namesList);
+    }
   }
+
+  // Retirés exclus : ils n'appartiennent plus vraiment à l'équipe, même si
+  // leur ligne team_members subsiste (historique des documents qu'ils ont
+  // ajoutés, voir documentsByProject ci-dessus qui les référence toujours).
+  const roster: TeamBrainMember[] = rosterRows
+    .filter((m) => m.status !== "removed")
+    .map((m) => {
+      const initial = initialFor(m.user_id);
+      const isAdmin = m.role === "admin";
+      return {
+        id: m.user_id,
+        name: m.email ?? "Invité·e",
+        initials: initial,
+        color: colorForInitial(initial),
+        role: m.role as TeamBrainMember["role"],
+        // Un admin accède à tous les projets via son rôle (voir
+        // team_brain_can_access_project), sans avoir besoin d'y être
+        // explicitement affecté — reflète ça plutôt que sa liste réelle,
+        // souvent vide.
+        projects: isAdmin ? ["Tous les projets"] : (projectNamesByUser.get(m.user_id) ?? []),
+        joinedAt: formatJoinedSince(m.joined_at),
+      };
+    });
 
   const realProjects: TeamBrainProject[] = (projects ?? []).map((p) => {
     const docInfo = docsByProject.get(p.id as string);
@@ -159,5 +204,6 @@ export async function getTeamWorkspaceData(
     documentCount: documents?.length ?? 0,
     projects: realProjects,
     documentsByProject,
+    roster,
   };
 }
