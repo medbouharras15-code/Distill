@@ -2,14 +2,51 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Brain, ChevronLeft, ChevronRight, Send, Shield } from "@/lib/icons";
+import { parseJsonResponse } from "@/lib/useSubscriptionActions";
 import { TEAM_BRAIN_AI_REPLY, TEAM_BRAIN_NIKE_DOCS, TEAM_BRAIN_SEED_CHAT } from "@/lib/teamBrainMockData";
-import type { TeamBrainChatMessage, TeamBrainProject } from "@/lib/teamBrainMockData";
+import type { TeamBrainProject } from "@/lib/teamBrainMockData";
+import type { TeamBrainChatResponseBody } from "@/lib/types";
 
 function now(): string {
   return new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 }
 
-function UserBubble({ msg }: { msg: TeamBrainChatMessage }) {
+/** Source d'une réponse IA — addedBy/date restent optionnels : la démo les
+ * fournit toujours (voir toDisplayMessages), une vraie recherche (étape 3)
+ * ne renvoie que document/page/extrait, pas encore qui a ajouté le
+ * document ni quand. */
+interface DisplaySource {
+  doc: string;
+  page: number | null;
+  excerpt: string;
+  addedBy?: string;
+  date?: string;
+}
+
+interface DisplayMessage {
+  id: string;
+  role: "user" | "ai";
+  text: string;
+  ts: string;
+  /** Une vraie réponse peut citer plusieurs documents, contrairement à la
+   * démo qui n'en a jamais qu'un seul — toujours un tableau (0, 1 ou
+   * plusieurs), même pour la démo (un seul élément), pour un rendu unifié. */
+  sources: DisplaySource[];
+}
+
+function toDisplayMessages(seed: typeof TEAM_BRAIN_SEED_CHAT): DisplayMessage[] {
+  return seed.map((m) => ({
+    id: m.id,
+    role: m.role,
+    text: m.text,
+    ts: m.ts,
+    sources: m.source
+      ? [{ doc: m.source.doc, page: m.source.page, excerpt: m.source.excerpt, addedBy: m.source.addedBy, date: m.source.date }]
+      : [],
+  }));
+}
+
+function UserBubble({ msg }: { msg: DisplayMessage }) {
   return (
     <div className="flex animate-fade justify-end">
       <div className="group max-w-[76%]">
@@ -24,14 +61,75 @@ function UserBubble({ msg }: { msg: TeamBrainChatMessage }) {
   );
 }
 
+function SourceBlock({
+  source,
+  expanded,
+  onToggle,
+}: {
+  source: DisplaySource;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="w-full overflow-hidden rounded-xl border text-left transition-all"
+      style={{
+        borderColor: "color-mix(in srgb, var(--team) 28%, var(--border))",
+        background: "color-mix(in srgb, var(--team) 5%, var(--background))",
+      }}
+    >
+      <div className="flex items-center gap-2.5 px-3.5 py-2.5">
+        <div
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] text-[9px] font-bold text-white"
+          style={{ background: "linear-gradient(135deg, var(--team), var(--team-2))" }}
+        >
+          {source.page ?? "·"}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-2">
+            <span className="truncate text-[12px] font-semibold" style={{ color: "var(--team)" }}>
+              {source.doc}
+            </span>
+            {source.page !== null && <span className="shrink-0 font-mono text-[10px] text-muted-foreground">p. {source.page}</span>}
+          </div>
+          {(source.addedBy || source.date) && (
+            <div className="text-[10.5px] text-muted-foreground">
+              {[source.addedBy, source.date].filter(Boolean).join(" · ")}
+            </div>
+          )}
+        </div>
+        <ChevronRight
+          size={13}
+          className="shrink-0 text-muted-foreground transition-transform"
+          style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}
+        />
+      </div>
+
+      {expanded && (
+        <div
+          className="animate-fade border-t px-3.5 pb-3 pt-2.5 text-[12.5px] leading-relaxed text-foreground"
+          style={{ borderColor: "color-mix(in srgb, var(--team) 18%, var(--border))" }}
+        >
+          <span className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground/70">
+            Extrait{source.page !== null ? ` · page ${source.page}` : ""}
+          </span>
+          « {source.excerpt} »
+        </div>
+      )}
+    </button>
+  );
+}
+
 function AiBubble({
   msg,
-  expanded,
+  expandedKey,
   onToggleSource,
 }: {
-  msg: TeamBrainChatMessage;
-  expanded: boolean;
-  onToggleSource: () => void;
+  msg: DisplayMessage;
+  expandedKey: string | null;
+  onToggleSource: (key: string) => void;
 }) {
   return (
     <div className="flex animate-fade items-end gap-2.5">
@@ -53,54 +151,19 @@ function AiBubble({
           <div className="relative px-4 py-3.5">
             <p className="text-[14px] leading-[1.72] text-foreground">{msg.text}</p>
 
-            {msg.source && (
-              <div className="mt-3.5">
-                <button
-                  type="button"
-                  onClick={onToggleSource}
-                  className="w-full overflow-hidden rounded-xl border text-left transition-all"
-                  style={{
-                    borderColor: "color-mix(in srgb, var(--team) 28%, var(--border))",
-                    background: "color-mix(in srgb, var(--team) 5%, var(--background))",
-                  }}
-                >
-                  <div className="flex items-center gap-2.5 px-3.5 py-2.5">
-                    <div
-                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] text-[9px] font-bold text-white"
-                      style={{ background: "linear-gradient(135deg, var(--team), var(--team-2))" }}
-                    >
-                      {msg.source.page}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline gap-2">
-                        <span className="truncate text-[12px] font-semibold" style={{ color: "var(--team)" }}>
-                          {msg.source.doc}
-                        </span>
-                        <span className="shrink-0 font-mono text-[10px] text-muted-foreground">p. {msg.source.page}</span>
-                      </div>
-                      <div className="text-[10.5px] text-muted-foreground">
-                        {msg.source.addedBy} · {msg.source.date}
-                      </div>
-                    </div>
-                    <ChevronRight
-                      size={13}
-                      className="shrink-0 text-muted-foreground transition-transform"
-                      style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}
+            {msg.sources.length > 0 && (
+              <div className="mt-3.5 space-y-2">
+                {msg.sources.map((source, i) => {
+                  const key = `${msg.id}:${i}`;
+                  return (
+                    <SourceBlock
+                      key={key}
+                      source={source}
+                      expanded={expandedKey === key}
+                      onToggle={() => onToggleSource(key)}
                     />
-                  </div>
-
-                  {expanded && (
-                    <div
-                      className="animate-fade border-t px-3.5 pb-3 pt-2.5 text-[12.5px] leading-relaxed text-foreground"
-                      style={{ borderColor: "color-mix(in srgb, var(--team) 18%, var(--border))" }}
-                    >
-                      <span className="mb-1.5 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground/70">
-                        Extrait · page {msg.source.page}
-                      </span>
-                      « {msg.source.excerpt} »
-                    </div>
-                  )}
-                </button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -111,24 +174,29 @@ function AiBubble({
   );
 }
 
-/** Vue chat de la démo Team Brain — le cœur de la fonctionnalité. Réponse
- * IA et délai de "réflexion" entièrement simulés côté client (setTimeout,
- * pas d'appel réseau) : aucune vraie logique de recherche documentaire,
- * conformément au plan validé. */
+/** Vue chat Team Brain — étape 4/4. En mode démo (`isReal=false`), la
+ * conversation simulée reste identique à ce qu'elle a toujours été
+ * (réponse et délai de "réflexion" en dur, aucun appel réseau). En mode
+ * réel, chaque question appelle POST /api/team-brain/chat (recherche
+ * vectorielle + génération, étape 3) avec l'historique de la conversation
+ * pour les questions de suivi. */
 export function ChatView({
   project,
+  isReal,
   onBack,
   onBackToWorkspace,
 }: {
   project: TeamBrainProject;
+  isReal: boolean;
   onBack: () => void;
   onBackToWorkspace: () => void;
 }) {
-  const [messages, setMessages] = useState<TeamBrainChatMessage[]>(TEAM_BRAIN_SEED_CHAT);
+  const [messages, setMessages] = useState<DisplayMessage[]>(() => toDisplayMessages(TEAM_BRAIN_SEED_CHAT));
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [thinkingDots, setThinkingDots] = useState(0);
-  const [expandedSource, setExpandedSource] = useState<string | null>(null);
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -149,18 +217,61 @@ export function ChatView({
     el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
   }, [input]);
 
-  function send() {
+  async function send() {
     if (!input.trim() || thinking) return;
-    setMessages((m) => [...m, { id: `u${Date.now()}`, role: "user", ts: now(), text: input.trim() }]);
+    const question = input.trim();
+    setError(null);
     setInput("");
     setThinking(true);
-    setTimeout(() => {
+
+    if (!isReal) {
+      setMessages((m) => [...m, { id: `u${Date.now()}`, role: "user", ts: now(), text: question, sources: [] }]);
+      setTimeout(() => {
+        setThinking(false);
+        setMessages((m) => [...m, { ...toDisplayMessages([{ ...TEAM_BRAIN_AI_REPLY, id: `a${Date.now()}`, ts: now() }])[0] }]);
+      }, 2600);
+      return;
+    }
+
+    const history = messages.map((m) => ({ role: (m.role === "ai" ? "assistant" : "user") as "assistant" | "user", content: m.text }));
+    setMessages((m) => [...m, { id: `u${Date.now()}`, role: "user", ts: now(), text: question, sources: [] }]);
+
+    try {
+      const res = await fetch("/api/team-brain/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: project.id, question, history }),
+      });
+      const payload = await parseJsonResponse(res);
+      if (!res.ok) {
+        throw new Error(typeof payload.error === "string" ? payload.error : "Impossible d'obtenir une réponse.");
+      }
+
+      const { answer, citations } = payload as unknown as TeamBrainChatResponseBody;
+      setMessages((m) => [
+        ...m,
+        {
+          id: `a${Date.now()}`,
+          role: "ai",
+          ts: now(),
+          text: answer,
+          sources: citations.map((c) => ({ doc: c.documentName, page: c.pageNumber, excerpt: c.quote })),
+        },
+      ]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Une erreur est survenue.");
+      // Retire la question optimiste pour ne pas laisser un message sans
+      // réponse dans le fil — même principe que le Mode Explication
+      // (@/components/notes/ChatView).
+      setMessages((m) => m.slice(0, -1));
+    } finally {
       setThinking(false);
-      setMessages((m) => [...m, { ...TEAM_BRAIN_AI_REPLY, id: `a${Date.now()}`, ts: now() }]);
-    }, 2600);
+    }
   }
 
-  const sharedDocsCount = TEAM_BRAIN_NIKE_DOCS.filter((d) => !d.private).length;
+  const sharedDocsCount = isReal
+    ? undefined // le nombre réel de documents partagés est déjà affiché sur la vue Projet ; pas de recompte ici pour l'instant
+    : TEAM_BRAIN_NIKE_DOCS.filter((d) => !d.private).length;
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -185,7 +296,8 @@ export function ChatView({
           <div>
             <div className="text-[13.5px] font-semibold text-foreground">Team Brain</div>
             <div className="text-[11px] text-muted-foreground">
-              {project.name} · {sharedDocsCount} documents indexés
+              {project.name}
+              {sharedDocsCount !== undefined ? ` · ${sharedDocsCount} documents indexés` : ""}
             </div>
           </div>
         </div>
@@ -213,12 +325,7 @@ export function ChatView({
             msg.role === "user" ? (
               <UserBubble key={msg.id} msg={msg} />
             ) : (
-              <AiBubble
-                key={msg.id}
-                msg={msg}
-                expanded={expandedSource === msg.id}
-                onToggleSource={() => setExpandedSource(expandedSource === msg.id ? null : msg.id)}
-              />
+              <AiBubble key={msg.id} msg={msg} expandedKey={expandedKey} onToggleSource={(key) => setExpandedKey(expandedKey === key ? null : key)} />
             ),
           )}
 
@@ -241,7 +348,8 @@ export function ChatView({
                   ))}
                 </div>
                 <span className="text-[12px] text-muted-foreground">
-                  Recherche dans {sharedDocsCount} documents{".".repeat(thinkingDots)}
+                  Recherche{sharedDocsCount !== undefined ? ` dans ${sharedDocsCount} documents` : ""}
+                  {".".repeat(thinkingDots)}
                 </span>
               </div>
             </div>
@@ -251,6 +359,14 @@ export function ChatView({
 
       <div className="border-t border-border bg-card/80 px-4 py-4 backdrop-blur-md">
         <div className="mx-auto max-w-[680px]">
+          {error && (
+            <div className="mb-3 flex items-start justify-between gap-3 rounded-xl bg-red-50 px-3.5 py-2.5 text-[12.5px] text-red-700">
+              <span>{error}</span>
+              <button type="button" onClick={() => setError(null)} className="shrink-0 text-red-700/70 hover:text-red-700">
+                ✕
+              </button>
+            </div>
+          )}
           <div
             className="flex items-end gap-3 rounded-2xl border bg-background px-4 py-3 transition-shadow"
             style={{

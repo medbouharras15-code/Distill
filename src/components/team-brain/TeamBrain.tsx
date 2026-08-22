@@ -82,7 +82,12 @@ export function TeamBrain({ initialTeam }: { initialTeam: TeamBrainWorkspaceData
         />
       )}
       {view === "chat" && (
-        <ChatView project={activeProject} onBack={() => setView("project")} onBackToWorkspace={() => setView("workspace")} />
+        <ChatView
+          project={activeProject}
+          isReal={isReal}
+          onBack={() => setView("project")}
+          onBackToWorkspace={() => setView("workspace")}
+        />
       )}
       {view === "members" && <MembersView onBack={() => setView("workspace")} />}
     </div>
