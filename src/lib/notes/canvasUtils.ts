@@ -92,6 +92,69 @@ function distance(a: { x: number; y: number }, b: { x: number; y: number }) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+/** Ajoute des points intermédiaires le long de chaque segment plus long que
+ * `maxSegmentLength` — sans ça, un trait très peu échantillonné (ex. une
+ * ligne droite tracée à main tenue, réduite à 2 points par l'accroche de
+ * forme, voir lockedSnap dans NotesCanvas) pourrait "sauter" par-dessus la
+ * gomme partielle sans qu'aucun point ne tombe dedans, alors qu'elle le
+ * traverse visuellement. */
+function densifyPoints(points: StrokePoint[], maxSegmentLength: number): StrokePoint[] {
+  if (points.length < 2) return points;
+  const result: StrokePoint[] = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    const steps = Math.max(1, Math.ceil(distance(a, b) / maxSegmentLength));
+    for (let s = 1; s <= steps; s++) {
+      const t = s / steps;
+      result.push({
+        x: a.x + (b.x - a.x) * t,
+        y: a.y + (b.y - a.y) * t,
+        pressure: a.pressure + (b.pressure - a.pressure) * t,
+      });
+    }
+  }
+  return result;
+}
+
+/** Découpe un trait à l'endroit touché par la gomme partielle (mode
+ * "partial", voir EraserMode) : retire les points à portée du cercle de la
+ * gomme (même rayon "pad" que strokeHitTest, pour toucher exactement ce
+ * que l'utilisateur voit comme "touché") et renvoie les morceaux restants
+ * comme des traits distincts — un trait effacé en son milieu se retrouve
+ * ainsi coupé en deux. Renvoie le trait original inchangé (dans un tableau
+ * à un élément) si rien n'est touché, pour que l'appelant puisse toujours
+ * réassembler la liste complète des traits de la même façon. */
+export function partialEraseStroke(stroke: Stroke, cx: number, cy: number, radius: number): Stroke[] {
+  const pad = radius + stroke.size / 2;
+  const center = { x: cx, y: cy };
+
+  if (stroke.points.length === 1) {
+    return distance(stroke.points[0], center) <= pad ? [] : [stroke];
+  }
+
+  const densified = densifyPoints(stroke.points, Math.max(2, pad / 2));
+
+  const runs: StrokePoint[][] = [];
+  let current: StrokePoint[] = [];
+  let touched = false;
+
+  for (const point of densified) {
+    if (distance(point, center) <= pad) {
+      touched = true;
+      if (current.length > 1) runs.push(current);
+      current = [];
+    } else {
+      current.push(point);
+    }
+  }
+  if (current.length > 1) runs.push(current);
+
+  if (!touched) return [stroke];
+
+  return runs.map((run) => ({ ...stroke, id: crypto.randomUUID(), points: run }));
+}
+
 function distanceToSegment(a: StrokePoint, b: StrokePoint, x: number, y: number): number {
   const dx = b.x - a.x;
   const dy = b.y - a.y;

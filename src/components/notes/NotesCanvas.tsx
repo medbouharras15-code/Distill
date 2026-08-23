@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import type {
+  EraserMode,
   ImageElement,
   PaperSize,
   PenType,
@@ -27,6 +28,7 @@ import {
   drawStroke,
   imageHandleHitTest,
   imageHitTest,
+  partialEraseStroke,
   shapeHitTest,
   strokeHitTest,
   type ImageHandle,
@@ -212,6 +214,7 @@ interface NotesCanvasProps {
   highlighterColor: string;
   highlighterSize: number;
   eraserRadius: number;
+  eraserMode: EraserMode;
   shapeType: ShapeType;
   shapeColor: string;
   shapeStrokeWidth: number;
@@ -242,6 +245,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     highlighterColor,
     highlighterSize,
     eraserRadius,
+    eraserMode,
     shapeType,
     shapeColor,
     shapeStrokeWidth,
@@ -287,6 +291,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   const erasedShapeIds = useRef<Set<string> | null>(null);
   const erasedImageIds = useRef<Set<string> | null>(null);
   const erasedTextBoxIds = useRef<Set<string> | null>(null);
+  const partialErasePreview = useRef<Stroke[] | null>(null);
   const lastPenTime = useRef(0);
   const renderScheduled = useRef(false);
 
@@ -453,7 +458,8 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       const img = getOrLoadImage(preview.src);
       if (img) drawImageElement(ctx, preview, img);
     }
-    for (const stroke of strokesRef.current) {
+    const strokesToRender = partialErasePreview.current ?? strokesRef.current;
+    for (const stroke of strokesToRender) {
       if (erasedStrokeIds.current?.has(stroke.id)) continue;
       drawStroke(ctx, stroke);
     }
@@ -975,16 +981,40 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     return true;
   }
 
+  /** Découpe les traits touchés par le cercle de gomme au lieu de les
+   * effacer en entier (mode "partial"). Comme eraseAt, ne mute jamais
+   * strokesRef.current directement : le résultat "en cours" vit dans
+   * partialErasePreview.current jusqu'au commit final (endStroke), pour ne
+   * pas casser le snapshot d'annulation — voir le commentaire au-dessus. */
+  function erasePartialAt(pos: StrokePoint): boolean {
+    const source = partialErasePreview.current ?? strokesRef.current;
+    let changed = false;
+    const next: Stroke[] = [];
+    for (const stroke of source) {
+      const pieces = partialEraseStroke(stroke, pos.x, pos.y, eraserRadius);
+      if (!(pieces.length === 1 && pieces[0] === stroke)) changed = true;
+      next.push(...pieces);
+    }
+    if (changed) {
+      partialErasePreview.current = next;
+    }
+    return changed;
+  }
+
   function eraseAt(pos: StrokePoint) {
     if (!erasedStrokeIds.current || !erasedShapeIds.current || !erasedImageIds.current || !erasedTextBoxIds.current) {
       return;
     }
     let changed = false;
-    for (const stroke of strokesRef.current) {
-      if (erasedStrokeIds.current.has(stroke.id)) continue;
-      if (strokeHitTest(stroke, pos.x, pos.y, eraserRadius)) {
-        erasedStrokeIds.current.add(stroke.id);
-        changed = true;
+    if (eraserMode === "partial") {
+      changed = erasePartialAt(pos) || changed;
+    } else {
+      for (const stroke of strokesRef.current) {
+        if (erasedStrokeIds.current.has(stroke.id)) continue;
+        if (strokeHitTest(stroke, pos.x, pos.y, eraserRadius)) {
+          erasedStrokeIds.current.add(stroke.id);
+          changed = true;
+        }
       }
     }
     for (const shape of shapesRef.current) {
@@ -1193,6 +1223,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       erasedShapeIds.current = new Set();
       erasedImageIds.current = new Set();
       erasedTextBoxIds.current = new Set();
+      partialErasePreview.current = null;
       eraseAt(pos);
     } else if (tool === "shapes") {
       shapeStartPos.current = { x: pos.x, y: pos.y };
@@ -1407,15 +1438,18 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       const hasErasedShapes = !!erasedShapeIds.current && erasedShapeIds.current.size > 0;
       const hasErasedImages = !!erasedImageIds.current && erasedImageIds.current.size > 0;
       const hasErasedTextBoxes = !!erasedTextBoxIds.current && erasedTextBoxIds.current.size > 0;
-      if (hasErasedStrokes || hasErasedShapes || hasErasedImages || hasErasedTextBoxes) {
+      const hasPartialErase = !!partialErasePreview.current;
+      if (hasErasedStrokes || hasErasedShapes || hasErasedImages || hasErasedTextBoxes || hasPartialErase) {
         // strokesRef/shapesRef/imagesRef/textBoxesRef sont encore l'état
-        // "avant effacement" à ce stade (eraseAt ne les mutait pas) : on
-        // calcule les tableaux filtrés ici, pour committer, sans jamais
-        // avoir modifié les refs avant que commitDoc n'y lise son
-        // instantané "avant" pour la pile d'annulation.
-        const nextStrokes = hasErasedStrokes
-          ? strokesRef.current.filter((s) => !erasedStrokeIds.current!.has(s.id))
-          : strokesRef.current;
+        // "avant effacement" à ce stade (eraseAt/erasePartialAt ne les
+        // mutent pas) : on calcule les tableaux filtrés ici, pour committer,
+        // sans jamais avoir modifié les refs avant que commitDoc n'y lise
+        // son instantané "avant" pour la pile d'annulation.
+        const nextStrokes = hasPartialErase
+          ? partialErasePreview.current!
+          : hasErasedStrokes
+            ? strokesRef.current.filter((s) => !erasedStrokeIds.current!.has(s.id))
+            : strokesRef.current;
         const nextShapes = hasErasedShapes
           ? shapesRef.current.filter((s) => !erasedShapeIds.current!.has(s.id))
           : shapesRef.current;
@@ -1431,6 +1465,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       erasedShapeIds.current = null;
       erasedImageIds.current = null;
       erasedTextBoxIds.current = null;
+      partialErasePreview.current = null;
       activePointerId.current = null;
       scheduleRender();
       onActionComplete?.();
@@ -1586,6 +1621,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     erasedShapeIds.current = null;
     erasedImageIds.current = null;
     erasedTextBoxIds.current = null;
+    partialErasePreview.current = null;
     imageDragMode.current = null;
     dragPreview.current = null;
     panState.current = null;

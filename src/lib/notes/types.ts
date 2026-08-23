@@ -6,6 +6,13 @@ export interface StrokePoint {
 
 export type PenType = "fineliner" | "ballpoint" | "brush";
 
+/** "whole" efface un trait/forme/photo/bloc de texte entier dès qu'on le
+ * touche (comportement historique de la gomme) ; "partial" ne découpe que
+ * les traits d'encre (stylo/surligneur) à l'endroit précis touché — les
+ * formes/photos/textes restent effacés en entier même dans ce mode, une
+ * "portion" n'ayant pas d'équivalent naturel pour eux (voir plan validé). */
+export type EraserMode = "whole" | "partial";
+
 export type InkTool = "pen" | "highlighter";
 
 export interface Stroke {

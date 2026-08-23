@@ -16,7 +16,7 @@ import {
 import { SheetSelector } from "@/components/notes/SheetSelector";
 import { AiPanel } from "@/components/notes/AiPanel";
 import { BACKGROUND_COLORS, PAPER_SIZES, SHEET_TYPES } from "@/lib/notes/sheets";
-import type { PaperSize, PenType, ShapeType, SheetType } from "@/lib/notes/types";
+import type { EraserMode, PaperSize, PenType, ShapeType, SheetType } from "@/lib/notes/types";
 
 interface NotesAuth {
   subscriptionStatus: string;
@@ -53,6 +53,7 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
   const [highlighterSize, setHighlighterSize] = useState(HIGHLIGHTER_SIZES[2]);
 
   const [eraserRadius, setEraserRadius] = useState(18);
+  const [eraserMode, setEraserMode] = useState<EraserMode>("whole");
 
   const [shapeType, setShapeType] = useState<ShapeType>("rectangle");
   const [shapeColor, setShapeColor] = useState(SHAPE_COLORS[0].value);
@@ -223,6 +224,8 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
           onHighlighterSizeChange={setHighlighterSize}
           eraserRadius={eraserRadius}
           onEraserRadiusChange={setEraserRadius}
+          eraserMode={eraserMode}
+          onEraserModeChange={setEraserMode}
           shapeType={shapeType}
           onShapeTypeChange={setShapeType}
           shapeColor={shapeColor}
@@ -249,6 +252,7 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
           highlighterColor={highlighterColor}
           highlighterSize={highlighterSize}
           eraserRadius={eraserRadius}
+          eraserMode={eraserMode}
           shapeType={shapeType}
           shapeColor={shapeColor}
           shapeStrokeWidth={shapeStrokeWidth}

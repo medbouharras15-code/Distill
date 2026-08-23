@@ -1,7 +1,7 @@
 "use client";
 
 import type { ComponentType } from "react";
-import type { PenType, ShapeType } from "@/lib/notes/types";
+import type { EraserMode, PenType, ShapeType } from "@/lib/notes/types";
 import type { NotesTool } from "./NotesCanvas";
 import { useRef } from "react";
 import { AiOrb } from "@/components/Brand";
@@ -50,6 +50,11 @@ const PEN_TYPES: { label: string; value: PenType }[] = [
   { label: "Fine liner", value: "fineliner" },
   { label: "Stylo bille", value: "ballpoint" },
   { label: "Feutre pinceau", value: "brush" },
+];
+
+const ERASER_MODES: { value: EraserMode; label: string }[] = [
+  { value: "whole", label: "Totale" },
+  { value: "partial", label: "Partielle" },
 ];
 
 const SHAPE_TYPES: { value: ShapeType; label: string; Icon: ComponentType<{ className?: string }> }[] = [
@@ -175,6 +180,8 @@ interface NotesToolbarProps {
 
   eraserRadius: number;
   onEraserRadiusChange: (radius: number) => void;
+  eraserMode: EraserMode;
+  onEraserModeChange: (mode: EraserMode) => void;
 
   shapeType: ShapeType;
   onShapeTypeChange: (type: ShapeType) => void;
@@ -216,6 +223,8 @@ export function NotesToolbar({
   onHighlighterSizeChange,
   eraserRadius,
   onEraserRadiusChange,
+  eraserMode,
+  onEraserModeChange,
   shapeType,
   onShapeTypeChange,
   shapeColor,
@@ -430,7 +439,25 @@ export function NotesToolbar({
       )}
 
       {tool === "eraser" && (
-        <SizeDotPicker sizes={ERASER_SIZES} value={eraserRadius} onChange={onEraserRadiusChange} />
+        <div className="flex flex-nowrap items-center gap-3">
+          <div className="flex shrink-0 items-center gap-1 rounded-full border border-border bg-background-alt p-1">
+            {ERASER_MODES.map(({ value, label }) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => onEraserModeChange(value)}
+                aria-pressed={eraserMode === value}
+                title={label}
+                className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition ${
+                  eraserMode === value ? "bg-card text-accent-dark shadow-sm" : "text-muted"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <SizeDotPicker sizes={ERASER_SIZES} value={eraserRadius} onChange={onEraserRadiusChange} />
+        </div>
       )}
 
       {tool === "shapes" && (
