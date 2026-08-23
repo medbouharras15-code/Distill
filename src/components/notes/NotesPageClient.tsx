@@ -173,12 +173,15 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
       className="notes-no-callout flex h-dvh w-full select-none flex-col overflow-hidden"
       onContextMenu={(e) => e.preventDefault()}
     >
-      {/* Barre supérieure (en-tête, sélecteur de feuille, barre d'outils) :
-          garde la mise en page centrée/aérée du reste du site. La zone du
-          canvas ci-dessous, elle, sort volontairement de ce conteneur pour
-          toucher les bords de l'écran sans aucune marge — c'est elle que
-          l'utilisateur perçoit comme "la feuille" et qui doit remplir tout
-          l'espace disponible, sans bande de couleur de fond visible autour. */}
+      {/* Barre supérieure (en-tête, sélecteur de feuille) : garde la mise en
+          page centrée/aérée du reste du site. La barre d'outils, elle, flotte
+          directement au-dessus du canvas ci-dessous (voir plus bas) plutôt
+          que de vivre ici, pour un rendu "palette posée sur la feuille"
+          plutôt qu'une simple rangée de boutons dans l'en-tête. La zone du
+          canvas sort volontairement de ce conteneur pour toucher les bords de
+          l'écran sans aucune marge — c'est elle que l'utilisateur perçoit
+          comme "la feuille" et qui doit remplir tout l'espace disponible,
+          sans bande de couleur de fond visible autour. */}
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-4 pt-6 sm:px-6">
         <div className="flex items-center justify-between">
           <Link href="/dashboard" className="text-sm text-muted transition hover:text-foreground">
@@ -200,46 +203,6 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
           />
           {sheetLabel} · {paperLabel}
         </button>
-
-        <NotesToolbar
-          tool={tool}
-          onSelectPen={selectPen}
-          onSelectHighlighter={selectHighlighter}
-          onSelectEraser={selectEraser}
-          onSelectShapes={selectShapes}
-          onSelectPhoto={selectPhoto}
-          onSelectPan={selectPan}
-          onSelectText={selectText}
-          onPenDoubleClick={activateTempEraser}
-          onImportPhotos={(files) => canvasHandle.current?.importPhotos(files)}
-          penColor={penColor}
-          onPenColorChange={setPenColor}
-          penSize={penSize}
-          onPenSizeChange={setPenSize}
-          penType={penType}
-          onPenTypeChange={setPenType}
-          highlighterColor={highlighterColor}
-          onHighlighterColorChange={setHighlighterColor}
-          highlighterSize={highlighterSize}
-          onHighlighterSizeChange={setHighlighterSize}
-          eraserRadius={eraserRadius}
-          onEraserRadiusChange={setEraserRadius}
-          eraserMode={eraserMode}
-          onEraserModeChange={setEraserMode}
-          shapeType={shapeType}
-          onShapeTypeChange={setShapeType}
-          shapeColor={shapeColor}
-          onShapeColorChange={setShapeColor}
-          shapeStrokeWidth={shapeStrokeWidth}
-          onShapeStrokeWidthChange={setShapeStrokeWidth}
-          canUndo={canUndo}
-          canRedo={canRedo}
-          onUndo={() => canvasHandle.current?.undo()}
-          onRedo={() => canvasHandle.current?.redo()}
-          onFitToScreen={() => canvasHandle.current?.fitToScreen()}
-          aiOpen={aiOpen}
-          onToggleAi={toggleAi}
-        />
       </div>
 
       <div className="relative mt-3 min-h-0 w-full flex-1">
@@ -267,6 +230,57 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
             setCanRedo(redo);
           }}
         />
+
+        {/* Barre d'outils flottante, posée au-dessus de la feuille plutôt que
+            dans l'en-tête (voir plus haut) — pointer-events-none sur le
+            conteneur pleine largeur pour ne jamais intercepter le dessin
+            autour de la pilule, réactivé uniquement sur la pilule elle-même.
+            z-20 comme l'assombrissement ci-dessous, rendu avant lui pour
+            qu'il s'assombrisse aussi avec le canvas à l'ouverture du panneau
+            IA plutôt que de rester au premier plan, détaché du reste. */}
+        <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center px-4">
+          <div className="pointer-events-auto w-full max-w-3xl">
+            <NotesToolbar
+              tool={tool}
+              onSelectPen={selectPen}
+              onSelectHighlighter={selectHighlighter}
+              onSelectEraser={selectEraser}
+              onSelectShapes={selectShapes}
+              onSelectPhoto={selectPhoto}
+              onSelectPan={selectPan}
+              onSelectText={selectText}
+              onPenDoubleClick={activateTempEraser}
+              onImportPhotos={(files) => canvasHandle.current?.importPhotos(files)}
+              penColor={penColor}
+              onPenColorChange={setPenColor}
+              penSize={penSize}
+              onPenSizeChange={setPenSize}
+              penType={penType}
+              onPenTypeChange={setPenType}
+              highlighterColor={highlighterColor}
+              onHighlighterColorChange={setHighlighterColor}
+              highlighterSize={highlighterSize}
+              onHighlighterSizeChange={setHighlighterSize}
+              eraserRadius={eraserRadius}
+              onEraserRadiusChange={setEraserRadius}
+              eraserMode={eraserMode}
+              onEraserModeChange={setEraserMode}
+              shapeType={shapeType}
+              onShapeTypeChange={setShapeType}
+              shapeColor={shapeColor}
+              onShapeColorChange={setShapeColor}
+              shapeStrokeWidth={shapeStrokeWidth}
+              onShapeStrokeWidthChange={setShapeStrokeWidth}
+              canUndo={canUndo}
+              canRedo={canRedo}
+              onUndo={() => canvasHandle.current?.undo()}
+              onRedo={() => canvasHandle.current?.redo()}
+              onFitToScreen={() => canvasHandle.current?.fitToScreen()}
+              aiOpen={aiOpen}
+              onToggleAi={toggleAi}
+            />
+          </div>
+        </div>
 
         {/* Assombrissement léger du canvas quand le panneau IA est ouvert —
             purement décoratif (pointer-events-none : ne bloque jamais le
