@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Badge, Button, buttonClasses } from "@/components/ui";
 import { Bolt, Brain, ChevronLeft, ChevronRight, Doc, FolderOpen, Lock, Shield, Users } from "@/lib/icons";
+import { CreateTeamForm } from "./CreateTeamForm";
 
 const FEATURES = [
   { icon: FolderOpen, label: "Projets & dossiers partagés", desc: "Organisez les documents par client ou sujet." },
@@ -11,11 +12,12 @@ const FEATURES = [
   { icon: Bolt, label: "Mises à jour en temps réel", desc: "L'IA apprend dès qu'un doc est ajouté." },
 ];
 
-/** Écran verrouillé, affiché par défaut à quiconque ouvre /team-brain :
- * aucun compte n'a l'abonnement Team correspondant aujourd'hui (voir
- * @/components/AppShell). Le bouton "Explorer la démo" ne fait que basculer
- * un état local côté client (voir TeamBrain.tsx) — aucune vérification
- * d'abonnement réelle, conformément à la consigne "design uniquement". */
+/** Écran affiché à quiconque n'appartient à aucune équipe Team Brain
+ * réelle. "Créer mon équipe" (CreateTeamForm) crée une vraie équipe et
+ * bascule automatiquement sur le vrai Workspace (voir le useEffect dédié
+ * dans TeamBrain.tsx). "Explorer la démo" ne fait que basculer un état
+ * local côté client, sans rien créer — la démo sur données mock reste
+ * disponible pour quiconque préfère explorer sans engagement. */
 export function UpsellView({ onUnlock }: { onUnlock: () => void }) {
   return (
     <div className="mx-auto max-w-[700px] animate-fade px-5 py-10 md:px-10">
@@ -68,21 +70,31 @@ export function UpsellView({ onUnlock }: { onUnlock: () => void }) {
             ))}
           </div>
 
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <Button
-              onClick={onUnlock}
-              size="lg"
-              className="flex-1"
-              style={{
-                background: "linear-gradient(135deg, var(--team) 0%, var(--team-2) 100%)",
-                boxShadow: "0 2px 4px rgba(0,0,0,0.1), 0 12px 28px -12px var(--team-glow)",
-              }}
-            >
-              <Brain size={17} /> Explorer la démo Team Brain
-            </Button>
-            <Link href="/subscription" className={buttonClasses("outline", "lg")}>
-              Voir les offres Team <ChevronRight size={15} />
-            </Link>
+          <div className="mt-8 space-y-3">
+            <CreateTeamForm />
+
+            <div className="flex items-center gap-2 py-1">
+              <div className="h-px flex-1 bg-border" />
+              <span className="text-[11px] text-muted-foreground">ou</span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Button
+                onClick={onUnlock}
+                size="lg"
+                className="flex-1"
+                style={{
+                  background: "linear-gradient(135deg, var(--team) 0%, var(--team-2) 100%)",
+                  boxShadow: "0 2px 4px rgba(0,0,0,0.1), 0 12px 28px -12px var(--team-glow)",
+                }}
+              >
+                <Brain size={17} /> Explorer la démo Team Brain
+              </Button>
+              <Link href="/subscription" className={buttonClasses("outline", "lg")}>
+                Voir les offres Team <ChevronRight size={15} />
+              </Link>
+            </div>
           </div>
 
           <p className="mt-4 text-center text-[11px] text-muted-foreground">

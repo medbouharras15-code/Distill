@@ -39,16 +39,26 @@ const MOCK_WORKSPACE: TeamBrainWorkspaceData = {
  *
  * Workspace/Projet/Chat/Membres sont maintenant tous branchés sur les
  * vraies données en mode réel (voir @/lib/teamBrainData) — la démo reste
- * inchangée sur teamBrainMockData quand `initialTeam` est `null`. */
+ * inchangée sur teamBrainMockData quand `initialTeam` est `null`.
+ *
+ * `unlocked` est dérivé à chaque rendu (`Boolean(initialTeam) ||
+ * demoUnlocked`) plutôt que stocké tel quel : après une création d'équipe
+ * réussie (voir CreateTeamForm), `router.refresh()` fait remonter un
+ * nouvel `initialTeam` non nul en tant que PROP, qui doit immédiatement se
+ * refléter sans geste supplémentaire — un état local initialisé une seule
+ * fois au montage ne l'aurait pas capté. `demoUnlocked`, lui, ne retient
+ * que le choix explicite de la démo ("Explorer la démo"). */
 export function TeamBrain({ initialTeam }: { initialTeam: TeamBrainWorkspaceData | null }) {
-  const [unlocked, setUnlocked] = useState(Boolean(initialTeam));
+  const [demoUnlocked, setDemoUnlocked] = useState(false);
   const [view, setView] = useState<TeamBrainView>("workspace");
   const [activeProject, setActiveProject] = useState<TeamBrainProject>(
     initialTeam?.projects[0] ?? TEAM_BRAIN_PROJECTS[0],
   );
 
+  const unlocked = Boolean(initialTeam) || demoUnlocked;
+
   if (!unlocked) {
-    return <UpsellView onUnlock={() => setUnlocked(true)} />;
+    return <UpsellView onUnlock={() => setDemoUnlocked(true)} />;
   }
 
   const isReal = Boolean(initialTeam);
