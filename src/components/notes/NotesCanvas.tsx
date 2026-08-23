@@ -21,11 +21,13 @@ import type {
   TextBoxElement,
 } from "@/lib/notes/types";
 import {
+  drawEraserCirclePreview,
   drawImageElement,
   drawImageSelection,
   drawShape,
   drawSheetPattern,
   drawStroke,
+  drawStrokeEraseHighlight,
   imageHandleHitTest,
   imageHitTest,
   partialEraseStroke,
@@ -292,6 +294,14 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   const erasedImageIds = useRef<Set<string> | null>(null);
   const erasedTextBoxIds = useRef<Set<string> | null>(null);
   const partialErasePreview = useRef<Stroke[] | null>(null);
+  /** Position (espace canvas) du curseur/stylet en survol avec l'outil
+   * Gomme, avant tout clic — null quand rien n'est survolé (tactile inclus,
+   * puisque le tactile ne déclenche pas d'événement pointermove sans
+   * contact). Alimente l'aperçu au survol (voir renderAll). */
+  const hoverEraserPos = useRef<StrokePoint | null>(null);
+  /** Id du trait sous le curseur en mode Gomme totale, pour le surligner
+   * avant le clic — non utilisé en mode partielle. */
+  const hoveredStrokeId = useRef<string | null>(null);
   const lastPenTime = useRef(0);
   const renderScheduled = useRef(false);
 
@@ -530,12 +540,35 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       const previewSelected = dragPreview.current?.id === selectedImageId ? dragPreview.current : selected;
       if (previewSelected) drawImageSelection(ctx, previewSelected);
     }
+
+    if (tool === "eraser" && hoverEraserPos.current) {
+      if (eraserMode === "whole") {
+        const hovered = hoveredStrokeId.current
+          ? strokesToRender.find((s) => s.id === hoveredStrokeId.current)
+          : undefined;
+        if (hovered) drawStrokeEraseHighlight(ctx, hovered);
+      } else {
+        drawEraserCirclePreview(ctx, hoverEraserPos.current, eraserRadius);
+      }
+    }
     // getOrLoadImage volontairement omis des dépendances : il appelle
     // scheduleRender, défini juste après renderAll (référence circulaire),
     // mais ne dépend lui-même que de refs stables (imageCache) donc son
     // identité entre deux rendus n'a aucune incidence sur le comportement.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [backgroundColor, sheetType, PAGE_WIDTH, PAGE_HEIGHT, penColor, penSize, penType, tool, selectedImageId]);
+  }, [
+    backgroundColor,
+    sheetType,
+    PAGE_WIDTH,
+    PAGE_HEIGHT,
+    penColor,
+    penSize,
+    penType,
+    tool,
+    selectedImageId,
+    eraserMode,
+    eraserRadius,
+  ]);
 
   const scheduleRender = useCallback(() => {
     if (renderScheduled.current) return;
@@ -545,6 +578,16 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       renderAll();
     });
   }, [renderAll]);
+
+  // Efface l'aperçu au survol de la Gomme dès qu'on change d'outil — sinon
+  // il resterait affiché par-dessus la feuille avec un autre outil actif.
+  useEffect(() => {
+    if (tool !== "eraser") {
+      hoverEraserPos.current = null;
+      hoveredStrokeId.current = null;
+      scheduleRender();
+    }
+  }, [tool, scheduleRender]);
 
   /** Anime la transition entre le tracé à main levée et la forme propre
    * détectée : chaque point migre en douceur vers sa cible plutôt que de se
@@ -1224,6 +1267,8 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       erasedImageIds.current = new Set();
       erasedTextBoxIds.current = new Set();
       partialErasePreview.current = null;
+      hoverEraserPos.current = null;
+      hoveredStrokeId.current = null;
       eraseAt(pos);
     } else if (tool === "shapes") {
       shapeStartPos.current = { x: pos.x, y: pos.y };
@@ -1313,6 +1358,24 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         zoomAtPoint(pinchState.current.initialZoom * ratio, midX, midY);
         return;
       }
+    }
+
+    // Aperçu au survol de la Gomme (avant tout clic) : uniquement quand
+    // aucun geste n'est en cours et pour un pointeur à détection de survol
+    // (souris/stylet) — le tactile ne déclenche pas ce chemin sans contact,
+    // ce qui suffit à exclure le doigt (limite assumée, voir plan validé).
+    if (tool === "eraser" && e.pointerType !== "touch" && activePointerId.current === null) {
+      const hoverPos = getPos(e);
+      hoverEraserPos.current = hoverPos;
+      hoveredStrokeId.current =
+        eraserMode === "whole"
+          ? (strokesRef.current.find((s) => strokeHitTest(s, hoverPos.x, hoverPos.y, eraserRadius))?.id ?? null)
+          : null;
+      scheduleRender();
+    } else if (hoverEraserPos.current || hoveredStrokeId.current) {
+      hoverEraserPos.current = null;
+      hoveredStrokeId.current = null;
+      scheduleRender();
     }
 
     if (activePointerId.current !== e.pointerId) return;
@@ -1466,6 +1529,8 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       erasedImageIds.current = null;
       erasedTextBoxIds.current = null;
       partialErasePreview.current = null;
+      hoverEraserPos.current = null;
+      hoveredStrokeId.current = null;
       activePointerId.current = null;
       scheduleRender();
       onActionComplete?.();
@@ -1606,6 +1671,14 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
 
   function handlePointerCancel(e: React.PointerEvent<HTMLCanvasElement>) {
     if (e.pointerType === "touch") endPinchIfDone(e.pointerId);
+    // Coupe l'aperçu au survol de la Gomme dès que le pointeur quitte le
+    // canvas (onPointerLeave est câblé sur ce même handler), y compris hors
+    // geste actif — sinon il resterait figé après la sortie du curseur.
+    if (hoverEraserPos.current || hoveredStrokeId.current) {
+      hoverEraserPos.current = null;
+      hoveredStrokeId.current = null;
+      scheduleRender();
+    }
     if (activePointerId.current !== e.pointerId) return;
     if (holdTimer.current) {
       clearTimeout(holdTimer.current);
@@ -1622,6 +1695,8 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     erasedImageIds.current = null;
     erasedTextBoxIds.current = null;
     partialErasePreview.current = null;
+    hoverEraserPos.current = null;
+    hoveredStrokeId.current = null;
     imageDragMode.current = null;
     dragPreview.current = null;
     panState.current = null;

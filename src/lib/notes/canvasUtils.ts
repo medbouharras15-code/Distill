@@ -75,6 +75,57 @@ function midpoint(a: StrokePoint, b: StrokePoint) {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 }
 
+/** Surligne un trait en rouge semi-transparent pour indiquer, au survol en
+ * mode Gomme totale, qu'il sera effacé en entier au clic — même tracé que
+ * drawStroke (courbes quadratiques entre points médians), mais avec un
+ * style dédié plutôt que la couleur/l'opacité propre au trait. */
+export function drawStrokeEraseHighlight(ctx: CanvasRenderingContext2D, stroke: Stroke) {
+  const { points } = stroke;
+  if (points.length === 0) return;
+
+  const width = stroke.size + 6;
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(220, 38, 38, 0.55)";
+  ctx.fillStyle = "rgba(220, 38, 38, 0.55)";
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = width;
+
+  if (points.length === 1) {
+    const p = points[0];
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, width / 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    return;
+  }
+
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length - 1; i++) {
+    const mid = midpoint(points[i], points[i + 1]);
+    ctx.quadraticCurveTo(points[i].x, points[i].y, mid.x, mid.y);
+  }
+  ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** Cercle qui suit le curseur en mode Gomme partielle, à la taille exacte
+ * de la zone qui serait effacée si on cliquait à cet endroit. */
+export function drawEraserCirclePreview(ctx: CanvasRenderingContext2D, pos: StrokePoint, radius: number) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(220, 38, 38, 0.12)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(220, 38, 38, 0.65)";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.restore();
+}
+
 /** Vrai si le point (x, y) passe à moins de `radius` d'au moins un segment du trait. */
 export function strokeHitTest(stroke: Stroke, x: number, y: number, radius: number): boolean {
   const { points } = stroke;
