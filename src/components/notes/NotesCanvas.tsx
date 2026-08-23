@@ -519,7 +519,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       drawShape(ctx, currentShape.current);
     }
 
-    if (tool === "photo" && selectedImageId) {
+    if ((tool === "photo" || tool === "pan") && selectedImageId) {
       const selected = imagesRef.current.find((img) => img.id === selectedImageId);
       const previewSelected = dragPreview.current?.id === selectedImageId ? dragPreview.current : selected;
       if (previewSelected) drawImageSelection(ctx, previewSelected);
@@ -861,6 +861,120 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     };
   }
 
+  /** Tente de sélectionner une image existante (ou une de ses poignées de
+   * redimensionnement) à la position donnée, et amorce son déplacement ou
+   * redimensionnement le cas échéant. Factorisée pour être appelée aussi
+   * bien par l'outil "Photo" que par l'outil "Déplacement" : ce dernier
+   * doit pouvoir manipuler une photo déjà en place (cliquer dessus la
+   * sélectionne/la déplace) sans redémarrer un défilement de page dans ce
+   * cas précis — sinon, aucun outil autre que "Photo" ne permettait de
+   * ressaisir une image après avoir dessiné dessus. Renvoie `true` si une
+   * image a effectivement été touchée. */
+  function tryStartImageInteraction(pos: StrokePoint): boolean {
+    const list = imagesRef.current;
+
+    if (selectedImageId) {
+      const selected = list.find((img) => img.id === selectedImageId);
+      if (selected) {
+        const handle = imageHandleHitTest(selected, pos.x, pos.y);
+        if (handle) {
+          imageDragMode.current = {
+            id: selected.id,
+            mode: handle,
+            startPos: { x: pos.x, y: pos.y },
+            startElement: { ...selected },
+          };
+          return true;
+        }
+      }
+    }
+
+    for (let i = list.length - 1; i >= 0; i--) {
+      if (imageHitTest(list[i], pos.x, pos.y, 4)) {
+        setSelectedImageId(list[i].id);
+        imageDragMode.current = {
+          id: list[i].id,
+          mode: "move",
+          startPos: { x: pos.x, y: pos.y },
+          startElement: { ...list[i] },
+        };
+        return true;
+      }
+    }
+
+    setSelectedImageId(null);
+    imageDragMode.current = null;
+    return false;
+  }
+
+  /** Met à jour l'aperçu de déplacement/redimensionnement d'une image dont
+   * l'interaction a été amorcée par tryStartImageInteraction — partagée par
+   * les outils "Photo" et "Déplacement" pour la même raison. Renvoie
+   * `true` si une interaction était bien en cours (donc gérée ici). */
+  function updateImageInteractionPreview(pos: StrokePoint): boolean {
+    if (!imageDragMode.current) return false;
+    const { id, mode, startPos, startElement } = imageDragMode.current;
+    const dx = pos.x - startPos.x;
+    const dy = pos.y - startPos.y;
+
+    let next: ImageElement;
+    if (mode === "move") {
+      next = { ...startElement, x: startElement.x + dx, y: startElement.y + dy };
+    } else {
+      const x1 = startElement.x + startElement.width;
+      const y1 = startElement.y + startElement.height;
+      let { x, y, width, height } = startElement;
+      if (mode === "nw") {
+        x = startElement.x + dx;
+        y = startElement.y + dy;
+        width = x1 - x;
+        height = y1 - y;
+      } else if (mode === "ne") {
+        y = startElement.y + dy;
+        width = startElement.width + dx;
+        height = y1 - y;
+      } else if (mode === "sw") {
+        x = startElement.x + dx;
+        width = x1 - x;
+        height = startElement.height + dy;
+      } else if (mode === "se") {
+        width = startElement.width + dx;
+        height = startElement.height + dy;
+      }
+      next = { ...startElement, x, y, width: Math.max(20, width), height: Math.max(20, height) };
+    }
+
+    // On ne touche pas encore imagesRef.current ici (voir dragPreview) :
+    // seul le commit final au relâchement doit modifier la référence, sans
+    // quoi l'instantané "avant" de l'annulation serait déjà pollué par le
+    // déplacement en cours (même bug que l'ancienne gomme).
+    dragPreview.current = { ...next, id };
+    scheduleRender();
+    return true;
+  }
+
+  /** Termine une éventuelle interaction avec une image en cours
+   * (déplacement/redimensionnement amorcé par tryStartImageInteraction) et
+   * committe le résultat. Renvoie `true` si une interaction était bien en
+   * cours (donc gérée ici) — partagée par les outils "Photo" et
+   * "Déplacement". */
+  function commitImageInteraction(): boolean {
+    if (!imageDragMode.current) return false;
+    const preview = dragPreview.current;
+    imageDragMode.current = null;
+    dragPreview.current = null;
+    if (preview) {
+      const nextImages = imagesRef.current.map((img) => (img.id === preview.id ? preview : img));
+      commitDoc({
+        strokes: strokesRef.current,
+        shapes: shapesRef.current,
+        images: nextImages,
+        textBoxes: textBoxesRef.current,
+      });
+    }
+    return true;
+  }
+
   function eraseAt(pos: StrokePoint) {
     if (!erasedStrokeIds.current || !erasedShapeIds.current || !erasedImageIds.current || !erasedTextBoxIds.current) {
       return;
@@ -1094,47 +1208,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       };
       scheduleRender();
     } else if (tool === "photo") {
-      const list = imagesRef.current;
-      let handled = false;
-
-      // On teste d'abord les poignées de l'image déjà sélectionnée (elles
-      // doivent rester prioritaires même si elles chevauchent une autre photo).
-      if (selectedImageId) {
-        const selected = list.find((img) => img.id === selectedImageId);
-        if (selected) {
-          const handle = imageHandleHitTest(selected, pos.x, pos.y);
-          if (handle) {
-            imageDragMode.current = {
-              id: selected.id,
-              mode: handle,
-              startPos: { x: pos.x, y: pos.y },
-              startElement: { ...selected },
-            };
-            handled = true;
-          }
-        }
-      }
-
-      if (!handled) {
-        for (let i = list.length - 1; i >= 0; i--) {
-          if (imageHitTest(list[i], pos.x, pos.y, 4)) {
-            setSelectedImageId(list[i].id);
-            imageDragMode.current = {
-              id: list[i].id,
-              mode: "move",
-              startPos: { x: pos.x, y: pos.y },
-              startElement: { ...list[i] },
-            };
-            handled = true;
-            break;
-          }
-        }
-      }
-
-      if (!handled) {
-        setSelectedImageId(null);
-        imageDragMode.current = null;
-      }
+      tryStartImageInteraction(pos);
       scheduleRender();
     } else if (tool === "text") {
       // Un tap sur la feuille avec l'outil "T" crée un nouveau bloc de
@@ -1154,14 +1228,22 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       setSelectedTextBoxId(id);
       setAutoFocusTextBoxId(id);
     } else if (tool === "pan") {
-      const container = containerRef.current;
-      panState.current = {
-        startClientX: e.clientX,
-        startClientY: e.clientY,
-        startScrollLeft: container ? container.scrollLeft : 0,
-        startScrollTop: container ? container.scrollTop : 0,
-      };
-      setIsPanning(true);
+      // "Déplacement" fait aussi office d'outil de sélection pour les
+      // photos déjà en place : cliquer directement dessus la sélectionne/
+      // la déplace au lieu de faire défiler la page — cliquer à côté
+      // continue de faire défiler comme avant (voir tryStartImageInteraction).
+      if (tryStartImageInteraction(pos)) {
+        scheduleRender();
+      } else {
+        const container = containerRef.current;
+        panState.current = {
+          startClientX: e.clientX,
+          startClientY: e.clientY,
+          startScrollLeft: container ? container.scrollLeft : 0,
+          startScrollTop: container ? container.scrollTop : 0,
+        };
+        setIsPanning(true);
+      }
     } else if (tool === "highlighter") {
       currentStroke.current = {
         id: crypto.randomUUID(),
@@ -1216,6 +1298,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     }
 
     if (tool === "pan") {
+      if (updateImageInteractionPreview(pos)) return;
       if (panState.current) {
         const container = containerRef.current;
         if (container) {
@@ -1248,45 +1331,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     }
 
     if (tool === "photo") {
-      if (imageDragMode.current) {
-        const { id, mode, startPos, startElement } = imageDragMode.current;
-        const dx = pos.x - startPos.x;
-        const dy = pos.y - startPos.y;
-
-        let next: ImageElement;
-        if (mode === "move") {
-          next = { ...startElement, x: startElement.x + dx, y: startElement.y + dy };
-        } else {
-          const x1 = startElement.x + startElement.width;
-          const y1 = startElement.y + startElement.height;
-          let { x, y, width, height } = startElement;
-          if (mode === "nw") {
-            x = startElement.x + dx;
-            y = startElement.y + dy;
-            width = x1 - x;
-            height = y1 - y;
-          } else if (mode === "ne") {
-            y = startElement.y + dy;
-            width = startElement.width + dx;
-            height = y1 - y;
-          } else if (mode === "sw") {
-            x = startElement.x + dx;
-            width = x1 - x;
-            height = startElement.height + dy;
-          } else if (mode === "se") {
-            width = startElement.width + dx;
-            height = startElement.height + dy;
-          }
-          next = { ...startElement, x, y, width: Math.max(20, width), height: Math.max(20, height) };
-        }
-
-        // On ne touche pas encore imagesRef.current ici (voir dragPreview) :
-        // seul le commit final au relâchement doit modifier la référence,
-        // sans quoi l'instantané "avant" de l'annulation serait déjà pollué
-        // par le déplacement en cours (même bug que l'ancienne gomme).
-        dragPreview.current = { ...next, id };
-        scheduleRender();
-      }
+      updateImageInteractionPreview(pos);
       return;
     }
 
@@ -1338,6 +1383,12 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     holdAnchorPos.current = null;
 
     if (tool === "pan") {
+      if (commitImageInteraction()) {
+        activePointerId.current = null;
+        scheduleRender();
+        onActionComplete?.();
+        return;
+      }
       panState.current = null;
       setIsPanning(false);
       activePointerId.current = null;
@@ -1405,19 +1456,8 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     }
 
     if (tool === "photo") {
-      const preview = dragPreview.current;
-      imageDragMode.current = null;
-      dragPreview.current = null;
+      commitImageInteraction();
       activePointerId.current = null;
-      if (preview) {
-        const nextImages = imagesRef.current.map((img) => (img.id === preview.id ? preview : img));
-        commitDoc({
-          strokes: strokesRef.current,
-          shapes: shapesRef.current,
-          images: nextImages,
-          textBoxes: textBoxesRef.current,
-        });
-      }
       scheduleRender();
       onActionComplete?.();
       return;
