@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { useState } from "react";
 import { Card } from "@/components/ui";
 import { Brain, ChevronLeft, ChevronRight, Clock, Doc, Plus, Users } from "@/lib/icons";
 import { ComingSoonToast, useComingSoonToast } from "./ComingSoonToast";
+import { CreateProjectForm } from "./CreateProjectForm";
 import { colorForInitial } from "@/lib/teamBrainData";
 import type { TeamBrainProject } from "@/lib/teamBrainMockData";
 
@@ -60,15 +62,15 @@ function ProjectCard({ project, onClick }: { project: TeamBrainProject; onClick:
 
 /** Vue d'accueil Team Brain — grille de projets + statistiques, alimentée
  * soit par de vraies données (équipe réelle, voir @/lib/teamBrainData),
- * soit par le mock de démo (voir TeamBrain.tsx) : ce composant ne sait pas
- * laquelle, il affiche simplement ce qu'on lui passe. "Nouveau projet"
- * reste décoratif dans les deux cas (pas de flux de création, conformément
- * au plan validé). */
+ * soit par le mock de démo (voir TeamBrain.tsx). "Nouveau projet" ouvre un
+ * vrai formulaire pour une vraie équipe (`isReal`) ; reste décoratif en
+ * mode démo, inchangé. */
 export function WorkspaceView({
   teamName,
   memberCount,
   documentCount,
   projects,
+  isReal,
   onOpenProject,
   onMembers,
 }: {
@@ -76,10 +78,13 @@ export function WorkspaceView({
   memberCount: number;
   documentCount: number;
   projects: TeamBrainProject[];
+  isReal: boolean;
   onOpenProject: (p: TeamBrainProject) => void;
   onMembers: () => void;
 }) {
   const { visible: comingSoonVisible, trigger: triggerComingSoon } = useComingSoonToast();
+  const [creatingProject, setCreatingProject] = useState(false);
+  const openCreateProject = () => (isReal ? setCreatingProject(true) : triggerComingSoon());
   const stats = [
     { label: "Documents indexés", value: String(documentCount), icon: Doc },
     { label: "Membres actifs", value: String(memberCount), icon: Users },
@@ -125,7 +130,7 @@ export function WorkspaceView({
           </button>
           <button
             type="button"
-            onClick={triggerComingSoon}
+            onClick={openCreateProject}
             className="flex items-center gap-2 rounded-xl px-3.5 py-2 text-[13px] font-medium text-white shadow-[var(--shadow-sm)] transition hover:-translate-y-px"
             style={{ background: "linear-gradient(135deg, var(--team), var(--team-2))" }}
           >
@@ -134,6 +139,8 @@ export function WorkspaceView({
         </div>
       </div>
 
+      {isReal && creatingProject && <CreateProjectForm onClose={() => setCreatingProject(false)} />}
+
       <div className="grid gap-4 sm:grid-cols-2">
         {projects.map((p) => (
           <ProjectCard key={p.id} project={p} onClick={() => onOpenProject(p)} />
@@ -141,7 +148,7 @@ export function WorkspaceView({
 
         <button
           type="button"
-          onClick={triggerComingSoon}
+          onClick={openCreateProject}
           className="group flex min-h-[148px] flex-col items-center justify-center gap-2 rounded-[22px] border-2 border-dashed border-border text-muted-foreground transition hover:border-[var(--team)] hover:text-foreground"
         >
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary">

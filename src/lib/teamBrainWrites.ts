@@ -46,3 +46,41 @@ export async function createTeam(supabase: SupabaseClient, userId: string, name:
 
   return { teamId: team.id as string };
 }
+
+/** Crée un projet dans l'équipe active de l'utilisateur et l'y ajoute
+ * automatiquement (accès immédiat, quel que soit son rôle). `teamId`
+ * n'est jamais un paramètre : toujours dérivé de la session via
+ * getUserActiveTeam, donc aucune vérification "est-ce bien SON équipe" à
+ * faire séparément — structurellement impossible de créer un projet dans
+ * l'équipe de quelqu'un d'autre. */
+export async function createProject(
+  supabase: SupabaseClient,
+  userId: string,
+  name: string,
+  emoji?: string,
+): Promise<{ projectId: string }> {
+  const team = await getUserActiveTeam(supabase, userId);
+  if (!team) {
+    throw new Error("Vous devez appartenir à une équipe pour créer un projet.");
+  }
+
+  const admin = createAdminClient();
+  const { data: project, error: projectError } = await admin
+    .from("team_brain_projects")
+    .insert({ team_id: team.teamId, name, emoji: emoji || "📁", created_by: userId })
+    .select("id")
+    .single();
+  if (projectError || !project) {
+    throw new Error("Impossible de créer le projet.");
+  }
+
+  const { error: memberError } = await admin
+    .from("team_brain_project_members")
+    .insert({ project_id: project.id, user_id: userId });
+  if (memberError) {
+    await admin.from("team_brain_projects").delete().eq("id", project.id as string);
+    throw new Error("Impossible de vous ajouter au projet créé.");
+  }
+
+  return { projectId: project.id as string };
+}

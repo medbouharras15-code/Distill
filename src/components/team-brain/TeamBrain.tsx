@@ -77,6 +77,7 @@ export function TeamBrain({ initialTeam }: { initialTeam: TeamBrainWorkspaceData
           memberCount={workspace.memberCount}
           documentCount={workspace.documentCount}
           projects={workspace.projects}
+          isReal={isReal}
           onOpenProject={openProject}
           onMembers={() => setView("members")}
         />
