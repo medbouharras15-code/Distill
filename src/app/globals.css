@@ -569,6 +569,18 @@ body {
   opacity: 1;
   transform: translateY(0);
 }
+
+/* Indice de défilement discret en bas du hero — respire doucement plutôt
+ * que de clignoter, signal qu'il y a plus à découvrir en dessous sans
+ * jamais distraire. */
+@keyframes landing-scroll-hint {
+  0%, 100% { transform: translateY(0); opacity: 0.45; }
+  50% { transform: translateY(6px); opacity: 0.9; }
+}
+.landing-scroll-hint {
+  animation: landing-scroll-hint 2.4s var(--ease-signature) infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-reveal] {
     transition: none !important;
@@ -585,5 +597,9 @@ body {
   }
   .animate-fade {
     animation-delay: 0s !important;
+  }
+  .landing-scroll-hint {
+    animation: none !important;
+    opacity: 0.6;
   }
 }

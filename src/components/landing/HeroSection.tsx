@@ -4,6 +4,7 @@ import Link from "next/link";
 import { AiOrb } from "@/components/Brand";
 import { Badge, buttonClasses } from "@/components/ui";
 import { FREE_GENERATIONS_LIMIT } from "@/lib/billing";
+import { ChevronRight } from "@/lib/icons";
 import { useParallax } from "./useScrollMotion";
 
 const noteLines = [72, 55, 84, 40, 66];
@@ -31,7 +32,7 @@ export function HeroSection() {
             <AiOrb size={16} /> Résumés & flashcards par IA
           </Badge>
 
-          <h1 className="mt-6 font-display text-[44px] font-medium leading-[1.03] tracking-[-0.03em] text-foreground sm:text-6xl lg:text-[68px]">
+          <h1 className="mt-7 font-display text-[44px] font-medium leading-[1.02] tracking-[-0.035em] text-foreground sm:text-6xl lg:text-[68px]">
             Vos notes de cours,
             <br />
             <span className="italic text-accent-dark">
@@ -40,12 +41,12 @@ export function HeroSection() {
             en l&apos;essentiel.
           </h1>
 
-          <p className="mt-6 max-w-md text-lg leading-relaxed text-muted-foreground">
+          <p className="mt-6 max-w-[26rem] text-lg leading-relaxed text-muted-foreground">
             Collez du texte, une photo de vos notes manuscrites ou un PDF de cours : Distill génère un résumé
             structuré et des flashcards de révision en quelques secondes.
           </p>
 
-          <div className="mt-9 flex flex-col gap-3 sm:flex-row">
+          <div className="mt-10 flex flex-col gap-3 sm:flex-row">
             <Link href="/signup" className={buttonClasses("primary", "lg")}>
               Créer un compte gratuit
             </Link>
@@ -84,6 +85,14 @@ export function HeroSection() {
 
           {/* Résultat distillé — premier plan, plus réactif au scroll */}
           <div
+            aria-hidden="true"
+            style={{
+              transform: `translateY(${fgOffset}px)`,
+              background: "radial-gradient(circle, color-mix(in srgb, var(--accent) 30%, transparent) 0%, transparent 72%)",
+            }}
+            className="absolute bottom-0 right-[-20px] h-[220px] w-[220px] rounded-full opacity-40 blur-[60px] sm:right-[-10px]"
+          />
+          <div
             style={{ transform: `translateY(${fgOffset}px)` }}
             className="absolute bottom-4 right-1 w-[240px] rounded-2xl border border-border bg-card p-5 shadow-[var(--shadow-lg)] sm:w-[270px] sm:right-2"
           >
@@ -101,6 +110,17 @@ export function HeroSection() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Indice de défilement — discret, respire doucement (voir
+          .landing-scroll-hint dans globals.css), signale qu'il y a plus à
+          découvrir en dessous sans jamais imiter une flèche criarde. Caché
+          sur mobile où l'espace vertical est déjà rare. */}
+      <div
+        aria-hidden="true"
+        className="landing-scroll-hint pointer-events-none absolute bottom-6 left-1/2 hidden -translate-x-1/2 text-muted-foreground/60 lg:block"
+      >
+        <ChevronRight size={18} className="rotate-90" />
       </div>
     </section>
   );
