@@ -75,6 +75,16 @@ function midpoint(a: StrokePoint, b: StrokePoint) {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 }
 
+/** Teinte des indicateurs de survol de la Gomme (surlignage de trait en mode
+ * Totale, cercle en mode Partielle) — rouge volontairement distinct de la
+ * palette jade de l'app, sémantique "va être effacé" plutôt qu'une couleur
+ * de marque. Un seul triplet RGB nommé, décliné en plusieurs opacités
+ * ci-dessous, plutôt que quatre chaînes rgba(...) dupliquées : le canvas 2D
+ * ne résout pas les variables CSS (var(--x)) dans fillStyle/strokeStyle,
+ * d'où une constante TS plutôt qu'un token de globals.css. */
+const ERASER_PREVIEW_RGB = "220, 38, 38";
+const eraserPreview = (alpha: number) => `rgba(${ERASER_PREVIEW_RGB}, ${alpha})`;
+
 /** Surligne un trait en rouge semi-transparent pour indiquer, au survol en
  * mode Gomme totale, qu'il sera effacé en entier au clic — même tracé que
  * drawStroke (courbes quadratiques entre points médians), mais avec un
@@ -86,8 +96,8 @@ export function drawStrokeEraseHighlight(ctx: CanvasRenderingContext2D, stroke: 
   const width = stroke.size + 6;
 
   ctx.save();
-  ctx.strokeStyle = "rgba(220, 38, 38, 0.55)";
-  ctx.fillStyle = "rgba(220, 38, 38, 0.55)";
+  ctx.strokeStyle = eraserPreview(0.55);
+  ctx.fillStyle = eraserPreview(0.55);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.lineWidth = width;
@@ -118,9 +128,9 @@ export function drawEraserCirclePreview(ctx: CanvasRenderingContext2D, pos: Stro
   ctx.save();
   ctx.beginPath();
   ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
-  ctx.fillStyle = "rgba(220, 38, 38, 0.12)";
+  ctx.fillStyle = eraserPreview(0.12);
   ctx.fill();
-  ctx.strokeStyle = "rgba(220, 38, 38, 0.65)";
+  ctx.strokeStyle = eraserPreview(0.65);
   ctx.lineWidth = 1.5;
   ctx.stroke();
   ctx.restore();
