@@ -1,5 +1,5 @@
 import { AiOrb } from "@/components/Brand";
-import { Card, Eyebrow } from "@/components/ui";
+import { Eyebrow } from "@/components/ui";
 import { Cards, Upload } from "@/lib/icons";
 import { Reveal } from "./Reveal";
 
@@ -34,25 +34,43 @@ export function HowItWorks() {
         </h2>
       </Reveal>
 
-      <div className="mt-14 grid gap-6 sm:grid-cols-3">
-        {steps.map((step, i) => (
-          <Reveal key={step.title} delayMs={i * 100}>
-            <Card className="relative h-full overflow-hidden p-7">
-              <span className="font-mono text-[11px] text-muted-foreground/60">{step.number}</span>
-              <div className="mt-4 flex h-11 w-11 items-center justify-center">
-                {step.icon ? (
-                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-accent-light text-accent-dark">
-                    <step.icon size={20} />
-                  </span>
-                ) : (
-                  <AiOrb size={44} active />
-                )}
+      {/* Composition "étapes reliées" plutôt qu'une grille de cartes : les
+          trois étapes sont reliées par un fin fil pointillé (uniquement à
+          partir de sm, où elles s'alignent sur une ligne), avec le numéro
+          de chaque étape en grand filigrane typographique derrière son
+          repère plutôt que dans une bordure. */}
+      <div className="relative mt-20">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-[16%] top-7 hidden border-t border-dashed border-border sm:block"
+        />
+
+        <div className="grid gap-16 sm:grid-cols-3 sm:gap-10">
+          {steps.map((step, i) => (
+            <Reveal key={step.title} delayMs={i * 100} className="relative">
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute -top-3 left-1/2 -translate-x-1/2 select-none font-display text-7xl font-medium text-foreground/[0.07] sm:left-0 sm:translate-x-0 sm:text-8xl"
+              >
+                {step.number}
+              </span>
+
+              <div className="relative flex flex-col items-center text-center sm:items-start sm:text-left">
+                <div className="relative z-10 flex h-14 w-14 items-center justify-center rounded-full border border-border bg-background shadow-[var(--shadow-sm)]">
+                  {step.icon ? (
+                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-accent-light text-accent-dark">
+                      <step.icon size={18} />
+                    </span>
+                  ) : (
+                    <AiOrb size={40} active />
+                  )}
+                </div>
+                <h3 className="mt-5 font-display text-xl font-medium text-foreground">{step.title}</h3>
+                <p className="mt-2.5 max-w-[22rem] text-[15px] leading-relaxed text-muted-foreground">{step.body}</p>
               </div>
-              <h3 className="mt-5 font-display text-lg font-medium text-foreground">{step.title}</h3>
-              <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">{step.body}</p>
-            </Card>
-          </Reveal>
-        ))}
+            </Reveal>
+          ))}
+        </div>
       </div>
     </section>
   );
