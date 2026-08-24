@@ -348,8 +348,14 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
         {/* Indicateur de page — reflète currentPageId, mis à jour au scroll
             (IntersectionObserver, voir plus haut) et immédiatement au tap/
             clic sur une page. */}
-        <div className="pointer-events-none absolute bottom-3 left-3 z-20 rounded-full border border-border bg-card/95 px-3 py-1.5 text-xs font-medium text-muted shadow-sm">
-          {currentPageLabel}
+        <div className="pointer-events-none absolute bottom-3 left-3 z-20 flex items-center gap-2 rounded-full border border-border/60 bg-card/95 px-3.5 py-2 text-xs font-medium text-foreground/80 shadow-[var(--shadow-md)] backdrop-blur-sm">
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
+          {/* key={currentPageLabel} : rejoue le fondu (animate-fade, courbe
+              --ease-signature) à chaque changement de page plutôt que de
+              simplement remplacer le texte d'un coup. */}
+          <span key={currentPageLabel} className="animate-fade tabular-nums">
+            {currentPageLabel}
+          </span>
         </div>
 
         {/* Barre d'outils flottante, posée au-dessus de la feuille plutôt que
