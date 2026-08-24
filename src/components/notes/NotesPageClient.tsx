@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { NotesCanvas, type NotesCanvasHandle, type NotesTool } from "@/components/notes/NotesCanvas";
@@ -15,8 +15,16 @@ import {
 } from "@/components/notes/NotesToolbar";
 import { SheetSelector } from "@/components/notes/SheetSelector";
 import { AiPanel } from "@/components/notes/AiPanel";
-import { BACKGROUND_COLORS, PAPER_SIZES, SHEET_TYPES } from "@/lib/notes/sheets";
+import { BACKGROUND_COLORS, PAPER_SIZES, SHEET_TYPES, getPageDimensions } from "@/lib/notes/sheets";
 import type { EraserMode, PaperSize, PenType, ShapeType, SheetType } from "@/lib/notes/types";
+
+/** Une page de l'éditeur — juste un identifiant : chaque page garde tout son
+ * contenu (traits, formes, historique annuler/rétablir...) à l'intérieur de
+ * sa propre instance NotesCanvas, voir plus bas. Purement en mémoire pour
+ * l'instant (pas de sauvegarde, comme le reste de l'éditeur aujourd'hui). */
+interface EditorPage {
+  id: string;
+}
 
 interface NotesAuth {
   subscriptionStatus: string;
@@ -33,7 +41,21 @@ interface NotesPageClientProps {
 
 export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesPageClientProps) {
   const router = useRouter();
-  const canvasHandle = useRef<NotesCanvasHandle | null>(null);
+
+  // Pages multiples : chaque page est une instance NotesCanvas indépendante
+  // (son propre contenu, son propre historique annuler/rétablir), empilées
+  // verticalement dans pagesScrollRef (voir plus bas). pageRefs/pageSlotEls
+  // sont des Map plutôt que des tableaux de refs car les pages ne sont
+  // jamais réordonnées/retirées en v1, seulement ajoutées — une Map indexée
+  // par id reste correcte même si React ne réutilise pas les instances dans
+  // le même ordre.
+  const [pages, setPages] = useState<EditorPage[]>(() => [{ id: crypto.randomUUID() }]);
+  const pageRefs = useRef<Map<string, NotesCanvasHandle>>(new Map());
+  const pageSlotEls = useRef<Map<string, HTMLDivElement>>(new Map());
+  const pagesScrollRef = useRef<HTMLDivElement | null>(null);
+  const [currentPageId, setCurrentPageId] = useState<string | null>(null);
+  const [historyByPage, setHistoryByPage] = useState<Record<string, { canUndo: boolean; canRedo: boolean }>>({});
+  const [slotHeight, setSlotHeight] = useState(0);
 
   const [sheetChosen, setSheetChosen] = useState(false);
   const [sheetPanelOpen, setSheetPanelOpen] = useState(false);
@@ -58,9 +80,6 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
   const [shapeType, setShapeType] = useState<ShapeType>("rectangle");
   const [shapeColor, setShapeColor] = useState(SHAPE_COLORS[0].value);
   const [shapeStrokeWidth, setShapeStrokeWidth] = useState(SHAPE_STROKE_WIDTHS[2]);
-
-  const [canUndo, setCanUndo] = useState(false);
-  const [canRedo, setCanRedo] = useState(false);
 
   // Panneau IA (résumé/flashcards à partir de texte/photo/PDF) — repris de
   // l'ancien écran DistillApp, voir @/components/notes/AiPanel. Ouvert par
@@ -137,6 +156,75 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
     }
   }
 
+  /** Après chaque trait/forme terminé sur une page : logique de gomme
+   * temporaire habituelle (inchangée), plus l'ajout automatique d'une page
+   * juste en dessous si la page concernée est la dernière de la liste — la
+   * page suivante existe donc déjà avant même que l'utilisateur ait besoin
+   * de défiler jusqu'à elle. Ne se déclenche qu'une fois par page : dès
+   * l'ajout, `lastPage.id !== pageId` devient vrai pour cette page-là, plus
+   * besoin d'un drapeau "déjà déclenché" séparé. */
+  function handlePageActionComplete(pageId: string) {
+    handleActionComplete();
+    setPages((prev) => {
+      const lastPage = prev[prev.length - 1];
+      if (!lastPage || lastPage.id !== pageId) return prev;
+      return [...prev, { id: crypto.randomUUID() }];
+    });
+  }
+
+  // Hauteur d'une page dans la liste défilante : la largeur disponible du
+  // conteneur, convertie via le ratio du format papier choisi — pas de
+  // hauteur fixe arbitraire, pour que chaque page ait exactement la même
+  // proportion que la feuille elle-même (comme un affichage à 100 % dans
+  // NotesCanvas, mais borné à sa propre tranche plutôt qu'à tout l'écran).
+  useLayoutEffect(() => {
+    const el = pagesScrollRef.current;
+    if (!el) return;
+    const { width: pageW, height: pageH } = getPageDimensions(paperSize);
+    const ratio = pageH / pageW;
+    const update = () => setSlotHeight(el.clientWidth * ratio);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [paperSize]);
+
+  // Détermine quelle page est actuellement à l'écran, pour l'indicateur
+  // "Page N" et pour cibler Annuler/Rétablir/Ajuster à l'écran/Ajouter une
+  // photo sur la bonne instance — reconstruit à chaque ajout de page
+  // (tableau court, jamais réordonné/retiré en v1, donc sans coût réel).
+  useEffect(() => {
+    const root = pagesScrollRef.current;
+    if (!root) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        let best: IntersectionObserverEntry | null = null;
+        for (const entry of entries) {
+          if (entry.isIntersecting && (!best || entry.intersectionRatio > best.intersectionRatio)) {
+            best = entry;
+          }
+        }
+        const id = best?.target.getAttribute("data-page-id");
+        if (id) setCurrentPageId(id);
+      },
+      { root, threshold: [0.25, 0.5, 0.75, 1] },
+    );
+    for (const el of pageSlotEls.current.values()) observer.observe(el);
+    return () => observer.disconnect();
+  }, [pages]);
+
+  const currentPageIndex = pages.findIndex((p) => p.id === currentPageId);
+  const currentPageLabel = `Page ${currentPageIndex >= 0 ? currentPageIndex + 1 : 1}`;
+  const activeHistory = currentPageId ? historyByPage[currentPageId] : undefined;
+
+  /** Lit pageRefs.current au moment de l'appel (jamais pendant le rendu) —
+   * utilisée uniquement à l'intérieur des gestionnaires d'événements de la
+   * barre d'outils (Annuler/Rétablir/Ajuster à l'écran/Ajouter une photo),
+   * pour cibler la page actuellement active. */
+  function getActivePageHandle(): NotesCanvasHandle | undefined {
+    return currentPageId ? pageRefs.current.get(currentPageId) : undefined;
+  }
+
   const sheetLabel = SHEET_TYPES.find((s) => s.value === sheetType)?.label ?? sheetType;
   const paperLabel = PAPER_SIZES.find((p) => p.value === paperSize)?.label ?? paperSize;
 
@@ -206,30 +294,63 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
       </div>
 
       <div className="relative mt-3 min-h-0 w-full flex-1">
-        <NotesCanvas
-          ref={canvasHandle}
-          tool={tool}
-          penColor={penColor}
-          penSize={penSize}
-          penType={penType}
-          highlighterColor={highlighterColor}
-          highlighterSize={highlighterSize}
-          eraserRadius={eraserRadius}
-          eraserMode={eraserMode}
-          shapeType={shapeType}
-          shapeColor={shapeColor}
-          shapeStrokeWidth={shapeStrokeWidth}
-          sheetType={sheetType}
-          paperSize={paperSize}
-          backgroundColor={backgroundColor}
-          debugHoldDetection={debugHoldDetection}
-          onActionComplete={handleActionComplete}
-          onPenDoubleTap={activateTempEraser}
-          onHistoryChange={(undo, redo) => {
-            setCanUndo(undo);
-            setCanRedo(redo);
-          }}
-        />
+        {/* Liste défilante des pages : chaque page occupe une tranche de
+            hauteur fixe (slotHeight, calculée depuis la largeur disponible
+            et le format papier — voir l'effet plus haut), séparées par une
+            fine ligne. C'est ce conteneur qui défile pour passer d'une page
+            à l'autre ; le défilement interne de chaque NotesCanvas (pan/zoom
+            à l'intérieur d'une page) reste indépendant et inchangé. */}
+        <div ref={pagesScrollRef} className="h-full w-full overflow-y-auto overflow-x-hidden">
+          {pages.map((page, index) => (
+            <div key={page.id}>
+              {index > 0 && <div className="h-px w-full bg-border" aria-hidden="true" />}
+              <div
+                data-page-id={page.id}
+                ref={(el) => {
+                  if (el) pageSlotEls.current.set(page.id, el);
+                  else pageSlotEls.current.delete(page.id);
+                }}
+                onPointerDownCapture={() => setCurrentPageId(page.id)}
+                style={{ height: slotHeight || undefined }}
+                className="w-full"
+              >
+                <NotesCanvas
+                  ref={(handle) => {
+                    if (handle) pageRefs.current.set(page.id, handle);
+                    else pageRefs.current.delete(page.id);
+                  }}
+                  tool={tool}
+                  penColor={penColor}
+                  penSize={penSize}
+                  penType={penType}
+                  highlighterColor={highlighterColor}
+                  highlighterSize={highlighterSize}
+                  eraserRadius={eraserRadius}
+                  eraserMode={eraserMode}
+                  shapeType={shapeType}
+                  shapeColor={shapeColor}
+                  shapeStrokeWidth={shapeStrokeWidth}
+                  sheetType={sheetType}
+                  paperSize={paperSize}
+                  backgroundColor={backgroundColor}
+                  debugHoldDetection={debugHoldDetection}
+                  onActionComplete={() => handlePageActionComplete(page.id)}
+                  onPenDoubleTap={activateTempEraser}
+                  onHistoryChange={(undo, redo) => {
+                    setHistoryByPage((prev) => ({ ...prev, [page.id]: { canUndo: undo, canRedo: redo } }));
+                  }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Indicateur de page — reflète currentPageId, mis à jour au scroll
+            (IntersectionObserver, voir plus haut) et immédiatement au tap/
+            clic sur une page. */}
+        <div className="pointer-events-none absolute bottom-3 left-3 z-20 rounded-full border border-border bg-card/95 px-3 py-1.5 text-xs font-medium text-muted shadow-sm">
+          {currentPageLabel}
+        </div>
 
         {/* Barre d'outils flottante, posée au-dessus de la feuille plutôt que
             dans l'en-tête (voir plus haut) — pointer-events-none sur le
@@ -250,7 +371,7 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
               onSelectPan={selectPan}
               onSelectText={selectText}
               onPenDoubleClick={activateTempEraser}
-              onImportPhotos={(files) => canvasHandle.current?.importPhotos(files)}
+              onImportPhotos={(files) => getActivePageHandle()?.importPhotos(files)}
               penColor={penColor}
               onPenColorChange={setPenColor}
               penSize={penSize}
@@ -271,11 +392,11 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
               onShapeColorChange={setShapeColor}
               shapeStrokeWidth={shapeStrokeWidth}
               onShapeStrokeWidthChange={setShapeStrokeWidth}
-              canUndo={canUndo}
-              canRedo={canRedo}
-              onUndo={() => canvasHandle.current?.undo()}
-              onRedo={() => canvasHandle.current?.redo()}
-              onFitToScreen={() => canvasHandle.current?.fitToScreen()}
+              canUndo={activeHistory?.canUndo ?? false}
+              canRedo={activeHistory?.canRedo ?? false}
+              onUndo={() => getActivePageHandle()?.undo()}
+              onRedo={() => getActivePageHandle()?.redo()}
+              onFitToScreen={() => getActivePageHandle()?.fitToScreen()}
               aiOpen={aiOpen}
               onToggleAi={toggleAi}
             />
