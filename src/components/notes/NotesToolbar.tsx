@@ -67,6 +67,13 @@ const SHAPE_TYPES: { value: ShapeType; label: string; Icon: ComponentType<{ clas
 const RAINBOW_GRADIENT =
   "conic-gradient(from 90deg, #a83e35, #d4a13a, #2f6b4f, #3d6fa8, #7451a8, #a83e35)";
 
+/** Courbe signature de l'app pour les micro-interactions de cette barre
+ * (survol/sélection d'une pastille, d'une taille...) — passée en style
+ * inline comme ailleurs dans le code (voir NotesPageClient.tsx, ouverture du
+ * panneau IA) car --ease-signature n'est pas exposée comme utilitaire
+ * Tailwind. */
+const EASE_SIGNATURE_STYLE = { transitionTimingFunction: "var(--ease-signature)" };
+
 function ColorRow({
   colors,
   value,
@@ -78,20 +85,25 @@ function ColorRow({
 }) {
   const isCustom = !colors.some((c) => c.value === value);
   return (
-    <div className="flex items-center gap-1.5">
-      {colors.map((c) => (
-        <button
-          key={c.value}
-          type="button"
-          onClick={() => onChange(c.value)}
-          aria-label={c.label}
-          title={c.label}
-          className={`h-7 w-7 shrink-0 rounded-full border-2 transition ${
-            value === c.value ? "border-accent scale-110" : "border-border"
-          }`}
-          style={{ backgroundColor: c.value }}
-        />
-      ))}
+    <div className="flex items-center gap-2">
+      {colors.map((c) => {
+        const active = value === c.value;
+        return (
+          <button
+            key={c.value}
+            type="button"
+            onClick={() => onChange(c.value)}
+            aria-label={c.label}
+            title={c.label}
+            className={`h-7 w-7 shrink-0 rounded-full border-2 transition-all duration-200 active:scale-90 ${
+              active
+                ? "scale-110 border-accent shadow-[0_2px_10px_-3px_color-mix(in_srgb,var(--accent)_65%,transparent)]"
+                : "border-border/60 hover:scale-105 hover:border-muted-foreground/40"
+            }`}
+            style={{ backgroundColor: c.value, ...EASE_SIGNATURE_STYLE }}
+          />
+        );
+      })}
 
       <span className="relative h-7 w-7 shrink-0" title="Palette complète">
         <input
@@ -103,10 +115,12 @@ function ColorRow({
         />
         <span
           aria-hidden="true"
-          className={`pointer-events-none absolute inset-0 rounded-full border-2 transition ${
-            isCustom ? "border-accent scale-110" : "border-border"
+          className={`pointer-events-none absolute inset-0 rounded-full border-2 transition-all duration-200 ${
+            isCustom
+              ? "scale-110 border-accent shadow-[0_2px_10px_-3px_color-mix(in_srgb,var(--accent)_65%,transparent)]"
+              : "border-border/60"
           }`}
-          style={{ background: isCustom ? value : RAINBOW_GRADIENT }}
+          style={{ background: isCustom ? value : RAINBOW_GRADIENT, ...EASE_SIGNATURE_STYLE }}
         />
       </span>
     </div>
@@ -128,7 +142,7 @@ function SizeDotPicker({
   const maxDot = 19;
 
   return (
-    <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-border bg-background-alt px-1.5 py-1.5">
+    <div className="flex shrink-0 items-center gap-1 rounded-full border border-border/70 bg-background-alt/70 p-1">
       {sizes.map((s, i) => {
         const dot = max === min ? maxDot : minDot + ((s - min) / (max - min)) * (maxDot - minDot);
         const active = value === s;
@@ -139,12 +153,13 @@ function SizeDotPicker({
             onClick={() => onChange(s)}
             aria-pressed={active}
             aria-label={`Taille ${i + 1} sur ${sizes.length}`}
-            className={`grid h-8 w-8 shrink-0 place-items-center rounded-full transition ${
-              active ? "bg-card shadow-sm ring-1 ring-accent" : ""
+            className={`grid h-8 w-8 shrink-0 place-items-center rounded-full transition-all duration-200 active:scale-90 ${
+              active ? "scale-105 bg-card shadow-[var(--shadow-sm)] ring-1 ring-accent/60" : "hover:bg-card/60"
             }`}
+            style={EASE_SIGNATURE_STYLE}
           >
             <span
-              className="rounded-full bg-foreground"
+              className={`rounded-full transition-colors duration-200 ${active ? "bg-accent-dark" : "bg-foreground/60"}`}
               style={{ width: dot, height: dot }}
             />
           </button>
@@ -398,13 +413,13 @@ export function NotesToolbar({
         <div className="h-8 w-px shrink-0 bg-border/70" />
 
         {tool === "pen" && (
-          <div className="flex flex-nowrap items-center gap-3">
+          <div className="flex flex-nowrap animate-fade items-center gap-3">
             <ColorRow colors={PEN_COLORS} value={penColor} onChange={onPenColorChange} />
             <SizeDotPicker sizes={PEN_SIZES} value={penSize} onChange={onPenSizeChange} />
             <select
               value={penType}
               onChange={(e) => onPenTypeChange(e.target.value as PenType)}
-              className="shrink-0 rounded-full border border-border bg-background-alt px-3 py-1.5 text-xs font-medium text-foreground"
+              className="shrink-0 cursor-pointer rounded-full border border-border/70 bg-background-alt/70 px-3 py-1.5 text-xs font-medium text-foreground transition-all duration-200 hover:border-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-light"
             >
               {PEN_TYPES.map((t) => (
                 <option key={t.value} value={t.value}>
@@ -416,51 +431,63 @@ export function NotesToolbar({
         )}
 
         {tool === "highlighter" && (
-          <div className="flex flex-nowrap items-center gap-3">
+          <div className="flex flex-nowrap animate-fade items-center gap-3">
             <ColorRow colors={HIGHLIGHTER_COLORS} value={highlighterColor} onChange={onHighlighterColorChange} />
             <SizeDotPicker sizes={HIGHLIGHTER_SIZES} value={highlighterSize} onChange={onHighlighterSizeChange} />
           </div>
         )}
 
         {tool === "eraser" && (
-          <div className="flex flex-nowrap items-center gap-3">
-            <div className="flex shrink-0 items-center gap-1 rounded-full border border-border bg-background-alt p-1">
-              {ERASER_MODES.map(({ value, label }) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => onEraserModeChange(value)}
-                  aria-pressed={eraserMode === value}
-                  title={label}
-                  className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition ${
-                    eraserMode === value ? "bg-card text-accent-dark shadow-sm" : "text-muted"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
+          <div className="flex flex-nowrap animate-fade items-center gap-3">
+            <div className="flex shrink-0 items-center gap-1 rounded-full border border-border/70 bg-background-alt/70 p-1">
+              {ERASER_MODES.map(({ value, label }) => {
+                const active = eraserMode === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => onEraserModeChange(value)}
+                    aria-pressed={active}
+                    title={label}
+                    className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-200 active:scale-95 ${
+                      active
+                        ? "bg-card text-accent-dark shadow-[var(--shadow-sm)] ring-1 ring-accent/60"
+                        : "text-muted hover:text-foreground"
+                    }`}
+                    style={EASE_SIGNATURE_STYLE}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
             </div>
             <SizeDotPicker sizes={ERASER_SIZES} value={eraserRadius} onChange={onEraserRadiusChange} />
           </div>
         )}
 
         {tool === "shapes" && (
-          <div className="flex flex-nowrap items-center gap-3">
-            <div className="flex shrink-0 items-center gap-1 rounded-full border border-border bg-background-alt p-1">
-              {SHAPE_TYPES.map(({ value, label, Icon }) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => onShapeTypeChange(value)}
-                  aria-pressed={shapeType === value}
-                  title={label}
-                  className={`grid h-7 w-7 shrink-0 place-items-center rounded-full transition ${
-                    shapeType === value ? "bg-card text-accent-dark shadow-sm" : "text-muted"
-                  }`}
-                >
-                  <Icon className="h-4 w-4" />
-                </button>
-              ))}
+          <div className="flex flex-nowrap animate-fade items-center gap-3">
+            <div className="flex shrink-0 items-center gap-1 rounded-full border border-border/70 bg-background-alt/70 p-1">
+              {SHAPE_TYPES.map(({ value, label, Icon }) => {
+                const active = shapeType === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => onShapeTypeChange(value)}
+                    aria-pressed={active}
+                    title={label}
+                    className={`grid h-8 w-8 shrink-0 place-items-center rounded-full transition-all duration-200 active:scale-90 ${
+                      active
+                        ? "scale-105 bg-card text-accent-dark shadow-[var(--shadow-sm)] ring-1 ring-accent/60"
+                        : "text-muted hover:bg-card/60 hover:text-foreground"
+                    }`}
+                    style={EASE_SIGNATURE_STYLE}
+                  >
+                    <Icon className="h-4 w-4" />
+                  </button>
+                );
+              })}
             </div>
             <ColorRow colors={SHAPE_COLORS} value={shapeColor} onChange={onShapeColorChange} />
             <SizeDotPicker sizes={SHAPE_STROKE_WIDTHS} value={shapeStrokeWidth} onChange={onShapeStrokeWidthChange} />
@@ -471,7 +498,7 @@ export function NotesToolbar({
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="flex shrink-0 items-center gap-2 rounded-full border border-border bg-background-alt px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-card"
+            className="flex shrink-0 animate-fade items-center gap-2 rounded-full border border-border/70 bg-background-alt/70 px-3 py-1.5 text-xs font-medium text-foreground transition-all duration-200 hover:border-accent/40 hover:bg-card active:scale-95"
           >
             <PhotoIcon className="h-4 w-4" />
             Ajouter une photo
