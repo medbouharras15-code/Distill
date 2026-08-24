@@ -1,4 +1,6 @@
 import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
+import Link from "next/link";
+import { ChevronLeft } from "@/lib/icons";
 
 export type ButtonVariant = "primary" | "ghost" | "outline" | "soft";
 export type ButtonSize = "sm" | "md" | "lg" | "icon";
@@ -69,6 +71,52 @@ export function Badge({ children, className = "" }: { children: ReactNode; class
 /** Petit libellé mono/majuscules au-dessus d'un titre (ex. "Étape 1 · 2"). */
 export function Eyebrow({ children }: { children: ReactNode }) {
   return <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">{children}</div>;
+}
+
+/** Lien de retour partagé (ex. "← Retour à Distill", "Workspace"…) — icône
+ * dans un cercle discret qui prend une teinte jade et recule légèrement au
+ * survol, plutôt qu'un simple changement de couleur de texte. Accepte soit
+ * `href` (navigation classique via next/link), soit `onClick` (cas Team
+ * Brain où "retour" ne fait que changer une vue interne sans changer
+ * d'URL) — un seul style pour les deux usages trouvés dans l'app. */
+export function BackLink({
+  href,
+  onClick,
+  children,
+  className = "",
+}: {
+  href?: string;
+  onClick?: () => void;
+  children: ReactNode;
+  className?: string;
+}) {
+  const content = (
+    <>
+      <span
+        className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-background-alt text-muted-foreground transition-all duration-200 group-hover:-translate-x-0.5 group-hover:bg-accent-light group-hover:text-accent-dark"
+        style={{ transitionTimingFunction: "var(--ease-signature)" }}
+      >
+        <ChevronLeft size={15} />
+      </span>
+      <span className="text-sm font-medium text-muted-foreground transition-colors duration-200 group-hover:text-foreground">
+        {children}
+      </span>
+    </>
+  );
+  const sharedClassName = `group inline-flex shrink-0 items-center gap-2 ${className}`;
+
+  if (href) {
+    return (
+      <Link href={href} className={sharedClassName}>
+        {content}
+      </Link>
+    );
+  }
+  return (
+    <button type="button" onClick={onClick} className={sharedClassName}>
+      {content}
+    </button>
+  );
 }
 
 /** Délai d'entrée pour un élément d'une liste/grille, à passer en `style` à

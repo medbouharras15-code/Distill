@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { NotesCanvas, type NotesCanvasHandle, type NotesTool } from "@/components/notes/NotesCanvas";
+import { BackLink } from "@/components/ui";
 import {
   HIGHLIGHTER_COLORS,
   HIGHLIGHTER_SIZES,
@@ -235,9 +235,7 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
         onContextMenu={(e) => e.preventDefault()}
       >
         <div className="flex items-center justify-between">
-          <Link href="/dashboard" className="text-sm text-muted transition hover:text-foreground">
-            ← Retour à Distill
-          </Link>
+          <BackLink href="/dashboard">Retour à Distill</BackLink>
           <h1 className="font-display text-lg font-medium text-foreground">Notes à main levée</h1>
           <div className="w-24" />
         </div>
@@ -272,9 +270,7 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
           sans bande de couleur de fond visible autour. */}
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-4 pt-6 sm:px-6">
         <div className="flex items-center justify-between">
-          <Link href="/dashboard" className="text-sm text-muted transition hover:text-foreground">
-            ← Retour à Distill
-          </Link>
+          <BackLink href="/dashboard">Retour à Distill</BackLink>
           <h1 className="font-display text-lg font-medium text-foreground">Notes à main levée</h1>
           <div className="w-24" />
         </div>
