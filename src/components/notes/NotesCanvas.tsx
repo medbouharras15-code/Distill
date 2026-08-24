@@ -1024,6 +1024,20 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     return true;
   }
 
+  /** Met à jour l'aperçu au survol de la Gomme (position + trait éventuel-
+   * lement surligné en mode Totale) — appelée aussi bien par un simple
+   * survol (handlePointerMove, pointeur relâché) que pendant un geste
+   * d'effacement actif (handlePointerDown/handlePointerMove, pointeur
+   * enfoncé), pour que le cercle en mode Partielle continue de suivre le
+   * curseur pendant qu'on efface et pas seulement avant de toucher la page. */
+  function updateEraserHoverPreview(pos: StrokePoint) {
+    hoverEraserPos.current = pos;
+    hoveredStrokeId.current =
+      eraserMode === "whole"
+        ? (strokesRef.current.find((s) => strokeHitTest(s, pos.x, pos.y, eraserRadius))?.id ?? null)
+        : null;
+  }
+
   /** Découpe les traits touchés par le cercle de gomme au lieu de les
    * effacer en entier (mode "partial"). Comme eraseAt, ne mute jamais
    * strokesRef.current directement : le résultat "en cours" vit dans
@@ -1267,8 +1281,18 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       erasedImageIds.current = new Set();
       erasedTextBoxIds.current = new Set();
       partialErasePreview.current = null;
-      hoverEraserPos.current = null;
-      hoveredStrokeId.current = null;
+      // Positionne tout de suite l'aperçu au point d'appui (plutôt que de le
+      // remettre à null) : sans ça, le cercle du mode Partielle disparaîtrait
+      // un instant avant de réapparaître au premier déplacement — voir
+      // updateEraserHoverPreview, aussi appelée en continu pendant le geste
+      // par handlePointerMove.
+      if (e.pointerType !== "touch") {
+        updateEraserHoverPreview(pos);
+        scheduleRender();
+      } else {
+        hoverEraserPos.current = null;
+        hoveredStrokeId.current = null;
+      }
       eraseAt(pos);
     } else if (tool === "shapes") {
       shapeStartPos.current = { x: pos.x, y: pos.y };
@@ -1360,17 +1384,15 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       }
     }
 
-    // Aperçu au survol de la Gomme (avant tout clic) : uniquement quand
-    // aucun geste n'est en cours et pour un pointeur à détection de survol
-    // (souris/stylet) — le tactile ne déclenche pas ce chemin sans contact,
-    // ce qui suffit à exclure le doigt (limite assumée, voir plan validé).
-    if (tool === "eraser" && e.pointerType !== "touch" && activePointerId.current === null) {
-      const hoverPos = getPos(e);
-      hoverEraserPos.current = hoverPos;
-      hoveredStrokeId.current =
-        eraserMode === "whole"
-          ? (strokesRef.current.find((s) => strokeHitTest(s, hoverPos.x, hoverPos.y, eraserRadius))?.id ?? null)
-          : null;
+    // Aperçu au survol de la Gomme, avant tout clic mais aussi *pendant* un
+    // geste d'effacement actif (pas seulement quand activePointerId.current
+    // est null) — sinon le cercle du mode Partielle se fige dès qu'on appuie
+    // au lieu de continuer à suivre le curseur pendant qu'on efface. Réservé
+    // à un pointeur à détection de survol (souris/stylet) — le tactile ne
+    // déclenche pas ce chemin sans contact, ce qui suffit à exclure le doigt
+    // (limite assumée, voir plan validé).
+    if (tool === "eraser" && e.pointerType !== "touch") {
+      updateEraserHoverPreview(getPos(e));
       scheduleRender();
     } else if (hoverEraserPos.current || hoveredStrokeId.current) {
       hoverEraserPos.current = null;
