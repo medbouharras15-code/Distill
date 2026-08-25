@@ -84,7 +84,10 @@ export function PricingSection() {
               <div className={`relative ${tier.highlighted ? "sm:-translate-y-3 sm:scale-[1.02]" : ""}`}>
                 {tier.highlighted && (
                   <div
-                    className="absolute inset-x-4 -inset-y-2 -z-10 rounded-[calc(var(--radius)+14px)] bg-accent/25 blur-2xl"
+                    className="absolute inset-x-2 -inset-y-4 -z-10 rounded-[calc(var(--radius)+18px)] opacity-70 blur-3xl"
+                    style={{
+                      background: "radial-gradient(ellipse, color-mix(in srgb, var(--accent) 30%, transparent) 0%, transparent 72%)",
+                    }}
                     aria-hidden="true"
                   />
                 )}
@@ -144,7 +147,13 @@ export function PricingSection() {
                       Créer un compte gratuit
                     </Link>
                   ) : (
-                    <div className={buttonClasses("outline", "sm", "mt-6 w-full justify-center pointer-events-none opacity-60")}>
+                    // Traitement volontairement distinct d'un bouton désactivé
+                    // (bordure pointillée, pas de fond plein grisé) — même
+                    // langage que le panneau "Bientôt disponible" de
+                    // ExplanationSection, pour que ça se lise comme "pas
+                    // encore ouvert" plutôt que "cassé".
+                    <div className="mt-6 flex w-full items-center justify-center gap-2 rounded-full border border-dashed border-border py-2.5 text-[13px] font-medium text-muted-foreground">
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/40" aria-hidden="true" />
                       Bientôt disponible
                     </div>
                   )}
