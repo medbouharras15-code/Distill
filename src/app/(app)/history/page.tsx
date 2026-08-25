@@ -41,7 +41,7 @@ export default function HistoryPage() {
 
   const quickAccess = [
     { label: "Dernière page", icon: Doc, nb: lastPage.title, desc: lastPage.time },
-    { label: "Dernier carnet", icon: Books, nb: lastNotebook.title, desc: `${lastNotebook.pages} pages` },
+    { label: "Dernier carnet", icon: Books, nb: lastNotebook?.title ?? "—", desc: lastNotebook ? `${lastNotebook.pages} pages` : "" },
     { label: "Dernières flashcards", icon: Cards, nb: lastFlashcards?.title ?? "—", desc: lastFlashcards?.time ?? "" },
     { label: "Dernier résumé", icon: Sparkle, nb: lastSummary?.title ?? "—", desc: lastSummary?.time ?? "" },
   ];

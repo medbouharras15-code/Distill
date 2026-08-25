@@ -20,14 +20,13 @@ export interface MockNotebook {
   favorite: boolean;
 }
 
-export const mockNotebooks: MockNotebook[] = [
-  { id: "n1", title: "Biologie cellulaire", subject: "SVT", color: "#0f7a63", sheetType: "cornell", paperSize: "a4", pages: 42, updated: "il y a 2 h", favorite: true },
-  { id: "n2", title: "Analyse — Intégrales", subject: "Mathématiques", color: "#3b6ee0", sheetType: "grid-small", paperSize: "letter", pages: 28, updated: "hier", favorite: true },
-  { id: "n3", title: "Révolution française", subject: "Histoire", color: "#c2632a", sheetType: "lined-thin", paperSize: "a4", pages: 61, updated: "il y a 3 j", favorite: false },
-  { id: "n4", title: "Chimie organique", subject: "Chimie", color: "#8a3fd1", sheetType: "isometric", paperSize: "a4", pages: 34, updated: "il y a 5 j", favorite: false },
-  { id: "n5", title: "Anglais — Essays", subject: "Langues", color: "#c9436f", sheetType: "college-rule", paperSize: "letter", pages: 19, updated: "la semaine dernière", favorite: true },
-  { id: "n6", title: "Physique — Mécanique", subject: "Physique", color: "#1f9c8c", sheetType: "grid-large", paperSize: "a4", pages: 47, updated: "il y a 2 sem.", favorite: false },
-];
+/** Vide volontairement : la sauvegarde réelle des carnets (Supabase) n'est
+ * pas encore branchée, donc "Mes carnets" affiche son véritable état vide
+ * plutôt que des carnets fictifs qui donneraient l'illusion de données
+ * persistées. Les tableaux ci-dessous (historique, favoris, résultats de
+ * recherche) restent des exemples indépendants pour continuer à visualiser
+ * ces écrans pendant cette phase de design. */
+export const mockNotebooks: MockNotebook[] = [];
 
 export interface MockHistoryItem {
   id: string;

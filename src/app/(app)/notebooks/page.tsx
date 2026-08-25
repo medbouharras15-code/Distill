@@ -2,10 +2,11 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { EmptyState } from "@/components/LibraryScreens";
 import { SheetPreview } from "@/components/notes/SheetPreview";
 import { Badge, Card, buttonClasses, staggerDelay } from "@/components/ui";
 import { mockNotebooks } from "@/lib/appMockData";
-import { Dots, Plus, Star } from "@/lib/icons";
+import { Books, Dots, Plus, Star } from "@/lib/icons";
 import { PAPER_SIZES, SHEET_TYPES } from "@/lib/notes/sheets";
 
 const totalPages = mockNotebooks.reduce((sum, n) => sum + n.pages, 0);
@@ -17,6 +18,7 @@ const sheetTypeLabel = (id: (typeof mockNotebooks)[number]["sheetType"]) =>
 
 export default function NotebooksPage() {
   const [filter, setFilter] = useState("Tous");
+  const hasNotebooks = mockNotebooks.length > 0;
 
   const list = useMemo(() => {
     if (filter === "Tous") return mockNotebooks;
@@ -30,7 +32,7 @@ export default function NotebooksPage() {
         <div>
           <h1 className="font-display text-4xl font-medium tracking-[-0.02em] text-foreground">Mes carnets</h1>
           <p className="mt-2 text-[15px] text-muted-foreground">
-            {mockNotebooks.length} carnets · {totalPages} pages au total
+            {hasNotebooks ? `${mockNotebooks.length} carnets · ${totalPages} pages au total` : "Tous tes carnets, au même endroit."}
           </p>
         </div>
         <Link href="/notebooks/new" className={buttonClasses("primary", "md", "gap-2")}>
@@ -38,21 +40,31 @@ export default function NotebooksPage() {
         </Link>
       </header>
 
-      <div className="mt-8 flex flex-wrap items-center gap-2">
-        {filters.map((f) => (
-          <button
-            key={f}
-            type="button"
-            onClick={() => setFilter(f)}
-            className={`rounded-full px-3.5 py-1.5 text-[13px] font-medium transition ${
-              filter === f ? "bg-foreground text-background" : "border border-border bg-card text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {f}
-          </button>
-        ))}
-      </div>
+      {hasNotebooks && (
+        <div className="mt-8 flex flex-wrap items-center gap-2">
+          {filters.map((f) => (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setFilter(f)}
+              className={`rounded-full px-3.5 py-1.5 text-[13px] font-medium transition ${
+                filter === f ? "bg-foreground text-background" : "border border-border bg-card text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
+      )}
 
+      {!hasNotebooks ? (
+        <EmptyState
+          icon={<Books size={28} />}
+          title="Pas encore de carnet"
+          body="Crée ton premier carnet pour commencer à prendre des notes et les transformer en révisions par l'IA."
+          cta={{ label: "Créer un carnet", href: "/notebooks/new" }}
+        />
+      ) : (
       <div className="mt-6 grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4">
         {list.map((n, i) => {
           const ratio = PAPER_SIZES.find((p) => p.value === n.paperSize)?.ratio ?? PAPER_SIZES[0].ratio;
@@ -126,6 +138,7 @@ export default function NotebooksPage() {
           </div>
         </Link>
       </div>
+      )}
     </div>
   );
 }

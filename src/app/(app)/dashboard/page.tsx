@@ -92,6 +92,20 @@ export default function DashboardPage() {
               />
             </Link>
           </div>
+          {recent.length === 0 ? (
+            <Card className="flex flex-col items-center gap-3 p-10 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-border bg-secondary text-muted-foreground/60">
+                <Books size={20} />
+              </div>
+              <div>
+                <div className="text-sm font-medium text-foreground">Pas encore de carnet</div>
+                <p className="mt-1 text-[13px] text-muted-foreground">Crée ton premier carnet pour commencer à réviser.</p>
+              </div>
+              <Link href="/notebooks/new" className={buttonClasses("outline", "sm", "mt-1")}>
+                Créer un carnet
+              </Link>
+            </Card>
+          ) : (
           <div className="space-y-3">
             {recent.map((n, i) => {
               const ratio = PAPER_SIZES.find((p) => p.value === n.paperSize)?.ratio ?? PAPER_SIZES[0].ratio;
@@ -122,6 +136,7 @@ export default function DashboardPage() {
               );
             })}
           </div>
+          )}
         </section>
 
         <div className="flex flex-col gap-6">
