@@ -1,7 +1,6 @@
-import Link from "next/link";
 import { useState } from "react";
-import { Card } from "@/components/ui";
-import { Brain, ChevronLeft, ChevronRight, Clock, Doc, Plus, Users } from "@/lib/icons";
+import { BackLink, Card } from "@/components/ui";
+import { Brain, ChevronRight, Clock, Doc, Plus, Users } from "@/lib/icons";
 import { ComingSoonToast, useComingSoonToast } from "./ComingSoonToast";
 import { CreateProjectForm } from "./CreateProjectForm";
 import { colorForInitial } from "@/lib/teamBrainData";
@@ -36,7 +35,11 @@ function ProjectCard({ project, onClick }: { project: TeamBrainProject; onClick:
               </div>
             </div>
           </div>
-          <ChevronRight size={16} className="mt-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+          <ChevronRight
+            size={16}
+            className="mt-1 text-muted-foreground opacity-0 transition-all duration-200 group-hover:translate-x-0.5 group-hover:opacity-100"
+            style={{ transitionTimingFunction: "var(--ease-signature)" }}
+          />
         </div>
 
         <div className="mt-5 flex items-center justify-between">
@@ -93,9 +96,9 @@ export function WorkspaceView({
   return (
     <div className="mx-auto max-w-[860px] animate-fade px-5 py-8 md:px-10 md:py-12">
       <ComingSoonToast visible={comingSoonVisible} />
-      <Link href="/dashboard" className="mb-6 flex items-center gap-1.5 text-sm text-muted-foreground transition hover:text-foreground">
-        <ChevronLeft size={15} /> Accueil
-      </Link>
+      <BackLink href="/dashboard" className="mb-6">
+        Accueil
+      </BackLink>
       <div className="mb-8 flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">
           <div
@@ -151,7 +154,7 @@ export function WorkspaceView({
           onClick={openCreateProject}
           className="group flex min-h-[148px] flex-col items-center justify-center gap-2 rounded-[22px] border-2 border-dashed border-border text-muted-foreground transition hover:border-[var(--team)] hover:text-foreground"
         >
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-secondary">
             <Plus size={20} />
           </div>
           <span className="text-[13px] font-medium">Nouveau projet</span>
@@ -162,7 +165,7 @@ export function WorkspaceView({
         {stats.map(({ label, value, icon: Icon }) => (
           <Card key={label} className="flex items-center gap-3 p-4">
             <div
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white"
               style={{ background: "color-mix(in srgb, var(--team) 80%, var(--team-2))" }}
             >
               <Icon size={16} />
