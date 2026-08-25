@@ -102,8 +102,11 @@ function SourceBlock({
         </div>
         <ChevronRight
           size={13}
-          className="shrink-0 text-muted-foreground transition-transform"
-          style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}
+          className="shrink-0 text-muted-foreground transition-transform duration-200"
+          style={{
+            transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
+            transitionTimingFunction: "var(--ease-signature)",
+          }}
         />
       </div>
 
@@ -394,11 +397,12 @@ export function ChatView({
               type="button"
               onClick={send}
               disabled={!input.trim() || thinking}
-              className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white transition-all disabled:opacity-30"
+              className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white transition-all duration-200 hover:enabled:-translate-y-px disabled:opacity-30"
               style={{
                 background:
                   input.trim() && !thinking ? "linear-gradient(135deg, var(--team), var(--team-2))" : "var(--muted-foreground)",
                 boxShadow: input.trim() && !thinking ? "0 4px 14px -4px var(--team-glow)" : "none",
+                transitionTimingFunction: "var(--ease-signature)",
               }}
             >
               <Send size={15} />
