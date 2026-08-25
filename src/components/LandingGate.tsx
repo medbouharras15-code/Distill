@@ -1,5 +1,6 @@
 import { SiteHeader } from "@/components/SiteHeader";
 import { DropCursor } from "@/components/landing/DropCursor";
+import { ExplanationSection } from "@/components/landing/ExplanationSection";
 import { FaqSection } from "@/components/landing/FaqSection";
 import { FinalCta } from "@/components/landing/FinalCta";
 import { HeroSection } from "@/components/landing/HeroSection";
@@ -23,6 +24,7 @@ export default function LandingGate() {
       <HeroSection />
       <HowItWorks />
       <ProductPreview />
+      <ExplanationSection />
       <TrustSection />
       <PricingSection />
       <FaqSection />
