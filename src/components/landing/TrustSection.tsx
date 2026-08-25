@@ -1,4 +1,4 @@
-import { Card, Eyebrow } from "@/components/ui";
+import { Eyebrow } from "@/components/ui";
 import { Bolt, Lock, Sparkle } from "@/lib/icons";
 import { Reveal } from "./Reveal";
 
@@ -30,14 +30,16 @@ export function TrustSection() {
         </h2>
       </Reveal>
 
-      <div className="mt-12 grid gap-5 sm:grid-cols-3">
+      {/* Colonnes aérées avec un fin séparateur vertical plutôt que des
+          cartes bordées — distinct du traitement "cartes" de Tarifs et du
+          traitement "étapes reliées" de Comment ça marche, pour ne pas
+          répéter le même motif trois fois de suite sur la page. */}
+      <div className="mt-14 grid gap-10 sm:grid-cols-3 sm:divide-x sm:divide-border">
         {points.map((point, i) => (
-          <Reveal key={point.title} delayMs={i * 100}>
-            <Card className="h-full p-6">
-              <point.icon size={22} className="text-accent-dark" />
-              <h3 className="mt-4 text-[15px] font-semibold text-foreground">{point.title}</h3>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{point.body}</p>
-            </Card>
+          <Reveal key={point.title} delayMs={i * 100} className="sm:px-8 sm:first:pl-0 sm:last:pr-0">
+            <point.icon size={22} className="text-accent-dark" />
+            <h3 className="mt-4 text-[15px] font-semibold text-foreground">{point.title}</h3>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{point.body}</p>
           </Reveal>
         ))}
       </div>
