@@ -1,5 +1,5 @@
-import { Badge, Eyebrow } from "@/components/ui";
-import { Brain, ChevronLeft, Clock, Lock, Plus, Shield } from "@/lib/icons";
+import { BackLink, Badge, Eyebrow, staggerDelay } from "@/components/ui";
+import { Brain, Clock, Lock, Plus, Shield } from "@/lib/icons";
 import { AddDocumentForm } from "./AddDocumentForm";
 import { ComingSoonToast, useComingSoonToast } from "./ComingSoonToast";
 import type { TeamBrainDoc, TeamBrainProject } from "@/lib/teamBrainMockData";
@@ -7,12 +7,13 @@ import type { TeamBrainDoc, TeamBrainProject } from "@/lib/teamBrainMockData";
 const TYPE_COLORS = { note: "#0c6b52", pdf: "#b5693a", doc: "#4b5d8b" };
 const TYPE_LABELS = { note: "Note", pdf: "PDF", doc: "Doc" };
 
-function DocRow({ doc }: { doc: TeamBrainDoc }) {
+function DocRow({ doc, index }: { doc: TeamBrainDoc; index: number }) {
   return (
     <div
-      className={`group flex items-center gap-4 rounded-2xl border bg-card p-4 transition hover:shadow-[var(--shadow-sm)] ${
+      className={`group flex animate-fade items-center gap-4 rounded-2xl border bg-card p-4 transition hover:shadow-[var(--shadow-sm)] ${
         doc.private ? "border-dashed opacity-75" : "border-border"
       }`}
+      style={staggerDelay(index)}
     >
       <div
         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[10px] font-bold text-white"
@@ -70,13 +71,9 @@ export function ProjectView({
   return (
     <div className="mx-auto max-w-[760px] animate-fade px-5 py-8 md:px-10 md:py-12">
       <ComingSoonToast visible={comingSoonVisible} />
-      <button
-        type="button"
-        onClick={onBack}
-        className="mb-8 flex items-center gap-1.5 text-sm text-muted-foreground transition hover:text-foreground"
-      >
-        <ChevronLeft size={15} /> Workspace
-      </button>
+      <BackLink onClick={onBack} className="mb-8">
+        Workspace
+      </BackLink>
 
       <div className="mb-8 flex items-start justify-between gap-4">
         <div className="flex items-center gap-4">
@@ -108,8 +105,8 @@ export function ProjectView({
       <div className="space-y-2">
         <Eyebrow>Documents du projet</Eyebrow>
         <div className="mt-3 space-y-2">
-          {docs.map((doc) => (
-            <DocRow key={doc.id} doc={doc} />
+          {docs.map((doc, i) => (
+            <DocRow key={doc.id} doc={doc} index={i} />
           ))}
         </div>
       </div>
