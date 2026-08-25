@@ -8,38 +8,6 @@ import { mockHistoryItems, mockNotebooks } from "@/lib/appMockData";
 import { Books, Cards, ChevronRight, Clock, Doc, Plus } from "@/lib/icons";
 import { PAPER_SIZES } from "@/lib/notes/sheets";
 
-const sparkline = [10, 14, 9, 18, 15, 22, 19, 26];
-
-/** Sparkline avec aire dégradée en dessous du tracé — plus de présence
- * visuelle qu'un simple trait, sans perdre en légèreté. */
-function Sparkline({ id, color = "var(--primary)" }: { id: string; color?: string }) {
-  const max = Math.max(...sparkline);
-  const coords = sparkline.map((v, i) => [(i / (sparkline.length - 1)) * 100, 28 - (v / max) * 24] as const);
-  const points = coords.map(([x, y]) => `${x},${y}`).join(" ");
-  const area = `0,30 ${points} 100,30`;
-  const gradientId = `sparkline-${id}`;
-  return (
-    <svg viewBox="0 0 100 30" preserveAspectRatio="none" className="h-8 w-full">
-      <defs>
-        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.28" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <polygon points={area} fill={`url(#${gradientId})`} />
-      <polyline
-        points={points}
-        fill="none"
-        stroke={color}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        vectorEffect="non-scaling-stroke"
-      />
-    </svg>
-  );
-}
-
 const totalPages = mockNotebooks.reduce((sum, n) => sum + n.pages, 0);
 const stats = [
   { label: "Carnets", value: String(mockNotebooks.length), sub: "+1 cette semaine", icon: Books, tint: "primary" as const },
@@ -64,10 +32,10 @@ export default function DashboardPage() {
           <Eyebrow>
             {dateLabel.charAt(0).toUpperCase() + dateLabel.slice(1)} · Bonne session
           </Eyebrow>
-          <h1 className="mt-3 font-display text-4xl font-semibold leading-[0.98] tracking-[-0.03em] text-foreground sm:text-5xl">
+          <h1 className="mt-4 font-display text-4xl font-semibold leading-[0.97] tracking-[-0.03em] text-foreground sm:text-5xl">
             Bonjour.
           </h1>
-          <p className="mt-3 max-w-md text-[15px] leading-relaxed text-muted-foreground">
+          <p className="mt-3.5 max-w-md text-[15px] leading-relaxed text-muted-foreground">
             Reprends là où tu t&apos;es arrêté·e, ou laisse l&apos;IA transformer tes notes en révisions.
           </p>
         </div>
@@ -81,29 +49,28 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {/* Stats */}
+      {/* Stats — pas de mini-graphique : les 4 cartes réutilisaient la même
+          série factice, ce qui se voyait dès qu'on comparait les cartes
+          entre elles. Un chiffre net plutôt qu'une fausse tendance. */}
       <div className="mt-10 grid grid-cols-2 gap-4 md:grid-cols-4">
         {stats.map((s, i) => (
           <Card
             key={s.label}
-            className="card-hover group relative animate-fade overflow-hidden p-5"
+            className="card-hover group relative animate-fade overflow-hidden p-6"
             style={staggerDelay(i)}
           >
             <div className="flex items-start justify-between">
               <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{s.label}</div>
               <span
-                className={`grid h-7 w-7 shrink-0 place-items-center rounded-full transition-transform duration-300 group-hover:scale-110 ${
+                className={`grid h-8 w-8 shrink-0 place-items-center rounded-full transition-transform duration-300 group-hover:scale-110 ${
                   s.tint === "ai" ? "ai-gradient text-white" : "bg-accent-light text-accent-dark"
                 }`}
               >
                 <s.icon size={14} />
               </span>
             </div>
-            <div className="mt-3 font-display text-[34px] leading-none tracking-tight tabular-nums text-foreground">{s.value}</div>
-            <div className="-mx-1 mt-3">
-              <Sparkline id={s.label} color={s.tint === "ai" ? "var(--ai-2)" : "var(--primary)"} />
-            </div>
-            <div className="mt-1 text-[11px] text-muted-foreground">{s.sub}</div>
+            <div className="mt-4 font-display text-[36px] leading-none tracking-tight tabular-nums text-foreground">{s.value}</div>
+            <div className="mt-2.5 text-[11px] text-muted-foreground">{s.sub}</div>
           </Card>
         ))}
       </div>
