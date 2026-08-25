@@ -125,30 +125,31 @@ export default function DashboardPage() {
         </section>
 
         <div className="flex flex-col gap-6">
-          {/* AI card */}
-          <Card className="relative overflow-hidden p-6">
-            <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full ai-gradient opacity-20 blur-2xl animate-drift" />
-            <div className="relative">
-              <div className="flex items-center gap-3">
-                <AiOrb size={40} active />
-                <div>
-                  <div className="text-[13px] font-semibold text-foreground">IA Distill</div>
-                  <div className="text-[11px] text-muted-foreground">Ton assistant d&apos;étude</div>
-                </div>
-              </div>
-              <h3 className="mt-4 font-display text-[22px] leading-snug tracking-tight text-foreground">
-                Transforme tes notes <span className="ai-text">en révisions</span>.
-              </h3>
-              <p className="mt-1.5 text-sm text-muted-foreground">
-                Résumés et flashcards générés à partir de ton texte, d&apos;une photo ou d&apos;un PDF.
-              </p>
-              <Link
-                href="/distill"
-                className="mt-5 inline-flex items-center gap-2 rounded-full ai-gradient px-4 py-2.5 text-sm font-medium text-white shadow-[0_8px_24px_-10px_var(--ai-glow)] transition hover:-translate-y-px"
-              >
-                <Cards size={16} /> Générer maintenant
-              </Link>
+          {/* AI card — un raccourci discret, pas une bannière publicitaire :
+              pas de halo animé ni de gros bouton, juste l'orbe (déjà le
+              repère d'identité IA de l'app) et un lien texte. */}
+          <Card className="p-6">
+            <div className="flex items-center gap-3">
+              <AiOrb size={36} active />
+              <div className="text-[13px] font-semibold text-foreground">IA Distill</div>
             </div>
+            <h3 className="mt-4 font-display text-lg leading-snug tracking-tight text-foreground">
+              Transforme tes notes <span className="ai-text">en révisions</span>.
+            </h3>
+            <p className="mt-1.5 text-sm text-muted-foreground">
+              Résumés et flashcards générés à partir de ton texte, d&apos;une photo ou d&apos;un PDF.
+            </p>
+            <Link
+              href="/distill"
+              className="group mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-accent-dark transition-colors duration-200 hover:text-accent"
+            >
+              Générer maintenant
+              <ChevronRight
+                size={15}
+                className="transition-transform duration-200 group-hover:translate-x-0.5"
+                style={{ transitionTimingFunction: "var(--ease-signature)" }}
+              />
+            </Link>
           </Card>
 
           {/* Activity */}
@@ -156,23 +157,29 @@ export default function DashboardPage() {
             <div className="mb-3 flex items-center gap-2 text-[15px] font-semibold tracking-tight text-foreground">
               <Clock size={16} className="text-muted-foreground" /> Activité récente
             </div>
-            <ul className="space-y-1">
-              {mockHistoryItems.slice(0, 4).map((h, i) => (
-                <li
-                  key={h.id}
-                  className="flex animate-fade items-start gap-3 rounded-xl p-2 -m-2 transition-colors duration-300 hover:bg-secondary/60"
-                  style={staggerDelay(i)}
-                >
-                  <div className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
-                  <div className="min-w-0">
-                    <div className="truncate text-sm text-foreground">{h.title}</div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {h.action} · {h.time}
+            {/* Petite chronologie plutôt qu'une liste plate : un fil relie
+                les puces (même idée que "Comment ça marche" sur la
+                landing), à l'échelle d'une carte compacte. */}
+            <div className="relative">
+              <div aria-hidden="true" className="pointer-events-none absolute bottom-2 left-[3px] top-2 w-px bg-border" />
+              <ul className="space-y-1">
+                {mockHistoryItems.slice(0, 4).map((h, i) => (
+                  <li
+                    key={h.id}
+                    className="flex animate-fade items-start gap-3 rounded-xl p-2 -m-2 transition-colors duration-300 hover:bg-secondary/60"
+                    style={staggerDelay(i)}
+                  >
+                    <div className="relative z-10 mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary ring-4 ring-card" />
+                    <div className="min-w-0">
+                      <div className="truncate text-sm text-foreground">{h.title}</div>
+                      <div className="text-[11px] text-muted-foreground">
+                        {h.action} · {h.time}
+                      </div>
                     </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </Card>
         </div>
       </div>
