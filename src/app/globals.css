@@ -48,12 +48,14 @@
   --ai-3: #9b7cff;
   --ai-glow: rgba(75, 157, 255, 0.28);
 
-  /* Signature Team Brain (design, non fonctionnel) — dégradé ambre chaud,
-   * repris de la palette déjà utilisée pour le palier Intensif/premium
-   * (voir SubscriptionForm.tsx) plutôt qu'une nouvelle couleur de marque. */
-  --team: #d97706;
-  --team-2: #f59e0b;
-  --team-glow: rgba(217, 119, 6, 0.28);
+  /* Signature Team Brain — dégradé indigo, volontairement distinct du bleu
+   * cyan/azur de la signature IA (--ai-2) pour ne jamais se confondre avec
+   * elle à l'écran. Family propre à Team Brain plutôt que recyclée d'un
+   * palier tarifaire (l'ancien ambre reprenait la couleur du palier
+   * Intensif — plus le cas ici). */
+  --team: #3452b4;
+  --team-2: #5c7ce0;
+  --team-glow: rgba(52, 82, 180, 0.28);
 
   --canvas: #fbfaf6;
   --ink: #16231d;
@@ -102,9 +104,9 @@
   --ai-3: #a98bff;
   --ai-glow: rgba(90, 168, 255, 0.32);
 
-  --team: #f59e0b;
-  --team-2: #fbbf24;
-  --team-glow: rgba(245, 158, 11, 0.32);
+  --team: #7b9aef;
+  --team-2: #a7bdf5;
+  --team-glow: rgba(123, 154, 239, 0.32);
 
   --canvas: #101613;
   --ink: #e8ede9;

@@ -112,7 +112,7 @@ export function AppShell({ email, subscribed, children }: AppShellProps) {
             </div>
             <div className="truncate text-[11px] text-muted-foreground">Mémoire d&apos;équipe IA</div>
           </div>
-          <Badge className="shrink-0 bg-amber-100 text-amber-800">Team</Badge>
+          <Badge className="shrink-0 bg-[color-mix(in_srgb,var(--team)_16%,transparent)] text-[var(--team)]">Team</Badge>
         </Link>
 
         <div className="mt-auto space-y-1 pt-4">

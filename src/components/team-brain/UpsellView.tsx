@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { Badge, Button, buttonClasses } from "@/components/ui";
-import { Bolt, Brain, ChevronLeft, ChevronRight, Doc, FolderOpen, Lock, Shield, Users } from "@/lib/icons";
+import { BackLink, Badge, Button, buttonClasses } from "@/components/ui";
+import { Bolt, Brain, ChevronRight, Doc, FolderOpen, Lock, Shield, Users } from "@/lib/icons";
 import { CreateTeamForm } from "./CreateTeamForm";
 
 const FEATURES = [
@@ -21,9 +21,9 @@ const FEATURES = [
 export function UpsellView({ onUnlock }: { onUnlock: () => void }) {
   return (
     <div className="mx-auto max-w-[700px] animate-fade px-5 py-10 md:px-10">
-      <Link href="/dashboard" className="mb-8 flex items-center gap-1.5 text-sm text-muted-foreground transition hover:text-foreground">
-        <ChevronLeft size={15} /> Accueil
-      </Link>
+      <BackLink href="/dashboard" className="mb-8">
+        Accueil
+      </BackLink>
 
       <div className="paper-grain relative overflow-hidden rounded-3xl border border-border bg-card p-8 shadow-[var(--shadow-md)] md:p-12">
         <div
@@ -53,9 +53,13 @@ export function UpsellView({ onUnlock }: { onUnlock: () => void }) {
             notes, l&apos;IA répond en citant la source exacte — jamais de réponse inventée.
           </p>
 
-          <div className="mt-8 grid gap-3 sm:grid-cols-2">
+          {/* Liste de fonctionnalités sans encadré — six boîtes bordées
+              identiques auraient répété le même motif "grille de cartes"
+              déjà retiré ailleurs sur le site ; ici juste icône + texte,
+              avec assez de respiration pour se passer de bordure. */}
+          <div className="mt-9 grid gap-x-8 gap-y-5 sm:grid-cols-2">
             {FEATURES.map(({ icon: Icon, label, desc }) => (
-              <div key={label} className="flex items-start gap-3 rounded-2xl border border-border bg-background/60 p-4">
+              <div key={label} className="flex items-start gap-3">
                 <div
                   className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-white"
                   style={{ background: "color-mix(in srgb, var(--team) 85%, var(--team-2))" }}
@@ -64,7 +68,7 @@ export function UpsellView({ onUnlock }: { onUnlock: () => void }) {
                 </div>
                 <div>
                   <div className="text-[13px] font-semibold text-foreground">{label}</div>
-                  <div className="mt-0.5 text-[12px] text-muted-foreground">{desc}</div>
+                  <div className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">{desc}</div>
                 </div>
               </div>
             ))}
