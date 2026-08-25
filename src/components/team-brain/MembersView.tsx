@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Card } from "@/components/ui";
-import { Check, ChevronLeft, Close, Crown, Doc, Plus, Shield, Users } from "@/lib/icons";
+import { BackLink, Card, staggerDelay } from "@/components/ui";
+import { Check, Close, Crown, Doc, Plus, Shield, Users } from "@/lib/icons";
 import { ComingSoonToast, useComingSoonToast } from "./ComingSoonToast";
 import { TEAM_BRAIN_ROLE_CONFIG } from "@/lib/teamBrainMockData";
 import type { TeamBrainMember } from "@/lib/teamBrainMockData";
@@ -20,10 +20,10 @@ const PERMISSIONS_BY_ROLE = (role: keyof typeof TEAM_BRAIN_ROLE_CONFIG) => [
   { label: "Docs privés des autres", allowed: false },
 ];
 
-function MemberCard({ member }: { member: TeamBrainMember }) {
+function MemberCard({ member, index }: { member: TeamBrainMember; index: number }) {
   const rc = TEAM_BRAIN_ROLE_CONFIG[member.role];
   return (
-    <Card className="flex items-center gap-4 p-4">
+    <Card className="flex animate-fade items-center gap-4 p-4" style={staggerDelay(index)}>
       <div
         className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[13px] font-bold text-white"
         style={{ background: member.color }}
@@ -73,13 +73,9 @@ export function MembersView({
   return (
     <div className="mx-auto max-w-[720px] animate-fade px-5 py-8 md:px-10 md:py-12">
       <ComingSoonToast visible={comingSoonVisible} />
-      <button
-        type="button"
-        onClick={onBack}
-        className="mb-8 flex items-center gap-1.5 text-sm text-muted-foreground transition hover:text-foreground"
-      >
-        <ChevronLeft size={15} /> Workspace
-      </button>
+      <BackLink onClick={onBack} className="mb-8">
+        Workspace
+      </BackLink>
 
       <div className="mb-7 flex items-center justify-between gap-4">
         <div>
@@ -118,8 +114,8 @@ export function MembersView({
 
       {activeTab === "members" && (
         <div className="animate-fade space-y-2">
-          {members.map((m) => (
-            <MemberCard key={m.id} member={m} />
+          {members.map((m, i) => (
+            <MemberCard key={m.id} member={m} index={i} />
           ))}
 
           <div className="mt-4 flex items-start gap-3 rounded-2xl border border-border bg-card p-4 text-[13px]">
