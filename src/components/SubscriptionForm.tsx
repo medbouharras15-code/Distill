@@ -1,9 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { AiOrb } from "@/components/Brand";
 import { Badge, Card, buttonClasses, staggerDelay } from "@/components/ui";
-import { Bolt, Check, Sparkle, Star } from "@/lib/icons";
+import { Bolt, Brain, Check, ChevronRight, Sparkle, Star } from "@/lib/icons";
 import { useSubscriptionActions } from "@/lib/useSubscriptionActions";
 
 interface TierFeature {
@@ -232,7 +233,37 @@ export function SubscriptionForm({ subscribed, remaining, checkoutStatus }: Subs
         })}
       </div>
 
-      <div className="mt-10 flex items-center gap-3 rounded-xl border border-border bg-card p-4">
+      {/* Offre équipe, distincte des 3 paliers individuels ci-dessus
+          (tarif dégressif par siège plutôt qu'un prix fixe) — bannière à
+          part avec l'identité bleue de Team Brain plutôt qu'une 4e carte
+          dans une grille pensée pour comparer des offres individuelles. */}
+      <Link
+        href="/subscription/team"
+        className="group mt-6 flex items-center gap-4 rounded-2xl border border-border bg-card p-5 shadow-[var(--shadow-sm)] transition-all duration-200 hover:-translate-y-px hover:shadow-[var(--shadow-md)]"
+      >
+        <div
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white"
+          style={{ background: "linear-gradient(135deg, var(--team) 0%, var(--team-2) 100%)" }}
+        >
+          <Brain size={20} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="font-display text-base font-medium text-foreground">Business Team</div>
+          <div className="mt-0.5 text-[13px] text-muted-foreground">
+            Une mémoire collective d&apos;équipe, interrogeable par IA — tarif dégressif par siège.
+          </div>
+        </div>
+        <span className="hidden shrink-0 items-center gap-1 text-sm font-medium sm:flex" style={{ color: "var(--team)" }}>
+          Découvrir l&apos;offre
+          <ChevronRight
+            size={16}
+            className="transition-transform duration-200 group-hover:translate-x-0.5"
+            style={{ transitionTimingFunction: "var(--ease-signature)" }}
+          />
+        </span>
+      </Link>
+
+      <div className="mt-6 flex items-center gap-3 rounded-xl border border-border bg-card p-4">
         <AiOrb size={28} />
         <p className="text-xs text-muted-foreground">
           Résumés, flashcards et QCM générés par Claude (Anthropic), à partir de texte, d&apos;une photo ou d&apos;un PDF.
