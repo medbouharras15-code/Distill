@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { AiOrb } from "@/components/Brand";
-import { Badge, Card, Eyebrow } from "@/components/ui";
+import { Badge, Eyebrow } from "@/components/ui";
 import { Reveal } from "./Reveal";
 
 type Tab = "summary" | "flashcards" | "editor";
@@ -20,6 +20,7 @@ const flashcards = [
 
 export function ProductPreview() {
   const [tab, setTab] = useState<Tab>("summary");
+  const activeIndex = tabs.findIndex((t) => t.id === tab);
 
   return (
     <section className="mx-auto max-w-7xl px-6 py-20 sm:px-8 sm:py-28">
@@ -31,14 +32,28 @@ export function ProductPreview() {
       </Reveal>
 
       <Reveal delayMs={100} className="mt-12">
-        <div className="mx-auto flex w-fit gap-1.5 rounded-full border border-border bg-card p-1.5">
+        {/* Sélecteur en pilule glissante — mêmes proportions (largeur de
+            bouton fixe et identique, sans espace entre eux) que le toggle
+            déjà utilisé dans le panneau IA, pour que l'indicateur glisse
+            exactement à la bonne position sans calcul de pixels fragile. */}
+        <div className="relative mx-auto flex w-fit rounded-full border border-border bg-card p-1 shadow-[var(--shadow-sm)]">
+          <span
+            aria-hidden="true"
+            className="absolute inset-y-1 rounded-full bg-secondary shadow-[var(--shadow-sm)] transition-transform duration-300"
+            style={{
+              width: "calc((100% - 8px) / 3)",
+              left: 4,
+              transform: `translateX(calc(${activeIndex} * 100%))`,
+              transitionTimingFunction: "var(--ease-signature)",
+            }}
+          />
           {tabs.map((t) => (
             <button
               key={t.id}
               type="button"
               onClick={() => setTab(t.id)}
-              className={`rounded-full px-4 py-2 text-[13px] font-medium transition-all duration-200 ${
-                tab === t.id ? "bg-secondary text-foreground shadow-[var(--shadow-sm)]" : "text-muted-foreground hover:text-foreground"
+              className={`relative z-10 w-28 shrink-0 rounded-full px-3 py-2 text-center text-[13px] font-medium transition-colors duration-200 sm:w-32 ${
+                tab === t.id ? "text-foreground" : "text-muted-foreground hover:text-foreground"
               }`}
             >
               {t.label}
@@ -46,8 +61,27 @@ export function ProductPreview() {
           ))}
         </div>
 
-        <div className="mx-auto mt-8 max-w-3xl">
-          <Card className="min-h-[320px] overflow-hidden p-6 sm:p-10">
+        <div className="relative mx-auto mt-8 max-w-3xl overflow-hidden rounded-[calc(var(--radius)+6px)] border border-border bg-card shadow-[var(--shadow-lg)]">
+          {/* Halo décoratif, clipsé par overflow-hidden du conteneur — même
+              technique que le Hero/CTA final (color-mix sur --accent),
+              plutôt qu'une nouvelle couleur. */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full opacity-40 blur-[90px]"
+            style={{ background: "radial-gradient(circle, color-mix(in srgb, var(--accent) 22%, transparent) 0%, transparent 70%)" }}
+          />
+
+          {/* Chrome de fenêtre persistant — identique sur les 3 onglets,
+              pour que basculer d'un onglet à l'autre se lise comme naviguer
+              dans une seule fenêtre plutôt que changer de carte. */}
+          <div className="relative flex items-center gap-2 border-b border-border bg-background-alt/60 px-5 py-3.5">
+            {["#0f7a63", "#3b6ee0", "#c9436f"].map((c) => (
+              <span key={c} className="h-2.5 w-2.5 rounded-full" style={{ background: c }} aria-hidden="true" />
+            ))}
+            <span className="ml-2 font-mono text-[11px] text-muted-foreground/70">distill.app</span>
+          </div>
+
+          <div className="relative min-h-[320px] p-6 sm:p-10">
             {tab === "summary" && (
               <div className="animate-fade">
                 <Badge className="bg-accent-light/60 text-accent-dark">Résumé · en 5 s</Badge>
@@ -80,14 +114,9 @@ export function ProductPreview() {
 
             {tab === "editor" && (
               <div className="animate-fade">
-                <div className="flex items-center gap-2">
-                  {["#0f7a63", "#3b6ee0", "#c9436f"].map((c) => (
-                    <span key={c} className="h-3 w-3 rounded-full" style={{ background: c }} />
-                  ))}
-                  <span className="ml-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <AiOrb size={16} /> Panneau IA intégré
-                  </span>
-                </div>
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <AiOrb size={16} /> Panneau IA intégré
+                </span>
                 <div
                   className="mt-5 rounded-xl border border-border p-6"
                   style={{
@@ -101,7 +130,7 @@ export function ProductPreview() {
                 </div>
               </div>
             )}
-          </Card>
+          </div>
         </div>
       </Reveal>
     </section>
