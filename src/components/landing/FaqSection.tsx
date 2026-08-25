@@ -48,15 +48,25 @@ const items = [
 
 export function FaqSection() {
   return (
-    <section className="mx-auto max-w-3xl px-6 py-20 sm:px-8 sm:py-24">
-      <Reveal className="text-center">
+    <section className="relative mx-auto max-w-3xl px-6 py-20 sm:px-8 sm:py-28">
+      {/* Halo discret, cohérent avec le reste de la page (même technique
+          color-mix que Hero/Aperçu produit/Mode Explication) — volontaire-
+          ment plus subtil ici, section de contenu dense plutôt que moment
+          de mise en avant. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute left-1/2 top-0 h-72 w-72 -translate-x-1/2 rounded-full opacity-25 blur-[100px]"
+        style={{ background: "radial-gradient(circle, color-mix(in srgb, var(--accent) 20%, transparent) 0%, transparent 70%)" }}
+      />
+
+      <Reveal className="relative text-center">
         <Eyebrow>Questions fréquentes</Eyebrow>
         <h2 className="mt-4 font-display text-3xl font-medium tracking-[-0.02em] text-foreground sm:text-4xl">
           Tout ce qu&apos;il faut savoir.
         </h2>
       </Reveal>
 
-      <Reveal delayMs={100} className="mt-10">
+      <Reveal delayMs={100} className="relative mt-12">
         <FaqAccordion items={items} />
       </Reveal>
     </section>
