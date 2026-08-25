@@ -80,8 +80,16 @@ export default function DashboardPage() {
         <section>
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-[15px] font-semibold tracking-tight text-foreground">Carnets récents</h2>
-            <Link href="/notebooks" className="flex items-center gap-1 text-sm text-muted-foreground transition hover:text-foreground">
-              Voir tout <ChevronRight size={15} />
+            <Link
+              href="/notebooks"
+              className="group flex items-center gap-1 text-sm text-muted-foreground transition-colors duration-200 hover:text-foreground"
+            >
+              Voir tout
+              <ChevronRight
+                size={15}
+                className="transition-transform duration-200 group-hover:translate-x-0.5"
+                style={{ transitionTimingFunction: "var(--ease-signature)" }}
+              />
             </Link>
           </div>
           <div className="space-y-3">
@@ -89,22 +97,24 @@ export default function DashboardPage() {
               const ratio = PAPER_SIZES.find((p) => p.value === n.paperSize)?.ratio ?? PAPER_SIZES[0].ratio;
               return (
                 <Link key={n.id} href="/notes" className="group block w-full text-left">
-                  <Card className="card-hover flex animate-fade items-center gap-4 overflow-hidden p-3" style={staggerDelay(i)}>
-                    <div className="relative h-20 w-16 shrink-0 overflow-hidden rounded-xl">
-                      <SheetPreview sheetType={n.sheetType} backgroundColor="#ffffff" ratio={ratio} width={64} className="h-full w-full" />
-                      <span className="absolute left-0 top-0 h-full w-1" style={{ background: n.color }} />
+                  <Card className="card-hover flex animate-fade items-center gap-4 overflow-hidden p-4" style={staggerDelay(i)}>
+                    <div className="h-24 w-[72px] shrink-0 overflow-hidden rounded-xl">
+                      <SheetPreview sheetType={n.sheetType} backgroundColor="#ffffff" ratio={ratio} width={72} className="h-full w-full" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                        <span className="h-2 w-2 rounded-full" style={{ background: n.color }} /> {n.subject}
+                        <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: n.color }} aria-hidden="true" /> {n.subject}
                       </div>
-                      <div className="mt-1 truncate font-medium text-foreground">{n.title}</div>
+                      <div className="mt-1.5 truncate font-medium text-foreground">{n.title}</div>
                       <div className="mt-1.5 flex items-center gap-2 text-[11px] text-muted-foreground">
                         <Badge className="bg-secondary text-secondary-foreground">{n.pages} pages</Badge>
                         <span>{n.updated}</span>
                       </div>
                     </div>
-                    <span className="text-muted-foreground opacity-0 transition group-hover:translate-x-0 group-hover:opacity-100">
+                    <span
+                      className="text-muted-foreground opacity-0 transition-all duration-200 group-hover:translate-x-0.5 group-hover:opacity-100"
+                      style={{ transitionTimingFunction: "var(--ease-signature)" }}
+                    >
                       <ChevronRight size={20} />
                     </span>
                   </Card>
