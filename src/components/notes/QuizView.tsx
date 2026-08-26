@@ -82,6 +82,12 @@ export function QuizView({ quiz, onRegenerate }: QuizViewProps) {
         isCorrect: isExactMatch(answers[i] ?? new Set(), q.correctChoiceIds),
       })),
     };
+    // Diagnostic : à comparer avec ce qui s'affiche en vert/rouge juste en
+    // dessous (correction détaillée) et avec le log serveur
+    // "[quiz-attempts] Réponses enregistrées" — permet de savoir si un
+    // éventuel écart vient du calcul côté client ou de la suite de la
+    // chaîne (réseau, serveur, lecture).
+    console.log("[QuizView] Envoi à /api/quiz-attempts :", payload.answers);
     fetch("/api/quiz-attempts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

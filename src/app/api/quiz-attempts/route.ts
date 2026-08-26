@@ -70,10 +70,13 @@ export async function POST(request: Request) {
   // "répartition par thème" ci-dessous, qui montre les thèmes encore sous
   // le seuil MIN_ATTEMPTS_PER_THEME (donc absents de la réponse renvoyée
   // au client).
+  // Le detail par réponse (pas seulement les thèmes) est indispensable ici :
+  // c'est le seul moyen de vérifier, via les logs serveur, que isCorrect
+  // reçu correspond bien à ce que l'utilisateur voit affiché côté client.
   console.log("[quiz-attempts] Réponses enregistrées :", {
     userId: auth.user.id,
     count: answers.length,
-    themes: [...new Set(answers.map((a) => a.theme))],
+    answers: answers.map((a) => ({ theme: a.theme, isCorrect: a.isCorrect })),
   });
 
   const supabase = await createClient();
