@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Card, buttonClasses } from "@/components/ui";
 import { Check, Close, Sparkle } from "@/lib/icons";
 import { DistillMark } from "@/components/Brand";
-import type { QuizQuestion } from "@/lib/types";
+import type { QuizAttemptsResponseBody, QuizQuestion, QuizThemeStat } from "@/lib/types";
 
 interface QuizViewProps {
   quiz: QuizQuestion[];
@@ -33,6 +33,10 @@ export function QuizView({ quiz }: QuizViewProps) {
   const [answers, setAnswers] = useState<Record<number, Set<string>>>({});
   const [submitted, setSubmitted] = useState(false);
   const [showDroplet, setShowDroplet] = useState(false);
+  /** `null` tant que l'enregistrement des réponses n'a pas encore répondu
+   * (ou a échoué) — la carte "Points faibles" ci-dessous reste alors
+   * simplement absente, jamais bloquante pour la correction du QCM. */
+  const [themeStats, setThemeStats] = useState<QuizThemeStat[] | null>(null);
 
   function toggleChoice(questionIndex: number, choiceId: string, isMultiple: boolean) {
     if (submitted) return;
@@ -61,12 +65,36 @@ export function QuizView({ quiz }: QuizViewProps) {
       window.setTimeout(() => setShowDroplet(true), 500);
       window.setTimeout(() => setShowDroplet(false), 3000);
     }
+
+    // Détection de lacunes : envoi en arrière-plan, jamais bloquant pour
+    // l'affichage de la correction — un échec réseau laisse simplement
+    // themeStats à null (carte "Points faibles" absente).
+    const payload = {
+      answers: quiz.map((q, i) => ({
+        theme: q.theme,
+        question: q.question,
+        isCorrect: isExactMatch(answers[i] ?? new Set(), q.correctChoiceIds),
+      })),
+    };
+    fetch("/api/quiz-attempts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+      .then((res) => (res.ok ? (res.json() as Promise<QuizAttemptsResponseBody>) : null))
+      .then((data) => {
+        if (data) setThemeStats(data.themes);
+      })
+      .catch(() => {
+        // Silencieux, voir commentaire ci-dessus.
+      });
   }
 
   function retry() {
     setAnswers({});
     setSubmitted(false);
     setShowDroplet(false);
+    setThemeStats(null);
   }
 
   const answeredCount = Object.values(answers).filter((s) => s.size > 0).length;
@@ -204,6 +232,52 @@ export function QuizView({ quiz }: QuizViewProps) {
           <div className="mt-2 font-mono text-[12px] text-muted-foreground">{pct}%</div>
         </div>
       </Card>
+
+      {/* Détection de lacunes — cumulée sur tout l'historique de QCM de
+          l'utilisateur (pas seulement celui-ci), voir /api/quiz-attempts.
+          Absente tant que themeStats est null (requête en cours ou échouée),
+          jamais bloquante pour le reste de la correction. */}
+      {themeStats && themeStats.length > 0 && (
+        <Card className="p-6">
+          <div className="flex items-center gap-2 text-[15px] font-semibold tracking-tight text-foreground">
+            <Sparkle size={16} className="text-primary" /> Points faibles à réviser en priorité
+          </div>
+          <p className="mt-1 text-[13px] text-muted-foreground">
+            D&apos;après l&apos;ensemble de tes QCM, du thème le plus fragile au plus solide.
+          </p>
+          <div className="mt-4 space-y-3">
+            {themeStats.slice(0, 5).map((t) => (
+              <div key={t.theme}>
+                <div className="flex items-center justify-between gap-2 text-[13px]">
+                  <span className="truncate font-medium text-foreground">{t.theme}</span>
+                  <span className="shrink-0 tabular-nums text-muted-foreground">
+                    {t.accuracy}% · {t.correct}/{t.total}
+                  </span>
+                </div>
+                <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-secondary">
+                  <div
+                    className="h-full rounded-full transition-all duration-700"
+                    style={{
+                      width: `${t.accuracy}%`,
+                      background:
+                        t.accuracy < 50 ? "#ef4444" : t.accuracy < 75 ? "#f59e0b" : "var(--ai-1)",
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+      {themeStats && themeStats.length === 0 && (
+        <Card className="flex items-center gap-3 p-5">
+          <Sparkle size={16} className="shrink-0 text-muted-foreground" />
+          <p className="text-[13px] text-muted-foreground">
+            Pas encore assez de données pour une analyse de lacunes fiable (3 réponses minimum sur un même thème) —
+            continue à faire des QCM, elle apparaîtra ici.
+          </p>
+        </Card>
+      )}
 
       {/* Correction détaillée */}
       {quiz.map((q, i) => {

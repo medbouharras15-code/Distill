@@ -73,6 +73,8 @@ export function isQuizQuestion(value: unknown): value is QuizQuestion {
 
   if (v.explanation !== undefined && typeof v.explanation !== "string") return false;
 
+  if (typeof v.theme !== "string" || v.theme.trim().length === 0) return false;
+
   return true;
 }
 

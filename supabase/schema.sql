@@ -94,8 +94,36 @@ create policy "Un utilisateur voit ses propres événements de consommation IA"
 -- "service role" (qui contourne RLS), peut écrire ces lignes — même
 -- principe que generations_used sur profiles.
 
+-- 5. Détection de lacunes : une ligne par question de QCM corrigée, pour
+-- calculer le taux de réussite par thème (voir @/app/api/quiz-attempts et
+-- QuizView, qui envoie ces lignes une fois le QCM validé). Même principe
+-- que ai_usage_events ci-dessus : table plate par utilisateur, écrite
+-- uniquement par le serveur via la clé "service role".
+create table if not exists public.quiz_answers (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  -- Thème inféré par le modèle à la génération du QCM (voir QuizQuestion.theme
+  -- dans @/lib/types) — pas de table de thèmes séparée : un simple texte
+  -- suffit pour regrouper par égalité exacte.
+  theme text not null,
+  question_text text not null,
+  is_correct boolean not null
+);
+
+create index if not exists quiz_answers_user_id_theme_idx
+  on public.quiz_answers (user_id, theme);
+
+alter table public.quiz_answers enable row level security;
+
+create policy "Un utilisateur voit ses propres réponses de QCM"
+  on public.quiz_answers for select
+  using (auth.uid() = user_id);
+
+-- Aucune policy insert/update/delete : mêmes principes que ai_usage_events.
+
 -- ═════════════════════════════════════════════════════════════════════
--- 5. Team Brain — chantier complet (étapes 1-4/4, voir plan validé avec
+-- 6. Team Brain — chantier complet (étapes 1-4/4, voir plan validé avec
 -- l'utilisateur). Schéma + RLS (étape 1), pipeline d'indexation (étape 2,
 -- voir @/lib/teamBrainIndexing.ts), recherche/génération (étape 3, voir
 -- @/lib/teamBrainSearch.ts et team_brain_match_chunks ci-dessous) et

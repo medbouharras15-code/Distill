@@ -22,6 +22,10 @@ export interface QuizQuestion {
    * uniquement de la longueur de ce tableau. */
   correctChoiceIds: string[];
   explanation?: string;
+  /** Thème court (2-4 mots) inféré par le modèle à partir du contenu source
+   * de la question, ex. "Cycle de Krebs" — sert à regrouper les réponses par
+   * sujet pour la détection de lacunes (voir @/app/api/quiz-attempts). */
+  theme: string;
 }
 
 export interface DistillResult {
@@ -68,6 +72,30 @@ export interface QuizRequestBody {
 
 export interface QuizGenerationResult {
   quiz: QuizQuestion[];
+}
+
+/** Corps de la requête vers POST /api/quiz-attempts — envoyée par QuizView
+ * une fois le QCM corrigé, pour enregistrer chaque réponse et recevoir en
+ * retour l'analyse de lacunes à jour (voir QuizThemeStat ci-dessous). */
+export interface QuizAttemptsRequestBody {
+  answers: { theme: string; question: string; isCorrect: boolean }[];
+}
+
+/** Bilan par thème, cumulé sur toutes les réponses déjà enregistrées de
+ * l'utilisateur (pas seulement celles du QCM qui vient d'être corrigé) —
+ * trié du thème le plus fragile au plus solide (accuracy croissante). Un
+ * thème n'apparaît ici qu'à partir de QUIZ_ATTEMPTS_MIN_PER_THEME réponses
+ * (voir @/app/api/quiz-attempts/route.ts), pour ne pas juger un thème sur
+ * une seule question. */
+export interface QuizThemeStat {
+  theme: string;
+  total: number;
+  correct: number;
+  accuracy: number;
+}
+
+export interface QuizAttemptsResponseBody {
+  themes: QuizThemeStat[];
 }
 
 /** Citation d'un passage exact des notes sources, retournée par le modèle

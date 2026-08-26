@@ -53,6 +53,11 @@ Ceci est un résumé factice — aucun appel à l'API Anthropic n'a été effect
   };
 }
 
+// Thèmes factices variés (mode simulation) : quelques questions par thème
+// pour pouvoir tester l'analyse de lacunes (regroupement + seuil minimum)
+// sans appel réel à Claude.
+const FAKE_QUIZ_THEMES = ["Thème simulé A", "Thème simulé B", "Thème simulé C"];
+
 export async function buildFakeQuizResult(questionCount: number): Promise<QuizQuestion[]> {
   await simulateLatency();
   return Array.from({ length: questionCount }, (_, i) => {
@@ -65,6 +70,7 @@ export async function buildFakeQuizResult(questionCount: number): Promise<QuizQu
       })),
       correctChoiceIds: isMultiple ? ["a", "b"] : ["a"],
       explanation: `Explication factice pour la question ${i + 1} — mode simulation, aucune vraie analyse.`,
+      theme: FAKE_QUIZ_THEMES[i % FAKE_QUIZ_THEMES.length],
     };
   });
 }

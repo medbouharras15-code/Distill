@@ -37,7 +37,8 @@ function buildQuizInstructions(difficulty: QuizDifficulty): string {
 - Vise un mélange équilibré entre questions à réponse unique et à réponses multiples (ni l'un ni l'autre en écrasante majorité).
 - Pour chaque question, fournis une courte explication (1 à 2 phrases) justifiant la ou les bonnes réponses.
 - Chaque proposition a un identifiant "id" à une seule lettre, unique au sein de sa question ("a", "b", "c", "d", éventuellement "e").
-Format JSON attendu : {"quiz": [{"question": "...", "choices": [{"id": "a", "text": "..."}, {"id": "b", "text": "..."}], "correctChoiceIds": ["a"], "explanation": "..."}]}`;
+- Pour chaque question, indique aussi un thème court (2 à 4 mots, ex. "Cycle de Krebs", "Théorème de Pythagore") qui résume précisément la notion évaluée par cette question — utilisé pour repérer les points faibles récurrents de l'étudiant. Deux questions portant sur la même notion doivent recevoir exactement le même thème (même orthographe, mêmes mots) ; ne fusionne pas des notions différentes sous un thème trop large.
+Format JSON attendu : {"quiz": [{"question": "...", "choices": [{"id": "a", "text": "..."}, {"id": "b", "text": "..."}], "correctChoiceIds": ["a"], "explanation": "...", "theme": "..."}]}`;
 }
 
 // Même contenu source que /api/distill (texte/photo/PDF) : peut prendre un
