@@ -79,7 +79,7 @@ export async function POST(request: Request) {
   const supabase = await createClient();
   const { data, error: readError } = await supabase
     .from("quiz_answers")
-    .select("theme, is_correct")
+    .select("theme, is_correct, created_at")
     .eq("user_id", auth.user.id);
 
   if (readError || !data) {
@@ -87,11 +87,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ themes: [] } satisfies QuizAttemptsResponseBody);
   }
 
-  const byTheme = new Map<string, { total: number; correct: number }>();
-  for (const row of data as { theme: string; is_correct: boolean }[]) {
-    const stat = byTheme.get(row.theme) ?? { total: 0, correct: 0 };
+  // lastAnsweredAt sert uniquement de critère de départage ci-dessous (voir
+  // le tri), jamais renvoyé au client — sans lui, deux thèmes à égalité de
+  // précision (fréquent avec de petits échantillons : 0 %, 33 %, 50 %…)
+  // gardaient l'ordre d'insertion, qui favorise arbitrairement les thèmes
+  // les plus anciens au détriment de sujets tout aussi fragiles mais testés
+  // plus récemment.
+  const byTheme = new Map<string, { total: number; correct: number; lastAnsweredAt: string }>();
+  for (const row of data as { theme: string; is_correct: boolean; created_at: string }[]) {
+    const stat = byTheme.get(row.theme) ?? { total: 0, correct: 0, lastAnsweredAt: row.created_at };
     stat.total += 1;
     if (row.is_correct) stat.correct += 1;
+    if (row.created_at > stat.lastAnsweredAt) stat.lastAnsweredAt = row.created_at;
     byTheme.set(row.theme, stat);
   }
 
@@ -102,13 +109,19 @@ export async function POST(request: Request) {
 
   const themes: QuizThemeStat[] = Array.from(byTheme.entries())
     .filter(([, s]) => s.total >= MIN_ATTEMPTS_PER_THEME)
+    // Taux de réussite croissant (le plus fragile en premier, sur le ratio
+    // brut plutôt que l'accuracy arrondie affichée ensuite) ; à égalité, le
+    // thème testé le plus récemment passe devant — voir le commentaire sur
+    // lastAnsweredAt ci-dessus.
+    .sort(
+      ([, a], [, b]) => a.correct / a.total - b.correct / b.total || b.lastAnsweredAt.localeCompare(a.lastAnsweredAt),
+    )
     .map(([theme, s]) => ({
       theme,
       total: s.total,
       correct: s.correct,
       accuracy: Math.round((s.correct / s.total) * 100),
-    }))
-    .sort((a, b) => a.accuracy - b.accuracy);
+    }));
 
   return NextResponse.json({ themes } satisfies QuizAttemptsResponseBody);
 }
