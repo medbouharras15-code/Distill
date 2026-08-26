@@ -72,11 +72,16 @@ export async function POST(request: Request) {
   // au client).
   // Le detail par réponse (pas seulement les thèmes) est indispensable ici :
   // c'est le seul moyen de vérifier, via les logs serveur, que isCorrect
-  // reçu correspond bien à ce que l'utilisateur voit affiché côté client.
+  // reçu correspond bien à ce que l'utilisateur voit affiché côté client. Un
+  // aperçu de la question (80 caractères) est inclus pour permettre de
+  // reconnaître la question visuellement dans ce seul log, sans avoir besoin
+  // d'accéder à la console du navigateur (impossible sur certains appareils,
+  // ex. iPad) — le thème seul ne suffit pas si plusieurs questions d'un même
+  // QCM partagent le même thème.
   console.log("[quiz-attempts] Réponses enregistrées :", {
     userId: auth.user.id,
     count: answers.length,
-    answers: answers.map((a) => ({ theme: a.theme, isCorrect: a.isCorrect })),
+    answers: answers.map((a) => ({ theme: a.theme, isCorrect: a.isCorrect, question: a.question.slice(0, 80) })),
   });
 
   const supabase = await createClient();
