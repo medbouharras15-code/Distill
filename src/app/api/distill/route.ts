@@ -26,7 +26,9 @@ import type { DistillRequestBody, DistillResult } from "@/lib/types";
 // séparément par /api/distill/quiz (appel indépendant, lancé une fois ce
 // résumé affiché) : cette route n'en a plus la charge, ce qui garde le
 // premier affichage rapide comme avant l'introduction du QCM.
-const RESUME_INSTRUCTIONS = `Génère un résumé structuré (titre, sections, points clés en gras) et 8 à 10 flashcards (question/réponse) à partir de ce contenu. Format JSON attendu : {"summary": "...", "flashcards": [{"question": "...", "answer": "..."}]}`;
+const RESUME_INSTRUCTIONS = `Génère un résumé et 8 à 10 flashcards (question/réponse) à partir de ce contenu.
+- "summary" doit être une SEULE chaîne de texte au format Markdown (jamais un objet JSON imbriqué, même si le contenu source est lui-même très structuré en de nombreuses sections) : utilise des titres Markdown (## Titre de section), des puces (- point) et du gras (**terme important**) directement à l'intérieur de cette chaîne pour restituer la structure.
+Format JSON attendu : {"summary": "## Titre\\n\\nTexte...\\n\\n## Autre section\\n- point 1\\n- point 2", "flashcards": [{"question": "...", "answer": "..."}]}`;
 
 // Depuis le passage des PDF à Vercel Blob, cette route peut recevoir des
 // documents nettement plus lourds (jusqu'à 15 Mo) qu'auparavant — Claude met
@@ -35,16 +37,73 @@ const RESUME_INSTRUCTIONS = `Génère un résumé structuré (titre, sections, p
 // Alignée sur la même marge que /api/distill/quiz.
 export const maxDuration = 300;
 
-function isDistillResult(value: unknown): value is DistillResult {
+interface DistillCandidate {
+  summary: string | Record<string, unknown>;
+  flashcards: { question: string; answer: string }[];
+}
+
+/** Accepte "summary" sous forme de chaîne (format demandé, voir
+ * RESUME_INSTRUCTIONS) OU d'objet JSON imbriqué (titre/sections/points…) —
+ * malgré l'instruction explicite, le modèle a tendance à structurer le
+ * résumé en JSON plutôt qu'en Markdown plat quand le contenu source est
+ * lui-même très sectionné (ex. un cours avec de nombreux titres). Rejeter la
+ * distillation entière pour ce simple écart de présentation serait trop
+ * strict — voir flattenSummaryValue, qui l'aplatit en Markdown ci-dessous. */
+function isDistillCandidate(value: unknown): value is DistillCandidate {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
-  if (typeof v.summary !== "string") return false;
+
+  const summaryOk =
+    typeof v.summary === "string" ||
+    (v.summary !== null && typeof v.summary === "object" && !Array.isArray(v.summary));
+  if (!summaryOk) return false;
+
   if (!Array.isArray(v.flashcards)) return false;
   return v.flashcards.every((card) => {
     if (!card || typeof card !== "object") return false;
     const c = card as Record<string, unknown>;
     return typeof c.question === "string" && typeof c.answer === "string";
   });
+}
+
+/** Aplatit récursivement un résumé structuré en JSON (voir isDistillCandidate
+ * ci-dessus) en une seule chaîne Markdown affichable par SummaryView
+ * (@/components/notes/AiPanel, rendu via ReactMarkdown) : un objet avec un
+ * champ title/titre devient un titre de section, un tableau devient une
+ * liste à puces, tout le reste est concaténé en paragraphes. `depth`
+ * n'augmente qu'aux niveaux qui produisent réellement un titre (un objet
+ * sans title/titre, ex. un simple dictionnaire de sous-sections, ne compte
+ * pas comme un niveau à part entière) pour que la hiérarchie de titres reste
+ * cohérente même à travers un niveau d'imbrication purement technique. */
+function flattenSummaryValue(value: unknown, depth = 2): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === "string" ? `- ${item}` : flattenSummaryValue(item, depth)))
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    const titleEntry = entries.find(([key]) => key.toLowerCase() === "title" || key.toLowerCase() === "titre");
+    const heading = titleEntry ? String(titleEntry[1]) : null;
+    const nextDepth = heading ? depth + 1 : depth;
+    const body = entries
+      .filter(([key]) => key !== titleEntry?.[0])
+      .map(([, v]) => flattenSummaryValue(v, nextDepth))
+      .filter(Boolean)
+      .join("\n\n");
+    return heading ? `${"#".repeat(Math.min(depth, 6))} ${heading}\n\n${body}` : body;
+  }
+
+  return "";
+}
+
+function normalizeDistillSummary(summary: string | Record<string, unknown>): string {
+  return typeof summary === "string" ? summary.trim() : flattenSummaryValue(summary).trim();
 }
 
 export async function POST(request: Request) {
@@ -137,8 +196,11 @@ export async function POST(request: Request) {
       const content = [...withCacheControl(sourceContent), { type: "text" as const, text: RESUME_INSTRUCTIONS }];
       const client = new Anthropic({ apiKey });
 
+      // Légère marge au-delà de la valeur d'origine : la mise en forme
+      // Markdown désormais explicitement demandée dans summary (titres,
+      // puces) ajoute un peu de volume par rapport à un texte brut.
       const response = await callClaudeWithFallback(client, {
-        maxTokens: 4096,
+        maxTokens: 6000,
         system: SHARED_TASK_SYSTEM_PROMPT,
         content,
       });
@@ -160,6 +222,23 @@ export async function POST(request: Request) {
               "Le modèle n'a pas pu traiter ce contenu. Essayez avec un autre texte ou fichier.",
           },
           { status: 422 },
+        );
+      }
+
+      // Une réponse tronquée par la limite de tokens ne peut jamais former un
+      // JSON valide (coupée en plein milieu) — mieux vaut le dire clairement
+      // que de laisser extractJson échouer plus bas avec une erreur générique
+      // (même vérification que /api/distill/chat et /api/distill/quiz).
+      if (response.stop_reason === "max_tokens") {
+        console.error("[distill] Réponse coupée par la limite de tokens :", {
+          outputTokens: response.usage.output_tokens,
+        });
+        return NextResponse.json(
+          {
+            error:
+              "Le résumé était trop long pour être généré entièrement et a été coupé. Réessayez — si le problème persiste, essayez avec un contenu plus court.",
+          },
+          { status: 502 },
         );
       }
 
@@ -192,7 +271,7 @@ export async function POST(request: Request) {
         );
       }
 
-      if (!isDistillResult(candidate)) {
+      if (!isDistillCandidate(candidate)) {
         console.error("[distill] Résultat structurellement invalide :", {
           stopReason: response.stop_reason,
           outputTokens: response.usage.output_tokens,
@@ -206,7 +285,7 @@ export async function POST(request: Request) {
           { status: 502 },
         );
       }
-      parsed = candidate;
+      parsed = { summary: normalizeDistillSummary(candidate.summary), flashcards: candidate.flashcards };
     }
 
     // Ne compte que pour les comptes non abonnés — un abonné actif n'a pas
