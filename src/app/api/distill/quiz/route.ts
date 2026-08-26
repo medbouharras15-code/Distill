@@ -14,6 +14,7 @@ import {
   fetchPdfFromBlob,
   isQuizQuestion,
   missingApiKeyResponse,
+  normalizeQuizTheme,
   validateImageSize,
   withCacheControl,
 } from "@/lib/distillServer";
@@ -188,7 +189,7 @@ export async function POST(request: Request) {
           { status: 502 },
         );
       }
-      quiz = candidate.quiz as QuizQuestion[];
+      quiz = (candidate.quiz as QuizQuestion[]).map(normalizeQuizTheme);
     }
 
     return NextResponse.json({ quiz });

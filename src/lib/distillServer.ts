@@ -73,9 +73,25 @@ export function isQuizQuestion(value: unknown): value is QuizQuestion {
 
   if (v.explanation !== undefined && typeof v.explanation !== "string") return false;
 
-  if (typeof v.theme !== "string" || v.theme.trim().length === 0) return false;
+  // Comme explanation : optionnel côté validation. Le modèle ne le fournit
+  // pas de façon fiable à 100 % sur les 12 questions (surtout en mode
+  // "Difficile" sur un contenu dense) — un thème manquant sur une seule
+  // question ne doit jamais faire échouer tout le QCM (every() plus haut).
+  // La valeur par défaut est appliquée après coup, voir normalizeQuizTheme.
+  if (v.theme !== undefined && typeof v.theme !== "string") return false;
 
   return true;
+}
+
+const DEFAULT_QUIZ_THEME = "Général";
+
+/** Applique le thème par défaut aux questions où le modèle ne l'a pas fourni
+ * (absent, vide, ou uniquement des espaces) — appelée après isQuizQuestion,
+ * qui elle ne le rend qu'optionnel plutôt que de rejeter la question. Sans
+ * ça, la détection de lacunes regrouperait ces questions sous "undefined". */
+export function normalizeQuizTheme(question: QuizQuestion): QuizQuestion {
+  const theme = typeof question.theme === "string" ? question.theme.trim() : "";
+  return theme.length > 0 ? { ...question, theme } : { ...question, theme: DEFAULT_QUIZ_THEME };
 }
 
 /** Valide la taille de l'image jointe (toujours transmise inline, en
