@@ -196,11 +196,15 @@ export async function POST(request: Request) {
       const content = [...withCacheControl(sourceContent), { type: "text" as const, text: RESUME_INSTRUCTIONS }];
       const client = new Anthropic({ apiKey });
 
-      // Légère marge au-delà de la valeur d'origine : la mise en forme
-      // Markdown désormais explicitement demandée dans summary (titres,
-      // puces) ajoute un peu de volume par rapport à un texte brut.
+      // 6000 s'est révélé encore insuffisant en pratique sur un contenu
+      // dense (voir le garde-fou stop_reason === "max_tokens" ci-dessous,
+      // qui a permis de le constater clairement au lieu d'un échec confus).
+      // Une marge nettement plus large évite d'avoir à réajuster ce chiffre
+      // à chaque nouveau PDF plus dense — un dépassement du vrai plafond
+      // du modèle remonterait de toute façon une erreur API explicite,
+      // jamais une troncature silencieuse.
       const response = await callClaudeWithFallback(client, {
-        maxTokens: 6000,
+        maxTokens: 16000,
         system: SHARED_TASK_SYSTEM_PROMPT,
         content,
       });
