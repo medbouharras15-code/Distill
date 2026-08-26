@@ -273,8 +273,9 @@ export function QuizView({ quiz }: QuizViewProps) {
         <Card className="flex items-center gap-3 p-5">
           <Sparkle size={16} className="shrink-0 text-muted-foreground" />
           <p className="text-[13px] text-muted-foreground">
-            Pas encore assez de données pour une analyse de lacunes fiable (3 réponses minimum sur un même thème) —
-            continue à faire des QCM, elle apparaîtra ici.
+            Pas encore assez de données : une même notion doit revenir dans au moins 3 questions (dans ce QCM ou les
+            suivants) pour être analysée de façon fiable. Continue à générer des QCM sur tes différents cours pour
+            débloquer ton analyse de points faibles.
           </p>
         </Card>
       )}
