@@ -14,6 +14,13 @@ const MIN_ATTEMPTS_PER_THEME = 3;
  * profondeur contre un corps de requête anormalement volumineux. */
 const MAX_ANSWERS_PER_REQUEST = 30;
 
+/** Fenêtre glissante sur laquelle porte l'analyse de lacunes — sans elle,
+ * un thème testé une seule fois il y a des semaines (et jamais revu depuis)
+ * reste comptabilisé pour toujours dès qu'il a franchi MIN_ATTEMPTS_PER_THEME
+ * un jour, noyant en permanence les matières réellement étudiées en ce
+ * moment sous d'anciennes lacunes qui ne sont plus forcément d'actualité. */
+const ANALYSIS_WINDOW_DAYS = 14;
+
 /** Clé de regroupement insensible à l'ordre des mots, aux accents, à la
  * casse et à la ponctuation — deux appels séparés à /api/distill/quiz ne
  * renvoient pas toujours le même intitulé de thème mot pour mot pour la
@@ -121,11 +128,13 @@ export async function POST(request: Request) {
     answers: answers.map((a) => ({ theme: a.theme, isCorrect: a.isCorrect, question: a.question.slice(0, 80) })),
   });
 
+  const analysisWindowStart = new Date(Date.now() - ANALYSIS_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const supabase = await createClient();
   const { data, error: readError } = await supabase
     .from("quiz_answers")
     .select("theme, is_correct, created_at")
-    .eq("user_id", auth.user.id);
+    .eq("user_id", auth.user.id)
+    .gte("created_at", analysisWindowStart);
 
   if (readError || !data) {
     console.error("Impossible de lire l'historique de QCM :", readError);
