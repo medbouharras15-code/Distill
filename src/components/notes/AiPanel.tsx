@@ -228,6 +228,11 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
   const [quizRequestedForResult, setQuizRequestedForResult] = useState(false);
   const [quizLoading, setQuizLoading] = useState(false);
   const [quizError, setQuizError] = useState<string | null>(null);
+  // Incrémenté à chaque QCM (re)généré avec succès — utilisé comme `key` sur
+  // QuizView pour forcer un remontage complet (réponses/correction/analyse
+  // de lacunes remises à zéro) à l'arrivée d'un nouveau jeu de questions,
+  // qu'un simple changement de la prop `quiz` ne provoquerait pas seul.
+  const [quizVersion, setQuizVersion] = useState(0);
 
   const subscribed = isSubscribed({ subscription_status: subscriptionStatus });
   const remaining = subscribed ? Infinity : Math.max(0, FREE_GENERATIONS_LIMIT - localGenerationsUsed);
@@ -256,20 +261,30 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
     setPdfFile(file);
   }
 
-  /** Génère uniquement le QCM (/api/distill/quiz), en arrière-plan pendant
-   * que l'utilisateur consulte déjà le résumé/les flashcards. Autonome (pas
-   * de paramètres) : relit `text`/`imageFile`/`pdfFile` directement dans
-   * l'état et effectue sa propre compression/upload, car le serveur
-   * supprime le PDF Blob de chaque appel juste après usage — impossible de
-   * réutiliser la référence du premier appel ici. Sert aussi bien au
-   * premier lancement qu'au réessai après échec (bouton "Réessayer").
-   * Gestion d'erreur indépendante du premier appel : un échec ici n'affecte
-   * jamais `result` (résumé/flashcards restent affichés), seul l'onglet
-   * QCM affiche l'erreur. */
-  async function generateQuiz() {
+  /** Génère le QCM (/api/distill/quiz), en arrière-plan pendant que
+   * l'utilisateur consulte déjà le résumé/les flashcards. Relit
+   * `text`/`imageFile`/`pdfFile` directement dans l'état et effectue sa
+   * propre compression/upload, car le serveur supprime le PDF Blob de
+   * chaque appel juste après usage — impossible de réutiliser la référence
+   * du premier appel ici. `isRegeneration` distingue le premier QCM d'une
+   * distillation (déjà couvert par cette génération, y compris son
+   * éventuel réessai après échec via le bouton "Réessayer") d'un nouveau
+   * QCM explicitement redemandé sur le même contenu une fois le précédent
+   * corrigé (bouton "Nouveau QCM sur ce contenu" dans QuizView) — seul ce
+   * second cas consomme sa propre génération gratuite côté serveur, voir
+   * /api/distill/quiz. Efface `result.quiz` avant de repartir dans ce
+   * second cas pour que l'onglet QCM retombe sur l'indicateur de
+   * chargement plutôt que de laisser affichée la correction du QCM
+   * précédent pendant l'attente. Gestion d'erreur indépendante du premier
+   * appel : un échec ici n'affecte jamais `result.summary`/`flashcards`,
+   * seul l'onglet QCM affiche l'erreur. */
+  async function generateQuiz(isRegeneration = false) {
     if (quizLoading) return;
     setQuizLoading(true);
     setQuizError(null);
+    if (isRegeneration) {
+      setResult((prev) => (prev ? { ...prev, quiz: undefined } : prev));
+    }
     try {
       const [imageData, pdfRef] = await Promise.all([
         imageFile ? resizeImageToJpeg(imageFile) : Promise.resolve(null),
@@ -284,16 +299,24 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
           image: imageData ? { data: imageData, mediaType: "image/jpeg" } : undefined,
           pdf: pdfRef ?? undefined,
           quizDifficulty,
+          isRegeneration,
         }),
       });
 
       const payload = await parseJsonResponse(res);
       if (!res.ok) {
+        if (payload.limitReached) {
+          setLocalGenerationsUsed(FREE_GENERATIONS_LIMIT);
+        }
         throw new Error(typeof payload.error === "string" ? payload.error : "Impossible de générer le QCM.");
       }
 
       const { quiz } = payload as unknown as QuizGenerationResult;
       setResult((prev) => (prev ? { ...prev, quiz } : prev));
+      setQuizVersion((v) => v + 1);
+      if (isRegeneration && !subscribed) {
+        setLocalGenerationsUsed((n) => n + 1);
+      }
     } catch (err) {
       setQuizError(err instanceof Error ? err.message : "Une erreur est survenue.");
     } finally {
@@ -493,7 +516,7 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
             <div key={tab}>
               {tab === "quiz" ? (
                 result.quiz ? (
-                  <QuizView quiz={result.quiz} />
+                  <QuizView key={quizVersion} quiz={result.quiz} onRegenerate={() => void generateQuiz(true)} />
                 ) : quizError ? (
                   <div className="flex animate-fade flex-col items-center gap-3 rounded-xl border border-red-200 bg-red-50/40 p-6 text-center">
                     <p className="text-sm text-red-700">{quizError}</p>

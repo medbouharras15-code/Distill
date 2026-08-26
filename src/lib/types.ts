@@ -68,6 +68,13 @@ export interface QuizRequestBody {
   image?: DistillRequestFile;
   pdf?: PdfBlobReference;
   quizDifficulty: QuizDifficulty;
+  /** true quand l'utilisateur demande explicitement un nouveau QCM sur un
+   * contenu déjà distillé (bouton "Nouveau QCM sur ce contenu" une fois le
+   * précédent corrigé) — par opposition au premier QCM, généré
+   * automatiquement avec le résumé/les flashcards et déjà compté dans cette
+   * même génération. Seul ce cas consomme une génération gratuite
+   * supplémentaire, voir @/app/api/distill/quiz/route.ts. */
+  isRegeneration?: boolean;
 }
 
 export interface QuizGenerationResult {

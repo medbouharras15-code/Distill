@@ -18,6 +18,7 @@ import {
   validateImageSize,
   withCacheControl,
 } from "@/lib/distillServer";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { QuizDifficulty, QuizQuestion, QuizRequestBody } from "@/lib/types";
 
 const QUIZ_QUESTION_COUNT = 12;
@@ -46,17 +47,25 @@ Format JSON attendu : {"quiz": [{"question": "...", "choices": [{"id": "a", "tex
 // certain temps pour 12 questions, même marge que la route principale.
 export const maxDuration = 300;
 
-/** Génère uniquement le QCM, dans un appel séparé de /api/distill — lancé
- * par le client une fois le résumé/les flashcards déjà affichés, pour ne
- * pas faire attendre l'utilisateur derrière les 12 questions. Le compteur
- * de générations gratuites n'est PAS incrémenté ici : /api/distill l'a déjà
- * fait pour l'ensemble de cette distillation (résumé + flashcards + QCM
- * compte pour une seule génération). On vérifie tout de même que le compte
- * n'est pas déjà au-delà de sa limite (`>`, pas `>=`) : dans le
- * déroulement normal, cet appel arrive juste après /api/distill qui vient
- * d'amener le compteur pile à la limite sur une dernière génération
- * gratuite légitime — `>=` rejetterait à tort ce cas. Un compte qui
- * dépasse déjà la limite (au-delà de ce que /api/distill autorise) reste
+/** Génère le QCM, dans un appel séparé de /api/distill — lancé par le
+ * client une fois le résumé/les flashcards déjà affichés, pour ne pas faire
+ * attendre l'utilisateur derrière les 12 questions. Deux cas, distingués
+ * par body.isRegeneration :
+ * - Premier QCM d'une distillation (isRegeneration absent/false) : le
+ *   compteur de générations gratuites n'est PAS incrémenté ici — /api/distill
+ *   l'a déjà fait pour l'ensemble de cette distillation (résumé + flashcards
+ *   + QCM compte pour une seule génération), y compris un réessai après
+ *   échec de ce premier QCM (voir bouton "Réessayer" dans AiPanel).
+ * - Nouveau QCM demandé explicitement sur un contenu déjà distillé
+ *   (isRegeneration=true, bouton "Nouveau QCM sur ce contenu" une fois le
+ *   précédent corrigé, voir QuizView/AiPanel) : consomme sa propre
+ *   génération gratuite, comme n'importe quelle autre génération — sinon un
+ *   compte gratuit pourrait régénérer des QCM sans limite.
+ * On vérifie tout de même que le compte n'est pas déjà au-delà de sa
+ * limite (`>`, pas `>=`) : dans le déroulement normal du premier QCM, cet
+ * appel arrive juste après /api/distill qui vient d'amener le compteur
+ * pile à la limite sur une dernière génération gratuite légitime — `>=`
+ * rejetterait à tort ce cas. Un compte qui dépasse déjà la limite reste
  * bloqué. */
 export async function POST(request: Request) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -237,6 +246,18 @@ export async function POST(request: Request) {
         );
       }
       quiz = (candidate.quiz as QuizQuestion[]).map(normalizeQuizTheme);
+    }
+
+    // Ne consomme une génération gratuite que pour un QCM explicitement
+    // redemandé sur un contenu déjà distillé — voir le commentaire sur POST
+    // ci-dessus. Un abonné n'a pas de compteur de ce type (déjà couvert par
+    // usageCapResponse plus haut).
+    if (!subscribed && body.isRegeneration) {
+      const admin = createAdminClient();
+      await admin
+        .from("profiles")
+        .update({ generations_used: profile.generations_used + 1 })
+        .eq("id", user.id);
     }
 
     return NextResponse.json({ quiz });

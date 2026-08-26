@@ -8,6 +8,12 @@ import type { QuizAttemptsResponseBody, QuizQuestion, QuizThemeStat } from "@/li
 
 interface QuizViewProps {
   quiz: QuizQuestion[];
+  /** Demande un nouveau QCM sur le même contenu (AiPanel régénère via
+   * /api/distill/quiz puis remonte ce composant avec les nouvelles
+   * questions — voir la prop `key` côté AiPanel). Remplace l'ancien
+   * "recommencer" qui rejouait les mêmes 12 questions déjà corrigées, ce
+   * qui n'a pas de sens une fois les réponses connues. */
+  onRegenerate: () => void;
 }
 
 /** Score à partir duquel le moment signature (goutte) se joue à la
@@ -29,7 +35,7 @@ function choiceLetter(index: number): string {
  * une question à réponses multiples n'est comptée juste que si la sélection
  * correspond exactement à l'ensemble correct, ni oubli ni ajout — cohérent
  * avec un contexte d'examen. */
-export function QuizView({ quiz }: QuizViewProps) {
+export function QuizView({ quiz, onRegenerate }: QuizViewProps) {
   const [answers, setAnswers] = useState<Record<number, Set<string>>>({});
   const [submitted, setSubmitted] = useState(false);
   const [showDroplet, setShowDroplet] = useState(false);
@@ -88,13 +94,6 @@ export function QuizView({ quiz }: QuizViewProps) {
       .catch(() => {
         // Silencieux, voir commentaire ci-dessus.
       });
-  }
-
-  function retry() {
-    setAnswers({});
-    setSubmitted(false);
-    setShowDroplet(false);
-    setThemeStats(null);
   }
 
   const answeredCount = Object.values(answers).filter((s) => s.size > 0).length;
@@ -348,8 +347,8 @@ export function QuizView({ quiz }: QuizViewProps) {
         );
       })}
 
-      <button type="button" onClick={retry} className={buttonClasses("outline", "lg", "w-full rounded-2xl")}>
-        Recommencer le QCM
+      <button type="button" onClick={onRegenerate} className={buttonClasses("outline", "lg", "w-full rounded-2xl")}>
+        Nouveau QCM sur ce contenu
       </button>
     </div>
   );
