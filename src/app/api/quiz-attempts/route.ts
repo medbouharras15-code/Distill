@@ -64,6 +64,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Impossible d'enregistrer les réponses." }, { status: 500 });
   }
 
+  // Diagnostic : jusqu'ici rien n'était loggé en cas de succès, rendant
+  // impossible de vérifier si un enregistrement a bien eu lieu (et avec
+  // quels thèmes) sans accès direct à la base — voir aussi le log
+  // "répartition par thème" ci-dessous, qui montre les thèmes encore sous
+  // le seuil MIN_ATTEMPTS_PER_THEME (donc absents de la réponse renvoyée
+  // au client).
+  console.log("[quiz-attempts] Réponses enregistrées :", {
+    userId: auth.user.id,
+    count: answers.length,
+    themes: [...new Set(answers.map((a) => a.theme))],
+  });
+
   const supabase = await createClient();
   const { data, error: readError } = await supabase
     .from("quiz_answers")
@@ -82,6 +94,11 @@ export async function POST(request: Request) {
     if (row.is_correct) stat.correct += 1;
     byTheme.set(row.theme, stat);
   }
+
+  console.log("[quiz-attempts] Répartition par thème (avant seuil de 3) :", {
+    userId: auth.user.id,
+    breakdown: Array.from(byTheme.entries()).map(([theme, s]) => ({ theme, ...s })),
+  });
 
   const themes: QuizThemeStat[] = Array.from(byTheme.entries())
     .filter(([, s]) => s.total >= MIN_ATTEMPTS_PER_THEME)
