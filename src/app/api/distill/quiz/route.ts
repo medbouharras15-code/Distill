@@ -154,8 +154,12 @@ export async function POST(request: Request) {
       ];
       const client = new Anthropic({ apiKey });
 
+      // 12 questions avec choix, explication ET thème (voir
+      // buildQuizInstructions) peuvent dépasser une petite marge en mode
+      // "Difficile" sur un contenu dense — 8192 s'est révélé trop juste en
+      // pratique (troncature, voir la vérification stop_reason ci-dessous).
       const response = await callClaudeWithFallback(client, {
-        maxTokens: 8192,
+        maxTokens: 12000,
         system: SHARED_TASK_SYSTEM_PROMPT,
         content,
       });
@@ -177,13 +181,56 @@ export async function POST(request: Request) {
         );
       }
 
+      // Une réponse tronquée par la limite de tokens ne peut jamais former un
+      // JSON valide (coupée en plein milieu) — mieux vaut le dire clairement
+      // que de laisser extractJson échouer plus bas avec une erreur générique
+      // (même vérification que /api/distill/chat).
+      if (response.stop_reason === "max_tokens") {
+        console.error("[distill/quiz] Réponse coupée par la limite de tokens :", {
+          outputTokens: response.usage.output_tokens,
+          difficulty,
+        });
+        return NextResponse.json(
+          {
+            error:
+              "Le QCM était trop long pour être généré entièrement et a été coupé. Réessayez — si le problème persiste, essayez avec un contenu plus court.",
+          },
+          { status: 502 },
+        );
+      }
+
       const textBlock = response.content.find((block) => block.type === "text");
       if (!textBlock || textBlock.type !== "text") {
         return NextResponse.json({ error: "Le modèle n'a renvoyé aucun contenu exploitable." }, { status: 502 });
       }
 
-      const candidate = extractJson(textBlock.text) as { quiz?: unknown };
+      // Journalise systématiquement la réponse brute en cas d'échec de
+      // parsing ou de validation — jusqu'ici rien n'était loggé dans ces deux
+      // cas, rendant tout diagnostic impossible même avec accès aux logs
+      // Vercel. Aperçu borné à 6000 caractères pour rester lisible dans les
+      // logs tout en couvrant un QCM de 12 questions.
+      let candidate: { quiz?: unknown };
+      try {
+        candidate = extractJson(textBlock.text) as { quiz?: unknown };
+      } catch (parseError) {
+        console.error("[distill/quiz] JSON illisible dans la réponse du modèle :", {
+          stopReason: response.stop_reason,
+          outputTokens: response.usage.output_tokens,
+          error: parseError instanceof Error ? parseError.message : parseError,
+          rawTextPreview: textBlock.text.slice(0, 6000),
+        });
+        return NextResponse.json(
+          { error: "La réponse du modèle ne correspond pas au format de QCM attendu. Réessayez." },
+          { status: 502 },
+        );
+      }
+
       if (!candidate || !Array.isArray(candidate.quiz) || !candidate.quiz.every(isQuizQuestion)) {
+        console.error("[distill/quiz] QCM structurellement invalide :", {
+          stopReason: response.stop_reason,
+          outputTokens: response.usage.output_tokens,
+          rawTextPreview: textBlock.text.slice(0, 6000),
+        });
         return NextResponse.json(
           { error: "La réponse du modèle ne correspond pas au format de QCM attendu. Réessayez." },
           { status: 502 },
