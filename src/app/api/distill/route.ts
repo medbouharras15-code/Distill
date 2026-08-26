@@ -171,8 +171,33 @@ export async function POST(request: Request) {
         );
       }
 
-      const candidate = extractJson(textBlock.text);
+      // Journalise systématiquement la réponse brute en cas d'échec de
+      // parsing ou de validation — jusqu'ici rien n'était loggé dans ces deux
+      // cas, rendant tout diagnostic impossible même avec accès aux logs
+      // Vercel (même correctif que /api/distill/quiz). Aperçu borné à 6000
+      // caractères pour rester lisible dans les logs.
+      let candidate: unknown;
+      try {
+        candidate = extractJson(textBlock.text);
+      } catch (parseError) {
+        console.error("[distill] JSON illisible dans la réponse du modèle :", {
+          stopReason: response.stop_reason,
+          outputTokens: response.usage.output_tokens,
+          error: parseError instanceof Error ? parseError.message : parseError,
+          rawTextPreview: textBlock.text.slice(0, 6000),
+        });
+        return NextResponse.json(
+          { error: "La réponse du modèle ne correspond pas au format attendu. Réessayez." },
+          { status: 502 },
+        );
+      }
+
       if (!isDistillResult(candidate)) {
+        console.error("[distill] Résultat structurellement invalide :", {
+          stopReason: response.stop_reason,
+          outputTokens: response.usage.output_tokens,
+          rawTextPreview: textBlock.text.slice(0, 6000),
+        });
         return NextResponse.json(
           {
             error:
