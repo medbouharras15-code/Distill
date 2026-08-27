@@ -69,9 +69,22 @@ export async function POST(request: Request) {
       if (event.meta.event_name === "subscription_created" && userId) {
         // Premier événement pour cet abonnement : on l'associe à
         // l'utilisateur via le `custom_data` transmis lors du checkout.
+        // subscription_tier : "etudiant" en dur, pas dérivé du variant_id
+        // Lemon Squeezy — un seul produit réel existe aujourd'hui (voir
+        // /api/lemonsqueezy/checkout), donc tout nouvel abonné passe
+        // forcément par lui. Distinct des abonnés d'avant cette colonne
+        // (subscription_tier laissé à `null` en base, traités comme
+        // "intensif" par getTier dans @/lib/billing) : ceux-là ne
+        // repasseront jamais par ce webhook. Le jour où Essentiel/Intensif
+        // deviennent de vrais produits, cette ligne devra dériver le palier
+        // du variant_id réellement acheté plutôt que de le figer.
         await admin
           .from("profiles")
-          .update({ lemonsqueezy_subscription_id: subscriptionId, subscription_status: status })
+          .update({
+            lemonsqueezy_subscription_id: subscriptionId,
+            subscription_status: status,
+            subscription_tier: "etudiant",
+          })
           .eq("id", userId);
       } else {
         // Événements suivants : l'utilisateur est déjà associé à cet

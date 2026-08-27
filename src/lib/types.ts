@@ -192,5 +192,10 @@ export interface Profile {
    * Lemon Squeezy brut ("on_trial", "active", "paused", "past_due",
    * "unpaid", "cancelled", "expired"). */
   subscription_status: string;
+  /** Palier réel de l'abonnement ("essentiel"/"etudiant"/"intensif"), ou
+   * `null` si jamais renseigné (essai gratuit, ou abonné actif d'avant
+   * l'introduction des paliers — voir getTier dans @/lib/billing pour la
+   * règle de repli qui traite ce dernier cas comme "intensif"). */
+  subscription_tier: string | null;
   created_at: string;
 }

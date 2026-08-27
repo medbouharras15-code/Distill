@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { buildFakeChatResponse, IS_SIMULATION_ENABLED } from "@/lib/aiSimulation";
 import { logAiUsageEvent, usageCapResponse } from "@/lib/aiUsage";
 import { getUserAndProfile } from "@/lib/auth";
-import { isSubscribed } from "@/lib/billing";
+import { getTier } from "@/lib/billing";
 import {
   FALLBACK_MODEL,
   anthropicErrorResponse,
@@ -44,11 +44,14 @@ function isChatResponse(value: unknown): value is ChatResponseBody {
  * uniquement à partir de la matière (texte/photo/PDF) distillée dans la
  * session en cours du panneau IA. Même pipeline que /api/distill (mêmes
  * helpers, même vérification de taille) : seul le prompt et la forme de la
- * réponse changent. N'incrémente jamais generations_used et n'applique
- * aucune limite — une conversation illimitée une fois la distillation
- * initiale effectuée, comme convenu. Historique géré entièrement côté
- * client (aucune persistance serveur) : chaque appel reçoit l'historique
- * complet et le renvoie augmenté de la nouvelle question. */
+ * réponse changent. N'incrémente jamais generations_used — jamais limité
+ * par le compteur de générations gratuites, y compris pendant l'essai
+ * gratuit (inchangé). Le seul plafond réel est celui de jetons de l'abonné
+ * (voir usageCapResponse ci-dessous), désormais différent selon le palier
+ * (Étudiant 700, Intensif 1400 — Essentiel n'y a pas accès du tout, voir la
+ * vérification juste après auth). Historique géré entièrement côté client
+ * (aucune persistance serveur) : chaque appel reçoit l'historique complet
+ * et le renvoie augmenté de la nouvelle question. */
 export async function POST(request: Request) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -60,7 +63,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Vous devez être connecté pour utiliser le Mode Explication." }, { status: 401 });
   }
   const { user, profile } = auth;
-  const subscribed = isSubscribed(profile);
+  const tier = getTier(profile);
+
+  // Le Mode Explication n'est pas inclus dans l'offre Essentiel — jamais
+  // bloquant pour l'essai gratuit (tier vaut alors `null`, jamais
+  // "essentiel").
+  if (tier === "essentiel") {
+    return NextResponse.json(
+      {
+        error: "Le Mode Explication n'est pas disponible avec l'offre Essentiel. Passez à Étudiant ou Intensif pour y accéder.",
+      },
+      { status: 403 },
+    );
+  }
 
   let body: ChatRequestBody;
   try {
@@ -99,8 +114,8 @@ export async function POST(request: Request) {
       // directement une réponse factice pour tester l'interface sans coût.
       parsed = await buildFakeChatResponse(question);
     } else {
-      if (subscribed) {
-        const capResponse = await usageCapResponse(user.id);
+      if (tier) {
+        const capResponse = await usageCapResponse(user.id, tier);
         if (capResponse) return capResponse;
       }
 

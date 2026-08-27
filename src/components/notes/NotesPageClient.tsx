@@ -28,6 +28,7 @@ interface EditorPage {
 
 interface NotesAuth {
   subscriptionStatus: string;
+  subscriptionTier: string | null;
   generationsUsed: number;
 }
 
@@ -429,6 +430,7 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
           >
             <AiPanel
               subscriptionStatus={auth.subscriptionStatus}
+              subscriptionTier={auth.subscriptionTier}
               generationsUsed={auth.generationsUsed}
               checkoutStatus={checkoutStatus}
               onClose={() => setAiOpen(false)}

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { AiOrb } from "@/components/Brand";
 import { Badge, Card, buttonClasses, staggerDelay } from "@/components/ui";
+import type { SubscriptionTier } from "@/lib/billing";
 import { Bolt, Brain, Check, ChevronRight, Sparkle, Star } from "@/lib/icons";
 import { useSubscriptionActions } from "@/lib/useSubscriptionActions";
 
@@ -19,62 +20,92 @@ interface Tier {
   tagline: string;
   icon: typeof Sparkle;
   features: TierFeature[];
+  /** Formats acceptés en entrée — identiques sur les 3 paliers aujourd'hui,
+   * affichés sur chaque carte pour la remplir visuellement (demande
+   * explicite), pas parce qu'ils diffèrent d'un palier à l'autre. */
+  formats: string;
+  support: string;
   highlighted?: boolean;
   premium?: boolean;
 }
 
-/** Les 3 paliers affichés. "etudiant" est le seul relié à un vrai flux de
- * paiement (Lemon Squeezy, voir plus bas) : c'est exactement l'offre unique
- * déjà en place aujourd'hui (9,99€/mois), juste réintégrée dans cette
- * nouvelle mise en page à 3 colonnes. "essentiel" et "intensif" sont de
- * nouveaux paliers sans prix configuré chez le prestataire actuel — leurs
- * boutons restent volontairement non fonctionnels ("Bientôt disponible") en
- * attendant le changement de prestataire évoqué par l'utilisateur. */
+/** Les 3 paliers affichés, avec restriction d'accès réelle côté serveur
+ * (voir getTier dans @/lib/billing, et les vérifications dans
+ * /api/distill/quiz, /api/distill/chat, /api/quiz-attempts).
+ *
+ * Seul "etudiant" est relié à un vrai flux de paiement (Lemon Squeezy, voir
+ * plus bas) : c'est l'offre unique déjà en place aujourd'hui, facturée
+ * 9,99€/mois côté Lemon Squeezy — le prix affiché ici (8,99$) est
+ * volontairement en avance sur le vrai prix facturé, le temps de créer le
+ * produit correspondant chez le prestataire ; jusque-là, s'abonner via
+ * cette carte facture réellement 9,99€, pas 8,99$. "essentiel" et
+ * "intensif" sont de nouveaux paliers sans produit configuré chez le
+ * prestataire — leurs boutons restent volontairement non fonctionnels
+ * ("Bientôt disponible"), même si les restrictions d'accès qui leur
+ * correspondent sont, elles, réellement appliquées dès qu'un profil a le
+ * bon subscription_tier. */
 const TIERS: Tier[] = [
   {
     id: "essentiel",
     name: "Essentiel",
-    priceLabel: "4,99€",
+    priceLabel: "4,99$",
     tagline: "Pour distiller ses notes à l'essentiel.",
     icon: Sparkle,
     features: [
-      { text: "Résumé, flashcards & QCM", included: true },
-      { text: "Générations illimitées", included: true },
+      { text: "Résumé & flashcards", included: true },
+      { text: "QCM", included: false },
       { text: "Mode Explication (chat)", included: false },
+      { text: "Détection de lacunes", included: false },
     ],
+    formats: "Texte, photo, PDF",
+    support: "Support standard",
   },
   {
     id: "etudiant",
     name: "Étudiant",
-    priceLabel: "9,99€",
+    priceLabel: "8,99$",
     tagline: "Le plus complet pour réviser en profondeur.",
     icon: Star,
     features: [
       { text: "Tout ce qu'il y a dans Essentiel", included: true },
-      { text: "Mode Explication (chat) inclus", included: true },
+      { text: "QCM (génération unique)", included: true },
+      { text: "Mode Explication (chat) limité", included: true },
+      { text: "Détection de lacunes", included: false },
     ],
+    formats: "Texte, photo, PDF",
+    support: "Support standard",
     highlighted: true,
   },
   {
     id: "intensif",
     name: "Intensif",
-    priceLabel: "19,99€",
+    priceLabel: "14,99$",
     tagline: "Pour les révisions les plus intenses.",
     icon: Bolt,
     features: [
       { text: "Tout ce qu'il y a dans Étudiant", included: true },
-      { text: "Priorité de traitement", included: true },
-      { text: "Accès anticipé aux nouveautés", included: true },
+      { text: "QCM régénérable à volonté", included: true },
+      { text: "Mode Explication (chat) illimité", included: true },
+      { text: "Détection de lacunes", included: true },
     ],
+    formats: "Texte, photo, PDF",
+    support: "Support prioritaire",
     premium: true,
   },
 ];
 
 interface SubscriptionFormProps {
   subscribed: boolean;
+  tier: SubscriptionTier | null;
   remaining: number;
   checkoutStatus: "success" | "cancelled" | null;
 }
+
+const TIER_NAMES: Record<SubscriptionTier, string> = {
+  essentiel: "Essentiel",
+  etudiant: "Étudiant",
+  intensif: "Intensif",
+};
 
 /** Page dédiée à l'abonnement — 3 paliers affichés côte à côte. Seul le
  * palier "Étudiant" (9,99€) correspond à une offre réellement payante
@@ -82,7 +113,7 @@ interface SubscriptionFormProps {
  * @/lib/useSubscriptionActions, partagé avec le panneau IA de l'éditeur
  * (@/components/notes/AiPanel). "Essentiel" et "Intensif" sont de nouveaux
  * paliers sans paiement branché pour l'instant (voir TIERS ci-dessus). */
-export function SubscriptionForm({ subscribed, remaining, checkoutStatus }: SubscriptionFormProps) {
+export function SubscriptionForm({ subscribed, tier, remaining, checkoutStatus }: SubscriptionFormProps) {
   const { billingLoading, billingError, setBillingError, subscribe, cancel } = useSubscriptionActions();
   const [dismissedCheckoutBanner, setDismissedCheckoutBanner] = useState(false);
 
@@ -94,8 +125,8 @@ export function SubscriptionForm({ subscribed, remaining, checkoutStatus }: Subs
           Choisis le palier adapté à ton rythme de révision.
         </p>
         <p className="mt-1 text-[13px] text-muted-foreground">
-          {subscribed
-            ? "Tu es actuellement sur le palier Étudiant."
+          {subscribed && tier
+            ? `Tu es actuellement sur le palier ${TIER_NAMES[tier]}.`
             : `Offre gratuite en cours — ${remaining} génération${remaining !== 1 ? "s" : ""} restante${remaining !== 1 ? "s" : ""}.`}
         </p>
       </div>
@@ -216,6 +247,11 @@ export function SubscriptionForm({ subscribed, remaining, checkoutStatus }: Subs
                 <div className="mt-5 font-display text-3xl font-medium text-foreground">
                   {tier.priceLabel}
                   <span className="text-base font-normal text-muted-foreground">/mois</span>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  <Badge className="bg-secondary text-secondary-foreground">{tier.formats}</Badge>
+                  <Badge className="bg-secondary text-secondary-foreground">{tier.support}</Badge>
                 </div>
 
                 <ul className="mt-6 flex-1 space-y-2.5">

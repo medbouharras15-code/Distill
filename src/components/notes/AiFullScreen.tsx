@@ -8,6 +8,7 @@ import { AiPanel } from "./AiPanel";
 
 interface AiFullScreenProps {
   subscriptionStatus: string;
+  subscriptionTier: string | null;
   generationsUsed: number;
 }
 
@@ -16,7 +17,7 @@ interface AiFullScreenProps {
  * l'IA, en plus du panneau latéral de l'éditeur (/notes, inchangé). Réutilise
  * @/components/notes/AiPanel tel quel : aucune logique dupliquée, seule la
  * mise en page change (plein écran plutôt que panneau étroit coulissant). */
-export function AiFullScreen({ subscriptionStatus, generationsUsed }: AiFullScreenProps) {
+export function AiFullScreen({ subscriptionStatus, subscriptionTier, generationsUsed }: AiFullScreenProps) {
   const router = useRouter();
 
   return (
@@ -32,6 +33,7 @@ export function AiFullScreen({ subscriptionStatus, generationsUsed }: AiFullScre
       <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-border shadow-[var(--shadow-lg)]">
         <AiPanel
           subscriptionStatus={subscriptionStatus}
+          subscriptionTier={subscriptionTier}
           generationsUsed={generationsUsed}
           checkoutStatus={null}
           onClose={() => router.push("/dashboard")}

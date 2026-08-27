@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Card, buttonClasses } from "@/components/ui";
+import type { SubscriptionTier } from "@/lib/billing";
 import { Check, Close, Sparkle } from "@/lib/icons";
 import { DistillMark } from "@/components/Brand";
 import type { QuizAttemptsResponseBody, QuizOverallStat, QuizQuestion, QuizThemeStat } from "@/lib/types";
@@ -13,6 +14,11 @@ interface QuizViewProps {
    * détection de lacunes ne porte que sur ce document, jamais mélangée avec
    * d'autres PDF. */
   distillationId: string;
+  /** `null` en essai gratuit (jamais restreint, voir getTier dans
+   * @/lib/billing) — la régénération de QCM est réservée à Intensif, et la
+   * détection de lacunes aux abonnés Intensif (l'essai gratuit y garde
+   * accès comme aujourd'hui). */
+  tier: SubscriptionTier | null;
   /** Demande un nouveau QCM sur le même contenu (AiPanel régénère via
    * /api/distill/quiz puis remonte ce composant avec les nouvelles
    * questions — voir la prop `key` côté AiPanel). Remplace l'ancien
@@ -40,7 +46,9 @@ function choiceLetter(index: number): string {
  * une question à réponses multiples n'est comptée juste que si la sélection
  * correspond exactement à l'ensemble correct, ni oubli ni ajout — cohérent
  * avec un contexte d'examen. */
-export function QuizView({ quiz, distillationId, onRegenerate }: QuizViewProps) {
+export function QuizView({ quiz, distillationId, tier, onRegenerate }: QuizViewProps) {
+  const canSeeGaps = tier === null || tier === "intensif";
+  const canRegenerate = tier === null || tier === "intensif";
   const [answers, setAnswers] = useState<Record<number, Set<string>>>({});
   const [submitted, setSubmitted] = useState(false);
   const [showDroplet, setShowDroplet] = useState(false);
@@ -82,9 +90,16 @@ export function QuizView({ quiz, distillationId, onRegenerate }: QuizViewProps) 
       window.setTimeout(() => setShowDroplet(false), 3000);
     }
 
-    // Détection de lacunes : envoi en arrière-plan, jamais bloquant pour
-    // l'affichage de la correction — un échec réseau laisse simplement
-    // themeStats à null (carte "Points faibles" absente).
+    // Détection de lacunes réservée à Intensif (l'essai gratuit y garde
+    // accès, voir canSeeGaps) — inutile d'appeler /api/quiz-attempts pour
+    // un abonné Essentiel/Étudiant, qui serait de toute façon refusé
+    // (403) côté serveur ; le teaser d'upsell est affiché directement,
+    // voir plus bas.
+    if (!canSeeGaps) return;
+
+    // Envoi en arrière-plan, jamais bloquant pour l'affichage de la
+    // correction — un échec réseau laisse simplement themeStats à null
+    // (carte "Points faibles" absente).
     const payload = {
       distillationId,
       answers: quiz.map((q, i) => ({
@@ -311,6 +326,17 @@ export function QuizView({ quiz, distillationId, onRegenerate }: QuizViewProps) 
           </p>
         </Card>
       )}
+      {/* Abonné Essentiel/Étudiant (jamais l'essai gratuit, voir
+          canSeeGaps) : teaser visible plutôt qu'une absence silencieuse,
+          cohérent avec la case QCM et l'onglet Chat d'AiPanel. */}
+      {!canSeeGaps && (
+        <Card className="flex items-center gap-3 p-5">
+          <Sparkle size={16} className="shrink-0 text-muted-foreground" />
+          <p className="text-[13px] text-muted-foreground">
+            La détection de lacunes (&quot;Points faibles à réviser&quot;) est réservée à l&apos;offre Intensif.
+          </p>
+        </Card>
+      )}
 
       {/* Correction détaillée */}
       {quiz.map((q, i) => {
@@ -380,9 +406,20 @@ export function QuizView({ quiz, distillationId, onRegenerate }: QuizViewProps) 
         );
       })}
 
-      <button type="button" onClick={onRegenerate} className={buttonClasses("outline", "lg", "w-full rounded-2xl")}>
-        Nouveau QCM sur ce contenu
-      </button>
+      {canRegenerate ? (
+        <button type="button" onClick={onRegenerate} className={buttonClasses("outline", "lg", "w-full rounded-2xl")}>
+          Nouveau QCM sur ce contenu
+        </button>
+      ) : (
+        // Régénération réservée à Intensif (voir /api/distill/quiz) —
+        // jamais bloquant pour l'essai gratuit (canRegenerate vaut true
+        // pour tier === null).
+        <div
+          className={buttonClasses("outline", "lg", "w-full cursor-not-allowed justify-center rounded-2xl opacity-60")}
+        >
+          Nouveau QCM sur ce contenu — réservé à l&apos;offre Intensif
+        </div>
+      )}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getUserAndProfile } from "@/lib/auth";
+import { getTier } from "@/lib/billing";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import type { QuizAttemptsRequestBody, QuizAttemptsResponseBody, QuizOverallStat, QuizThemeStat } from "@/lib/types";
@@ -74,6 +75,18 @@ export async function POST(request: Request) {
   const auth = await getUserAndProfile();
   if (!auth) {
     return NextResponse.json({ error: "Vous devez être connecté." }, { status: 401 });
+  }
+
+  // La détection de lacunes est réservée à l'offre Intensif — jamais
+  // bloquant pour l'essai gratuit (tier vaut alors `null`, jamais un
+  // palier payant insuffisant) : seul un abonné Essentiel ou Étudiant est
+  // refusé ici.
+  const tier = getTier(auth.profile);
+  if (tier !== null && tier !== "intensif") {
+    return NextResponse.json(
+      { error: "La détection de lacunes est réservée à l'offre Intensif." },
+      { status: 403 },
+    );
   }
 
   let body: QuizAttemptsRequestBody;

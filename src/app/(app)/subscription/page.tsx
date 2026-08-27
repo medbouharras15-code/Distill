@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { SubscriptionForm } from "@/components/SubscriptionForm";
 import { getUserAndProfile } from "@/lib/auth";
-import { isSubscribed, remainingFreeGenerations } from "@/lib/billing";
+import { getTier, isSubscribed, remainingFreeGenerations } from "@/lib/billing";
 
 export default async function SubscriptionPage({
   searchParams,
@@ -19,6 +19,7 @@ export default async function SubscriptionPage({
   return (
     <SubscriptionForm
       subscribed={isSubscribed(auth.profile)}
+      tier={getTier(auth.profile)}
       remaining={remainingFreeGenerations(auth.profile)}
       checkoutStatus={checkoutStatus}
     />

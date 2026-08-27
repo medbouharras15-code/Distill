@@ -12,6 +12,10 @@ export default async function DistillPage() {
   }
 
   return (
-    <AiFullScreen subscriptionStatus={auth.profile.subscription_status} generationsUsed={auth.profile.generations_used} />
+    <AiFullScreen
+      subscriptionStatus={auth.profile.subscription_status}
+      subscriptionTier={auth.profile.subscription_tier}
+      generationsUsed={auth.profile.generations_used}
+    />
   );
 }

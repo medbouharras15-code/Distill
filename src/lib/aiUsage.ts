@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
+import type { SubscriptionTier } from "@/lib/billing";
 import { FALLBACK_MODEL, MODEL } from "@/lib/distillServer";
 import { EUR_PER_JETON, jetonsForCostEur, TIER_CAPS_JETONS } from "@/lib/jetons";
 import { createClient } from "@/lib/supabase/server";
@@ -20,17 +21,15 @@ const MODEL_PRICING_USD: Record<string, { input: number; output: number }> = {
   [FALLBACK_MODEL]: { input: 3, output: 15 },
 };
 
-/** Plafond réel appliqué à l'abonné (voir usageCapResponse plus bas),
- * dérivé du plafond en jetons validé avec l'utilisateur (voir
+/** Plafond réel appliqué à l'abonné selon son palier (voir usageCapResponse
+ * plus bas), dérivé du plafond en jetons validé avec l'utilisateur (voir
  * TIER_CAPS_JETONS dans @/lib/jetons pour le détail de la marge de
  * sécurité intégrée) plutôt que d'un plafond nominal en euros séparé — la
  * marge est ainsi une vraie protection financière, pas seulement un
- * arrondi d'affichage. Seul "etudiant" correspond à une offre réellement
- * achetable aujourd'hui (voir @/components/SubscriptionForm) : un
- * utilisateur abonné (isSubscribed) est donc toujours considéré "etudiant"
- * ici, en attendant qu'Essentiel/Intensif deviennent de vrais paliers
- * achetables avec leur propre colonne sur profiles. */
-const ACTIVE_TIER_CAP_EUR = TIER_CAPS_JETONS.etudiant * EUR_PER_JETON;
+ * arrondi d'affichage. */
+function tierCapEur(tier: SubscriptionTier): number {
+  return TIER_CAPS_JETONS[tier] * EUR_PER_JETON;
+}
 
 export type UsageCategory = "generation" | "chat";
 
@@ -105,9 +104,12 @@ export interface MonthlyUsageSummary {
  * lecture seule, aucune application de plafond à ce stade. Utilise le
  * client authentifié (protégé par RLS, voir schema.sql) plutôt que le
  * client "service role" : un utilisateur ne peut lire que ses propres
- * événements, comme pour getUserAndProfile. */
-export async function getMonthlyUsageSummary(userId: string): Promise<MonthlyUsageSummary> {
-  const fallback: MonthlyUsageSummary = { generationEur: 0, chatEur: 0, totalEur: 0, capEur: ACTIVE_TIER_CAP_EUR };
+ * événements, comme pour getUserAndProfile. `tier` détermine le plafond
+ * applicable (voir tierCapEur) — appelant responsable de ne passer ici que
+ * le palier d'un utilisateur réellement abonné (voir getTier). */
+export async function getMonthlyUsageSummary(userId: string, tier: SubscriptionTier): Promise<MonthlyUsageSummary> {
+  const capEur = tierCapEur(tier);
+  const fallback: MonthlyUsageSummary = { generationEur: 0, chatEur: 0, totalEur: 0, capEur };
 
   const supabase = await createClient();
   const startOfMonth = new Date();
@@ -135,7 +137,7 @@ export async function getMonthlyUsageSummary(userId: string): Promise<MonthlyUsa
     }
   }
 
-  return { generationEur, chatEur, totalEur: generationEur + chatEur, capEur: ACTIVE_TIER_CAP_EUR };
+  return { generationEur, chatEur, totalEur: generationEur + chatEur, capEur };
 }
 
 export interface MonthlyUsageSummaryJetons {
@@ -151,13 +153,16 @@ export interface MonthlyUsageSummaryJetons {
  * client. capJetons vient directement de TIER_CAPS_JETONS plutôt que d'une
  * conversion de capEur, pour éviter tout écart d'arrondi avec la valeur
  * ronde déjà validée. */
-export async function getMonthlyUsageSummaryJetons(userId: string): Promise<MonthlyUsageSummaryJetons> {
-  const summary = await getMonthlyUsageSummary(userId);
+export async function getMonthlyUsageSummaryJetons(
+  userId: string,
+  tier: SubscriptionTier,
+): Promise<MonthlyUsageSummaryJetons> {
+  const summary = await getMonthlyUsageSummary(userId, tier);
   return {
     generationJetons: jetonsForCostEur(summary.generationEur),
     chatJetons: jetonsForCostEur(summary.chatEur),
     totalJetons: jetonsForCostEur(summary.totalEur),
-    capJetons: TIER_CAPS_JETONS.etudiant,
+    capJetons: TIER_CAPS_JETONS[tier],
   };
 }
 
@@ -175,13 +180,13 @@ export async function getMonthlyUsageSummaryJetons(userId: string): Promise<Mont
  * cette fonction ne bloque jamais à cause d'un problème d'infrastructure
  * sans rapport — décision explicitement validée plutôt que de bloquer tous
  * les abonnés à cause d'une panne technique. */
-export async function usageCapResponse(userId: string): Promise<NextResponse | null> {
-  const summary = await getMonthlyUsageSummary(userId);
+export async function usageCapResponse(userId: string, tier: SubscriptionTier): Promise<NextResponse | null> {
+  const summary = await getMonthlyUsageSummary(userId, tier);
   if (summary.totalEur < summary.capEur) return null;
 
   return NextResponse.json(
     {
-      error: `Tu as atteint ton plafond de ${TIER_CAPS_JETONS.etudiant} jetons pour ce mois-ci. Il sera réinitialisé au début du mois prochain.`,
+      error: `Tu as atteint ton plafond de ${TIER_CAPS_JETONS[tier]} jetons pour ce mois-ci. Il sera réinitialisé au début du mois prochain.`,
       usageCapReached: true,
     },
     { status: 403 },

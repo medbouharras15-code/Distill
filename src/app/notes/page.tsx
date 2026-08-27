@@ -18,7 +18,15 @@ export default async function NotesPage({
 
   return (
     <NotesPageClient
-      auth={auth ? { subscriptionStatus: auth.profile.subscription_status, generationsUsed: auth.profile.generations_used } : null}
+      auth={
+        auth
+          ? {
+              subscriptionStatus: auth.profile.subscription_status,
+              subscriptionTier: auth.profile.subscription_tier,
+              generationsUsed: auth.profile.generations_used,
+            }
+          : null
+      }
       checkoutStatus={checkoutStatus}
       openAi={params.ai === "1"}
     />

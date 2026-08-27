@@ -8,7 +8,7 @@ import { Badge, Card, Eyebrow, buttonClasses, staggerDelay } from "@/components/
 import { IS_SIMULATION_ENABLED } from "@/lib/aiSimulation";
 import { Cards, Chat, Close, Doc, Pen, Quiz, Sparkle } from "@/lib/icons";
 import { resizeImageToJpeg, uploadPdfToBlob } from "@/lib/aiMedia";
-import { FREE_GENERATIONS_LIMIT, IS_FREE_LIMIT_OVERRIDDEN, isSubscribed } from "@/lib/billing";
+import { FREE_GENERATIONS_LIMIT, IS_FREE_LIMIT_OVERRIDDEN, getTier, isSubscribed } from "@/lib/billing";
 import { MAX_PDF_FILE_BYTES } from "@/lib/fileSizeLimits";
 import { TYPICAL_JETONS } from "@/lib/jetons";
 import { parseJsonResponse, useSubscriptionActions } from "@/lib/useSubscriptionActions";
@@ -25,6 +25,7 @@ type Tab = "summary" | "flashcards" | "quiz" | "chat";
 
 interface AiPanelProps {
   subscriptionStatus: string;
+  subscriptionTier: string | null;
   generationsUsed: number;
   checkoutStatus: "success" | "cancelled" | null;
   onClose: () => void;
@@ -209,7 +210,7 @@ function SummaryView({ markdown }: { markdown: string }) {
  * pour s'adapter à un panneau étroit plutôt qu'un écran plein. Le chrome de
  * compte (logo, thème, déconnexion) vit désormais dans AppShell : ce
  * panneau ne garde que ce qui lui est propre. */
-export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, onClose }: AiPanelProps) {
+export function AiPanel({ subscriptionStatus, subscriptionTier, generationsUsed, checkoutStatus, onClose }: AiPanelProps) {
   const [text, setText] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
@@ -242,6 +243,9 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
   const [distillationId, setDistillationId] = useState<string | null>(null);
 
   const subscribed = isSubscribed({ subscription_status: subscriptionStatus });
+  // `null` en essai gratuit (jamais restreint par les paliers, voir getTier)
+  // ou pour un abonné dont le palier reste à déterminer par le serveur.
+  const tier = getTier({ subscription_status: subscriptionStatus, subscription_tier: subscriptionTier });
   const remaining = subscribed ? Infinity : Math.max(0, FREE_GENERATIONS_LIMIT - localGenerationsUsed);
   const limitReached = !subscribed && remaining <= 0;
   const hasInput = text.trim().length > 0 || !!imageFile || !!pdfFile;
@@ -497,6 +501,21 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
               <div className="flex items-center gap-1 rounded-2xl border border-border bg-card p-1.5 shadow-[var(--shadow-sm)]">
                 {TAB_CONFIG.map(({ id, label, icon: Icon }) => {
                   if (id === "quiz" && !quizRequestedForResult) return null;
+                  // Le Mode Explication n'est pas inclus dans l'offre
+                  // Essentiel (voir /api/distill/chat) — onglet visible mais
+                  // désactivé plutôt que masqué, même logique que la case
+                  // QCM plus haut.
+                  if (id === "chat" && tier === "essentiel") {
+                    return (
+                      <span
+                        key={id}
+                        className="flex cursor-not-allowed items-center gap-1.5 rounded-xl px-3 py-1.5 text-[12.5px] font-medium text-muted-foreground/50"
+                      >
+                        <Icon size={13} />
+                        {label}
+                      </span>
+                    );
+                  }
                   const on = tab === id;
                   return (
                     <button
@@ -531,6 +550,7 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
                     key={quizVersion}
                     quiz={result.quiz}
                     distillationId={distillationId}
+                    tier={tier}
                     onRegenerate={() => void generateQuiz(true)}
                   />
                 ) : quizError ? (
@@ -590,20 +610,34 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
                 />
 
                 <div className="mt-4 rounded-2xl border border-border bg-card p-4 shadow-[var(--shadow-sm)]">
-                  <label className="flex cursor-pointer items-center gap-2.5 text-sm font-medium text-foreground">
-                    <input
-                      type="checkbox"
-                      checked={quizRequested}
-                      onChange={(e) => setQuizRequested(e.target.checked)}
-                      className="h-4 w-4 shrink-0 accent-accent"
-                    />
-                    Générer aussi un QCM de révision
-                  </label>
-                  {quizRequested && (
-                    <div className="mt-3 flex items-center gap-2.5">
-                      <span className="text-xs text-muted-foreground">Difficulté</span>
-                      <DifficultyToggle value={quizDifficulty} onChange={setQuizDifficulty} />
+                  {tier === "essentiel" ? (
+                    // Le QCM n'est pas inclus dans l'offre Essentiel (voir
+                    // /api/distill/quiz) — case désactivée avec message
+                    // d'upsell plutôt que masquée, pour que la fonctionnalité
+                    // reste visible/désirable même sans y avoir accès.
+                    <div className="flex cursor-not-allowed items-center gap-2.5 text-sm font-medium text-muted-foreground/60">
+                      <input type="checkbox" checked={false} disabled className="h-4 w-4 shrink-0" />
+                      Générer aussi un QCM de révision
+                      <Badge className="ml-auto bg-secondary text-secondary-foreground">Étudiant et +</Badge>
                     </div>
+                  ) : (
+                    <>
+                      <label className="flex cursor-pointer items-center gap-2.5 text-sm font-medium text-foreground">
+                        <input
+                          type="checkbox"
+                          checked={quizRequested}
+                          onChange={(e) => setQuizRequested(e.target.checked)}
+                          className="h-4 w-4 shrink-0 accent-accent"
+                        />
+                        Générer aussi un QCM de révision
+                      </label>
+                      {quizRequested && (
+                        <div className="mt-3 flex items-center gap-2.5">
+                          <span className="text-xs text-muted-foreground">Difficulté</span>
+                          <DifficultyToggle value={quizDifficulty} onChange={setQuizDifficulty} />
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
 

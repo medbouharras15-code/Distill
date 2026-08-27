@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { buildFakeQuizResult, IS_SIMULATION_ENABLED } from "@/lib/aiSimulation";
 import { logAiUsageEvent, usageCapResponse } from "@/lib/aiUsage";
 import { getUserAndProfile } from "@/lib/auth";
-import { FREE_GENERATIONS_LIMIT, isSubscribed } from "@/lib/billing";
+import { FREE_GENERATIONS_LIMIT, getTier, isSubscribed } from "@/lib/billing";
 import {
   SHARED_TASK_SYSTEM_PROMPT,
   anthropicErrorResponse,
@@ -79,6 +79,7 @@ export async function POST(request: Request) {
   }
   const { user, profile } = auth;
   const subscribed = isSubscribed(profile);
+  const tier = getTier(profile);
 
   if (!subscribed && profile.generations_used > FREE_GENERATIONS_LIMIT) {
     return NextResponse.json(
@@ -90,11 +91,33 @@ export async function POST(request: Request) {
     );
   }
 
+  // Le QCM n'est pas inclus dans l'offre Essentiel — jamais bloquant pour
+  // l'essai gratuit (tier vaut alors `null`, jamais "essentiel").
+  if (tier === "essentiel") {
+    return NextResponse.json(
+      { error: "Le QCM n'est pas disponible avec l'offre Essentiel. Passez à Étudiant ou Intensif pour y accéder." },
+      { status: 403 },
+    );
+  }
+
   let body: QuizRequestBody;
   try {
     body = (await request.json()) as QuizRequestBody;
   } catch {
     return NextResponse.json({ error: "Requête invalide." }, { status: 400 });
+  }
+
+  // La régénération de QCM (body.isRegeneration) est réservée à l'offre
+  // Intensif — un abonné Étudiant garde son premier QCM (voir le
+  // commentaire sur POST plus haut), mais pas la régénération. Là encore,
+  // jamais bloquant pour l'essai gratuit (tier `null`).
+  if (tier === "etudiant" && body.isRegeneration) {
+    return NextResponse.json(
+      {
+        error: "La régénération de QCM sur un même contenu est réservée à l'offre Intensif.",
+      },
+      { status: 403 },
+    );
   }
 
   const text = body.text?.trim();
@@ -132,8 +155,8 @@ export async function POST(request: Request) {
       // directement un QCM factice pour tester l'interface sans coût.
       quiz = await buildFakeQuizResult(QUIZ_QUESTION_COUNT);
     } else {
-      if (subscribed) {
-        const capResponse = await usageCapResponse(user.id);
+      if (tier) {
+        const capResponse = await usageCapResponse(user.id, tier);
         if (capResponse) return capResponse;
       }
 

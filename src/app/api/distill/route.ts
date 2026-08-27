@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { buildFakeDistillResult, IS_SIMULATION_ENABLED } from "@/lib/aiSimulation";
 import { logAiUsageEvent, usageCapResponse } from "@/lib/aiUsage";
 import { getUserAndProfile } from "@/lib/auth";
-import { FREE_GENERATIONS_LIMIT, isSubscribed } from "@/lib/billing";
+import { FREE_GENERATIONS_LIMIT, getTier, isSubscribed } from "@/lib/billing";
 import {
   SHARED_TASK_SYSTEM_PROMPT,
   anthropicErrorResponse,
@@ -171,8 +171,9 @@ export async function POST(request: Request) {
       // directement un résultat factice pour tester l'interface sans coût.
       parsed = await buildFakeDistillResult();
     } else {
-      if (subscribed) {
-        const capResponse = await usageCapResponse(user.id);
+      const tier = getTier(profile);
+      if (tier) {
+        const capResponse = await usageCapResponse(user.id, tier);
         if (capResponse) return capResponse;
       }
 

@@ -59,3 +59,24 @@ export function remainingFreeGenerations(
   if (isSubscribed(profile)) return Infinity;
   return Math.max(0, FREE_GENERATIONS_LIMIT - profile.generations_used);
 }
+
+export type SubscriptionTier = "essentiel" | "etudiant" | "intensif";
+
+/** Palier réel d'un abonné, pour les restrictions d'accès par fonctionnalité
+ * (voir /api/distill/quiz, /api/distill/chat, /api/quiz-attempts). `null`
+ * si l'utilisateur n'est pas abonné (essai gratuit) — ce cas ne doit jamais
+ * être bloqué par ces restrictions, qui ne visent que les abonnés payants
+ * n'ayant pas le palier requis : l'essai gratuit garde l'accès complet
+ * actuel (résumé/flashcards/QCM/chat/lacunes), inchangé par l'introduction
+ * des paliers. Un abonné actif sans subscription_tier enregistré (celui-ci
+ * a été ajouté après coup, voir schema.sql) est traité comme "intensif" —
+ * il gardait déjà la régénération de QCM et la détection de lacunes avant
+ * l'introduction des paliers, pas question de les lui retirer. */
+export function getTier(
+  profile: Pick<Profile, "subscription_status" | "subscription_tier">,
+): SubscriptionTier | null {
+  if (!isSubscribed(profile)) return null;
+  if (IS_SUBSCRIBED_OVERRIDDEN) return "intensif";
+  const tier = profile.subscription_tier;
+  return tier === "essentiel" || tier === "etudiant" || tier === "intensif" ? tier : "intensif";
+}

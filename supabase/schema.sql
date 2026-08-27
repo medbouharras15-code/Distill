@@ -25,6 +25,14 @@ begin
   end if;
 end $$;
 
+-- Migration : palier réel de l'abonnement (offre à 3 paliers, voir
+-- @/components/SubscriptionForm) — 'essentiel'/'etudiant'/'intensif'.
+-- Nullable : reste vide pour l'essai gratuit, et pour les abonnés déjà
+-- actifs avant cette migration (voir getTier dans @/lib/billing, qui les
+-- traite comme "intensif" par défaut plutôt que de les rétrograder).
+alter table public.profiles add column if not exists subscription_tier text
+  check (subscription_tier in ('essentiel', 'etudiant', 'intensif'));
+
 -- 2. Sécurité au niveau des lignes : chaque utilisateur ne voit / ne modifie
 -- que sa propre ligne. Les écritures sensibles (compteur d'usage, statut
 -- d'abonnement) sont faites uniquement par le serveur avec la clé "service
