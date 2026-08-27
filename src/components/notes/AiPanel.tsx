@@ -9,6 +9,7 @@ import { IS_SIMULATION_ENABLED } from "@/lib/aiSimulation";
 import { Cards, Chat, Close, Doc, Pen, Quiz, Sparkle } from "@/lib/icons";
 import { resizeImageToJpeg, uploadPdfToBlob } from "@/lib/aiMedia";
 import { FREE_GENERATIONS_LIMIT, IS_FREE_LIMIT_OVERRIDDEN, getTier, isSubscribed } from "@/lib/billing";
+import type { SubscriptionProvider } from "@/lib/billing";
 import { MAX_PDF_FILE_BYTES } from "@/lib/fileSizeLimits";
 import { TYPICAL_JETONS } from "@/lib/jetons";
 import { parseJsonResponse, useSubscriptionActions } from "@/lib/useSubscriptionActions";
@@ -26,6 +27,7 @@ type Tab = "summary" | "flashcards" | "quiz" | "chat";
 interface AiPanelProps {
   subscriptionStatus: string;
   subscriptionTier: string | null;
+  subscriptionProvider: SubscriptionProvider;
   generationsUsed: number;
   checkoutStatus: "success" | "cancelled" | null;
   onClose: () => void;
@@ -210,12 +212,20 @@ function SummaryView({ markdown }: { markdown: string }) {
  * pour s'adapter à un panneau étroit plutôt qu'un écran plein. Le chrome de
  * compte (logo, thème, déconnexion) vit désormais dans AppShell : ce
  * panneau ne garde que ce qui lui est propre. */
-export function AiPanel({ subscriptionStatus, subscriptionTier, generationsUsed, checkoutStatus, onClose }: AiPanelProps) {
+export function AiPanel({
+  subscriptionStatus,
+  subscriptionTier,
+  subscriptionProvider,
+  generationsUsed,
+  checkoutStatus,
+  onClose,
+}: AiPanelProps) {
   const [text, setText] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
-  const { billingLoading, billingError, setBillingError, subscribe, cancel } = useSubscriptionActions();
+  const { billingLoading, billingError, setBillingError, subscribeToTier, cancel } =
+    useSubscriptionActions(subscriptionProvider);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<DistillResult | null>(null);
   const [tab, setTab] = useState<Tab>("summary");
@@ -458,11 +468,11 @@ export function AiPanel({ subscriptionStatus, subscriptionTier, generationsUsed,
           </div>
           <button
             type="button"
-            onClick={subscribed ? cancel : subscribe}
+            onClick={subscribed ? cancel : () => void subscribeToTier("etudiant")}
             disabled={billingLoading}
             className={buttonClasses("outline", "sm")}
           >
-            {subscribed ? "Annuler mon abonnement" : "S'abonner — 9,99€/mois"}
+            {subscribed ? "Annuler mon abonnement" : "S'abonner — 8,99$/mois"}
           </button>
         </div>
 
@@ -646,7 +656,7 @@ export function AiPanel({ subscriptionStatus, subscriptionTier, generationsUsed,
                 {limitReached ? (
                   <button
                     type="button"
-                    onClick={subscribe}
+                    onClick={() => void subscribeToTier("etudiant")}
                     disabled={billingLoading}
                     className={buttonClasses("primary", "lg", "mt-4 w-full rounded-2xl shadow-[0_2px_4px_rgba(0,0,0,0.08),0_16px_40px_-16px_var(--primary)]")}
                   >

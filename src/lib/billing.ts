@@ -80,3 +80,19 @@ export function getTier(
   const tier = profile.subscription_tier;
   return tier === "essentiel" || tier === "etudiant" || tier === "intensif" ? tier : "intensif";
 }
+
+export type SubscriptionProvider = "lemonsqueezy" | "paddle" | null;
+
+/** Quel prestataire de paiement héberge l'abonnement réel de ce profil — sert
+ * uniquement à savoir quelle route d'annulation appeler (voir
+ * @/lib/useSubscriptionActions) pendant la cohabitation temporaire entre
+ * Lemon Squeezy (l'unique abonné d'avant la migration Paddle, jamais
+ * retouché) et Paddle (tout nouvel abonné). Les deux identifiants ne
+ * devraient jamais être renseignés en même temps sur un même profil. */
+export function getSubscriptionProvider(
+  profile: Pick<Profile, "lemonsqueezy_subscription_id" | "paddle_subscription_id">,
+): SubscriptionProvider {
+  if (profile.paddle_subscription_id) return "paddle";
+  if (profile.lemonsqueezy_subscription_id) return "lemonsqueezy";
+  return null;
+}

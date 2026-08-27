@@ -1,5 +1,6 @@
 import NotesPageClient from "@/components/notes/NotesPageClient";
 import { getUserAndProfile } from "@/lib/auth";
+import { getSubscriptionProvider } from "@/lib/billing";
 
 /** Le canvas de dessin reste accessible sans connexion (comme avant) ; le
  * panneau IA (résumé/flashcards), lui, nécessite un compte — voir
@@ -23,6 +24,7 @@ export default async function NotesPage({
           ? {
               subscriptionStatus: auth.profile.subscription_status,
               subscriptionTier: auth.profile.subscription_tier,
+              subscriptionProvider: getSubscriptionProvider(auth.profile),
               generationsUsed: auth.profile.generations_used,
             }
           : null

@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Wordmark } from "@/components/Brand";
+import type { SubscriptionProvider } from "@/lib/billing";
 import { ChevronLeft } from "@/lib/icons";
 import { AiPanel } from "./AiPanel";
 
 interface AiFullScreenProps {
   subscriptionStatus: string;
   subscriptionTier: string | null;
+  subscriptionProvider: SubscriptionProvider;
   generationsUsed: number;
 }
 
@@ -17,7 +19,12 @@ interface AiFullScreenProps {
  * l'IA, en plus du panneau latéral de l'éditeur (/notes, inchangé). Réutilise
  * @/components/notes/AiPanel tel quel : aucune logique dupliquée, seule la
  * mise en page change (plein écran plutôt que panneau étroit coulissant). */
-export function AiFullScreen({ subscriptionStatus, subscriptionTier, generationsUsed }: AiFullScreenProps) {
+export function AiFullScreen({
+  subscriptionStatus,
+  subscriptionTier,
+  subscriptionProvider,
+  generationsUsed,
+}: AiFullScreenProps) {
   const router = useRouter();
 
   return (
@@ -34,6 +41,7 @@ export function AiFullScreen({ subscriptionStatus, subscriptionTier, generations
         <AiPanel
           subscriptionStatus={subscriptionStatus}
           subscriptionTier={subscriptionTier}
+          subscriptionProvider={subscriptionProvider}
           generationsUsed={generationsUsed}
           checkoutStatus={null}
           onClose={() => router.push("/dashboard")}

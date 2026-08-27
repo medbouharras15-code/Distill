@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { AiOrb } from "@/components/Brand";
 import { Badge, Card, buttonClasses, staggerDelay } from "@/components/ui";
-import type { SubscriptionTier } from "@/lib/billing";
+import type { SubscriptionProvider, SubscriptionTier } from "@/lib/billing";
 import { Bolt, Brain, Check, ChevronRight, Sparkle, Star } from "@/lib/icons";
 import { useSubscriptionActions } from "@/lib/useSubscriptionActions";
 
@@ -33,17 +33,16 @@ interface Tier {
  * (voir getTier dans @/lib/billing, et les vérifications dans
  * /api/distill/quiz, /api/distill/chat, /api/quiz-attempts).
  *
- * Seul "etudiant" est relié à un vrai flux de paiement (Lemon Squeezy, voir
- * plus bas) : c'est l'offre unique déjà en place aujourd'hui, facturée
- * 9,99€/mois côté Lemon Squeezy — le prix affiché ici (8,99$) est
- * volontairement en avance sur le vrai prix facturé, le temps de créer le
- * produit correspondant chez le prestataire ; jusque-là, s'abonner via
- * cette carte facture réellement 9,99€, pas 8,99$. "essentiel" et
- * "intensif" sont de nouveaux paliers sans produit configuré chez le
- * prestataire — leurs boutons restent volontairement non fonctionnels
- * ("Bientôt disponible"), même si les restrictions d'accès qui leur
- * correspondent sont, elles, réellement appliquées dès qu'un profil a le
- * bon subscription_tier. */
+ * Les 3 boutons "S'abonner" sont réellement fonctionnels, branchés sur
+ * Paddle (voir @/lib/paddle, subscribeToTier dans
+ * @/lib/useSubscriptionActions) — Essentiel et Intensif, qui n'avaient
+ * jusqu'ici aucun paiement branché, le sont désormais au même titre
+ * qu'Étudiant. Un seul abonné, créé avant cette migration, reste sur Lemon
+ * Squeezy (voir provider ci-dessous) : ni son abonnement ni ses données ne
+ * sont touchés, mais tout nouvel abonnement passe par Paddle. Le prix
+ * Étudiant affiché ici (8,99$) est en avance sur le prix historique de cet
+ * unique abonné Lemon Squeezy (9,99€) — sans lien entre les deux, chacun
+ * facture désormais réellement le montant affiché sur sa propre carte. */
 const TIERS: Tier[] = [
   {
     id: "essentiel",
@@ -97,6 +96,7 @@ const TIERS: Tier[] = [
 interface SubscriptionFormProps {
   subscribed: boolean;
   tier: SubscriptionTier | null;
+  provider: SubscriptionProvider;
   remaining: number;
   checkoutStatus: "success" | "cancelled" | null;
 }
@@ -107,14 +107,13 @@ const TIER_NAMES: Record<SubscriptionTier, string> = {
   intensif: "Intensif",
 };
 
-/** Page dédiée à l'abonnement — 3 paliers affichés côte à côte. Seul le
- * palier "Étudiant" (9,99€) correspond à une offre réellement payante
- * aujourd'hui : son bouton reste connecté au vrai flux Lemon Squeezy via
- * @/lib/useSubscriptionActions, partagé avec le panneau IA de l'éditeur
- * (@/components/notes/AiPanel). "Essentiel" et "Intensif" sont de nouveaux
- * paliers sans paiement branché pour l'instant (voir TIERS ci-dessus). */
-export function SubscriptionForm({ subscribed, tier, remaining, checkoutStatus }: SubscriptionFormProps) {
-  const { billingLoading, billingError, setBillingError, subscribe, cancel } = useSubscriptionActions();
+/** Page dédiée à l'abonnement — 3 paliers affichés côte à côte, tous les
+ * trois réellement payants via Paddle (voir TIERS ci-dessus). `provider`
+ * détermine seulement quelle route d'annulation appeler pour l'abonné
+ * courant (Paddle pour tout nouvel abonné, Lemon Squeezy pour l'unique
+ * abonné d'avant cette migration) — voir useSubscriptionActions. */
+export function SubscriptionForm({ subscribed, tier, provider, remaining, checkoutStatus }: SubscriptionFormProps) {
+  const { billingLoading, billingError, setBillingError, subscribeToTier, cancel } = useSubscriptionActions(provider);
   const [dismissedCheckoutBanner, setDismissedCheckoutBanner] = useState(false);
 
   return (
@@ -196,20 +195,20 @@ export function SubscriptionForm({ subscribed, tier, remaining, checkoutStatus }
       </Link>
 
       <div className="mt-6 grid items-stretch gap-6 md:grid-cols-3">
-        {TIERS.map((tier, i) => {
-          const Icon = tier.icon;
-          const isCurrentPlan = tier.id === "etudiant" && subscribed;
+        {TIERS.map((tierCard, i) => {
+          const Icon = tierCard.icon;
+          const isCurrentPlan = subscribed && tier === tierCard.id;
 
           return (
             <div
-              key={tier.id}
-              className={`relative animate-fade ${tier.highlighted ? "md:-translate-y-3 md:scale-[1.02]" : ""}`}
+              key={tierCard.id}
+              className={`relative animate-fade ${tierCard.highlighted ? "md:-translate-y-3 md:scale-[1.02]" : ""}`}
               style={staggerDelay(i, 90)}
             >
-              {tier.highlighted && (
+              {tierCard.highlighted && (
                 <div className="absolute inset-x-4 -inset-y-2 -z-10 rounded-[calc(var(--radius)+14px)] bg-accent/25 blur-2xl" aria-hidden="true" />
               )}
-              {tier.highlighted && (
+              {tierCard.highlighted && (
                 <Badge className="absolute -top-3 left-1/2 z-10 -translate-x-1/2 bg-accent text-[var(--primary-foreground)] shadow-[var(--shadow-md)]">
                   ✦ Recommandé
                 </Badge>
@@ -217,18 +216,18 @@ export function SubscriptionForm({ subscribed, tier, remaining, checkoutStatus }
 
               <Card
                 className={`paper-grain card-hover flex h-full flex-col overflow-hidden p-6 ${
-                  tier.highlighted
+                  tierCard.highlighted
                     ? "border-accent ring-2 ring-accent"
-                    : tier.premium
+                    : tierCard.premium
                       ? "border-amber-300/70 bg-gradient-to-b from-amber-50/50 to-card"
                       : ""
                 }`}
               >
                 <div
                   className={`flex h-11 w-11 items-center justify-center rounded-2xl ${
-                    tier.premium
+                    tierCard.premium
                       ? "bg-gradient-to-br from-amber-400 to-amber-600 text-white"
-                      : tier.highlighted
+                      : tierCard.highlighted
                         ? "bg-accent text-accent-foreground"
                         : "bg-secondary text-foreground/70"
                   }`}
@@ -237,31 +236,31 @@ export function SubscriptionForm({ subscribed, tier, remaining, checkoutStatus }
                 </div>
 
                 <div className="mt-4 flex items-center gap-2">
-                  <span className="font-display text-xl font-medium text-foreground">{tier.name}</span>
+                  <span className="font-display text-xl font-medium text-foreground">{tierCard.name}</span>
                   {isCurrentPlan && (
                     <Badge className="bg-accent-light/60 text-accent-dark">Plan actuel</Badge>
                   )}
                 </div>
-                <p className="mt-1 text-[13px] text-muted-foreground">{tier.tagline}</p>
+                <p className="mt-1 text-[13px] text-muted-foreground">{tierCard.tagline}</p>
 
                 <div className="mt-5 font-display text-3xl font-medium text-foreground">
-                  {tier.priceLabel}
+                  {tierCard.priceLabel}
                   <span className="text-base font-normal text-muted-foreground">/mois</span>
                 </div>
 
                 <div className="mt-3 flex flex-wrap gap-1.5">
-                  <Badge className="bg-secondary text-secondary-foreground">{tier.formats}</Badge>
-                  <Badge className="bg-secondary text-secondary-foreground">{tier.support}</Badge>
+                  <Badge className="bg-secondary text-secondary-foreground">{tierCard.formats}</Badge>
+                  <Badge className="bg-secondary text-secondary-foreground">{tierCard.support}</Badge>
                 </div>
 
                 <ul className="mt-6 flex-1 space-y-2.5">
-                  {tier.features.map((f) => (
+                  {tierCard.features.map((f) => (
                     <li
                       key={f.text}
                       className={`flex items-center gap-2.5 text-sm ${f.included ? "text-foreground/90" : "text-muted-foreground/60 line-through"}`}
                     >
                       {f.included ? (
-                        <Check size={16} className={`shrink-0 ${tier.premium ? "text-amber-600" : "text-accent-dark"}`} />
+                        <Check size={16} className={`shrink-0 ${tierCard.premium ? "text-amber-600" : "text-accent-dark"}`} />
                       ) : (
                         <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground/50">✕</span>
                       )}
@@ -270,30 +269,24 @@ export function SubscriptionForm({ subscribed, tier, remaining, checkoutStatus }
                   ))}
                 </ul>
 
-                {tier.id === "etudiant" ? (
-                  isCurrentPlan ? (
-                    <button
-                      type="button"
-                      onClick={cancel}
-                      disabled={billingLoading}
-                      className={buttonClasses("outline", "sm", "mt-6 w-full")}
-                    >
-                      {billingLoading ? "Un instant…" : "Annuler mon abonnement"}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={subscribe}
-                      disabled={billingLoading}
-                      className={buttonClasses("primary", "sm", "mt-6 w-full")}
-                    >
-                      {billingLoading ? "Un instant…" : "S'abonner"}
-                    </button>
-                  )
+                {isCurrentPlan ? (
+                  <button
+                    type="button"
+                    onClick={cancel}
+                    disabled={billingLoading}
+                    className={buttonClasses("outline", "sm", "mt-6 w-full")}
+                  >
+                    {billingLoading ? "Un instant…" : "Annuler mon abonnement"}
+                  </button>
                 ) : (
-                  <div className={buttonClasses("outline", "sm", "mt-6 w-full justify-center pointer-events-none opacity-60")}>
-                    Bientôt disponible
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void subscribeToTier(tierCard.id)}
+                    disabled={billingLoading || subscribed}
+                    className={buttonClasses("primary", "sm", "mt-6 w-full")}
+                  >
+                    {billingLoading ? "Un instant…" : "S'abonner"}
+                  </button>
                 )}
               </Card>
             </div>

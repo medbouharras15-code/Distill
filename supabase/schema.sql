@@ -33,6 +33,17 @@ end $$;
 alter table public.profiles add column if not exists subscription_tier text
   check (subscription_tier in ('essentiel', 'etudiant', 'intensif'));
 
+-- Migration : identifiants Paddle, en plus des colonnes Lemon Squeezy
+-- ci-dessus plutôt qu'à leur place — les deux prestataires cohabitent
+-- temporairement, Paddle pour tout nouvel abonné, Lemon Squeezy conservé
+-- tel quel pour l'unique abonné existant avant cette migration (voir
+-- /api/paddle/*). subscription_status reçoit directement la chaîne brute
+-- renvoyée par le prestataire qui a écrit la ligne (Lemon Squeezy ou
+-- Paddle) — les deux utilisent déjà "active" pour l'état payant, seule
+-- valeur qui compte pour isSubscribed() dans @/lib/billing.
+alter table public.profiles add column if not exists paddle_subscription_id text unique;
+alter table public.profiles add column if not exists paddle_customer_id text;
+
 -- 2. Sécurité au niveau des lignes : chaque utilisateur ne voit / ne modifie
 -- que sa propre ligne. Les écritures sensibles (compteur d'usage, statut
 -- d'abonnement) sont faites uniquement par le serveur avec la clé "service

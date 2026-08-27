@@ -188,9 +188,17 @@ export interface Profile {
   email: string | null;
   generations_used: number;
   lemonsqueezy_subscription_id: string | null;
-  /** "free" tant que l'utilisateur n'a jamais souscrit, sinon le statut
-   * Lemon Squeezy brut ("on_trial", "active", "paused", "past_due",
-   * "unpaid", "cancelled", "expired"). */
+  /** Rempli uniquement pour un abonné passé par Paddle (nouveaux abonnés
+   * depuis la migration) — jamais les deux à la fois que
+   * lemonsqueezy_subscription_id sur un même profil. */
+  paddle_subscription_id: string | null;
+  paddle_customer_id: string | null;
+  /** "free" tant que l'utilisateur n'a jamais souscrit, sinon le statut brut
+   * du prestataire qui a écrit la ligne — Lemon Squeezy ("on_trial",
+   * "active", "paused", "past_due", "unpaid", "cancelled", "expired") ou
+   * Paddle ("active", "trialing", "past_due", "paused", "canceled"). Seule
+   * la valeur "active" (identique chez les deux prestataires) compte pour
+   * isSubscribed() dans @/lib/billing. */
   subscription_status: string;
   /** Palier réel de l'abonnement ("essentiel"/"etudiant"/"intensif"), ou
    * `null` si jamais renseigné (essai gratuit, ou abonné actif d'avant

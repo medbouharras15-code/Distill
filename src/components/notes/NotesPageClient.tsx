@@ -15,6 +15,7 @@ import {
 } from "@/components/notes/NotesToolbar";
 import { SheetSelector } from "@/components/notes/SheetSelector";
 import { AiPanel } from "@/components/notes/AiPanel";
+import type { SubscriptionProvider } from "@/lib/billing";
 import { BACKGROUND_COLORS, PAPER_SIZES, SHEET_TYPES, getPageDimensions } from "@/lib/notes/sheets";
 import type { EraserMode, PaperSize, PenType, ShapeType, SheetType } from "@/lib/notes/types";
 
@@ -29,6 +30,7 @@ interface EditorPage {
 interface NotesAuth {
   subscriptionStatus: string;
   subscriptionTier: string | null;
+  subscriptionProvider: SubscriptionProvider;
   generationsUsed: number;
 }
 
@@ -431,6 +433,7 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
             <AiPanel
               subscriptionStatus={auth.subscriptionStatus}
               subscriptionTier={auth.subscriptionTier}
+              subscriptionProvider={auth.subscriptionProvider}
               generationsUsed={auth.generationsUsed}
               checkoutStatus={checkoutStatus}
               onClose={() => setAiOpen(false)}
