@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getUserAndProfile } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import type { QuizAttemptsRequestBody, QuizAttemptsResponseBody, QuizThemeStat } from "@/lib/types";
+import type { QuizAttemptsRequestBody, QuizAttemptsResponseBody, QuizOverallStat, QuizThemeStat } from "@/lib/types";
 
 /** Nombre minimum de réponses sur un même thème avant de l'inclure dans
  * l'analyse de lacunes — évite de juger un thème sur une seule question
@@ -138,7 +138,7 @@ export async function POST(request: Request) {
 
   if (readError || !data) {
     console.error("Impossible de lire l'historique de QCM :", readError);
-    return NextResponse.json({ themes: [] } satisfies QuizAttemptsResponseBody);
+    return NextResponse.json({ themes: [], overall: null } satisfies QuizAttemptsResponseBody);
   }
 
   // Regroupe par clé normalisée (voir normalizeThemeKey) plutôt que par
@@ -197,5 +197,18 @@ export async function POST(request: Request) {
       accuracy: Math.round((s.correct / s.total) * 100),
     }));
 
-  return NextResponse.json({ themes } satisfies QuizAttemptsResponseBody);
+  // Contexte affiché à côté de la carte "Points faibles" : sans lui, une
+  // poignée de thèmes réellement et systématiquement ratés peut occuper tout
+  // le classement alors que le reste des réponses (souvent la majorité) est
+  // bien maîtrisé — donnant à tort une impression d'échec généralisé plutôt
+  // que quelques lacunes précises. Porte sur TOUTES les réponses de la
+  // fenêtre de 14 jours, pas seulement les thèmes qui atteignent le seuil.
+  const overallTotal = data.length;
+  const overallCorrect = (data as { is_correct: boolean }[]).filter((row) => row.is_correct).length;
+  const overall: QuizOverallStat | null =
+    overallTotal > 0
+      ? { total: overallTotal, correct: overallCorrect, accuracy: Math.round((overallCorrect / overallTotal) * 100) }
+      : null;
+
+  return NextResponse.json({ themes, overall } satisfies QuizAttemptsResponseBody);
 }

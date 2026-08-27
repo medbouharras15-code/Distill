@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Card, buttonClasses } from "@/components/ui";
 import { Check, Close, Sparkle } from "@/lib/icons";
 import { DistillMark } from "@/components/Brand";
-import type { QuizAttemptsResponseBody, QuizQuestion, QuizThemeStat } from "@/lib/types";
+import type { QuizAttemptsResponseBody, QuizOverallStat, QuizQuestion, QuizThemeStat } from "@/lib/types";
 
 interface QuizViewProps {
   quiz: QuizQuestion[];
@@ -43,6 +43,11 @@ export function QuizView({ quiz, onRegenerate }: QuizViewProps) {
    * (ou a échoué) — la carte "Points faibles" ci-dessous reste alors
    * simplement absente, jamais bloquante pour la correction du QCM. */
   const [themeStats, setThemeStats] = useState<QuizThemeStat[] | null>(null);
+  /** Réussite globale des 14 derniers jours (toutes réponses, pas
+   * seulement les thèmes affichés) — sert de contexte à côté de la carte,
+   * pour éviter l'impression trompeuse d'échec généralisé quand seuls
+   * quelques thèmes précis et récurrents sont réellement faibles. */
+  const [overallStat, setOverallStat] = useState<QuizOverallStat | null>(null);
 
   function toggleChoice(questionIndex: number, choiceId: string, isMultiple: boolean) {
     if (submitted) return;
@@ -95,7 +100,10 @@ export function QuizView({ quiz, onRegenerate }: QuizViewProps) {
     })
       .then((res) => (res.ok ? (res.json() as Promise<QuizAttemptsResponseBody>) : null))
       .then((data) => {
-        if (data) setThemeStats(data.themes);
+        if (data) {
+          setThemeStats(data.themes);
+          setOverallStat(data.overall);
+        }
       })
       .catch(() => {
         // Silencieux, voir commentaire ci-dessus.
@@ -248,7 +256,7 @@ export function QuizView({ quiz, onRegenerate }: QuizViewProps) {
             <Sparkle size={16} className="text-primary" /> Points faibles à réviser en priorité
           </div>
           <p className="mt-1 text-[13px] text-muted-foreground">
-            D&apos;après l&apos;ensemble de tes QCM, du thème le plus fragile au plus solide.
+            D&apos;après tes QCM des 14 derniers jours, du thème le plus fragile au plus solide.
           </p>
           <div className="mt-4 space-y-3">
             {themeStats.slice(0, 5).map((t) => (
@@ -272,6 +280,18 @@ export function QuizView({ quiz, onRegenerate }: QuizViewProps) {
               </div>
             ))}
           </div>
+          {/* Contexte indispensable : sans lui, quelques thèmes précis et
+              systématiquement ratés (souvent 0 %) peuvent occuper tout ce
+              classement alors que le reste des réponses est bien maîtrisé —
+              donnant à tort une impression d'échec généralisé plutôt que de
+              lacunes ciblées. */}
+          {overallStat && (
+            <p className="mt-4 border-t border-border pt-3 text-[12px] text-muted-foreground">
+              Ces thèmes reviennent souvent et restent à travailler — sur l&apos;ensemble de tes réponses des 14
+              derniers jours, tu es à <span className="font-medium text-foreground">{overallStat.accuracy}%</span> de
+              réussite ({overallStat.correct}/{overallStat.total}).
+            </p>
+          )}
         </Card>
       )}
       {themeStats && themeStats.length === 0 && (

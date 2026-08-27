@@ -101,8 +101,22 @@ export interface QuizThemeStat {
   accuracy: number;
 }
 
+/** Réussite globale sur toutes les réponses des 14 derniers jours (pas
+ * seulement les thèmes qualifiés ci-dessus) — sert de contexte à côté de la
+ * carte "Points faibles" : sans lui, une poignée de thèmes réellement et
+ * systématiquement ratés (ex. 0/5) peut occuper tout le top des thèmes les
+ * plus fragiles alors que le reste des réponses est bien maîtrisé, donnant
+ * à tort une impression d'échec généralisé. `null` si aucune réponse
+ * enregistrée sur la période. */
+export interface QuizOverallStat {
+  total: number;
+  correct: number;
+  accuracy: number;
+}
+
 export interface QuizAttemptsResponseBody {
   themes: QuizThemeStat[];
+  overall: QuizOverallStat | null;
 }
 
 /** Citation d'un passage exact des notes sources, retournée par le modèle
