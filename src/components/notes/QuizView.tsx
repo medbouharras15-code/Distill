@@ -8,6 +8,11 @@ import type { QuizAttemptsResponseBody, QuizOverallStat, QuizQuestion, QuizTheme
 
 interface QuizViewProps {
   quiz: QuizQuestion[];
+  /** Identifie le document/texte distillé à l'origine de ce QCM (voir
+   * AiPanel) — envoyé avec chaque réponse à /api/quiz-attempts pour que la
+   * détection de lacunes ne porte que sur ce document, jamais mélangée avec
+   * d'autres PDF. */
+  distillationId: string;
   /** Demande un nouveau QCM sur le même contenu (AiPanel régénère via
    * /api/distill/quiz puis remonte ce composant avec les nouvelles
    * questions — voir la prop `key` côté AiPanel). Remplace l'ancien
@@ -35,7 +40,7 @@ function choiceLetter(index: number): string {
  * une question à réponses multiples n'est comptée juste que si la sélection
  * correspond exactement à l'ensemble correct, ni oubli ni ajout — cohérent
  * avec un contexte d'examen. */
-export function QuizView({ quiz, onRegenerate }: QuizViewProps) {
+export function QuizView({ quiz, distillationId, onRegenerate }: QuizViewProps) {
   const [answers, setAnswers] = useState<Record<number, Set<string>>>({});
   const [submitted, setSubmitted] = useState(false);
   const [showDroplet, setShowDroplet] = useState(false);
@@ -43,10 +48,10 @@ export function QuizView({ quiz, onRegenerate }: QuizViewProps) {
    * (ou a échoué) — la carte "Points faibles" ci-dessous reste alors
    * simplement absente, jamais bloquante pour la correction du QCM. */
   const [themeStats, setThemeStats] = useState<QuizThemeStat[] | null>(null);
-  /** Réussite globale des 14 derniers jours (toutes réponses, pas
-   * seulement les thèmes affichés) — sert de contexte à côté de la carte,
-   * pour éviter l'impression trompeuse d'échec généralisé quand seuls
-   * quelques thèmes précis et récurrents sont réellement faibles. */
+  /** Réussite globale sur ce document (toutes réponses, pas seulement les
+   * thèmes affichés) — sert de contexte à côté de la carte, pour éviter
+   * l'impression trompeuse d'échec généralisé quand seuls quelques thèmes
+   * précis et récurrents sont réellement faibles. */
   const [overallStat, setOverallStat] = useState<QuizOverallStat | null>(null);
 
   function toggleChoice(questionIndex: number, choiceId: string, isMultiple: boolean) {
@@ -81,6 +86,7 @@ export function QuizView({ quiz, onRegenerate }: QuizViewProps) {
     // l'affichage de la correction — un échec réseau laisse simplement
     // themeStats à null (carte "Points faibles" absente).
     const payload = {
+      distillationId,
       answers: quiz.map((q, i) => ({
         theme: q.theme,
         question: q.question,
@@ -246,17 +252,18 @@ export function QuizView({ quiz, onRegenerate }: QuizViewProps) {
         </div>
       </Card>
 
-      {/* Détection de lacunes — cumulée sur tout l'historique de QCM de
-          l'utilisateur (pas seulement celui-ci), voir /api/quiz-attempts.
-          Absente tant que themeStats est null (requête en cours ou échouée),
-          jamais bloquante pour le reste de la correction. */}
+      {/* Détection de lacunes — cumulée sur les QCM déjà passés sur CE
+          document (pas mélangée avec d'autres PDF, voir distillationId et
+          /api/quiz-attempts). Absente tant que themeStats est null (requête
+          en cours ou échouée), jamais bloquante pour le reste de la
+          correction. */}
       {themeStats && themeStats.length > 0 && (
         <Card className="p-6">
           <div className="flex items-center gap-2 text-[15px] font-semibold tracking-tight text-foreground">
-            <Sparkle size={16} className="text-primary" /> Points faibles à réviser en priorité
+            <Sparkle size={16} className="text-primary" /> Points faibles à réviser sur ce contenu
           </div>
           <p className="mt-1 text-[13px] text-muted-foreground">
-            D&apos;après tes QCM des 14 derniers jours, du thème le plus fragile au plus solide.
+            D&apos;après tes QCM sur ce document, du thème le plus fragile au plus solide.
           </p>
           <div className="mt-4 space-y-3">
             {themeStats.slice(0, 5).map((t) => (
@@ -287,8 +294,8 @@ export function QuizView({ quiz, onRegenerate }: QuizViewProps) {
               lacunes ciblées. */}
           {overallStat && (
             <p className="mt-4 border-t border-border pt-3 text-[12px] text-muted-foreground">
-              Ces thèmes reviennent souvent et restent à travailler — sur l&apos;ensemble de tes réponses des 14
-              derniers jours, tu es à <span className="font-medium text-foreground">{overallStat.accuracy}%</span> de
+              Ces thèmes reviennent souvent et restent à travailler — sur l&apos;ensemble de tes réponses sur ce
+              document, tu es à <span className="font-medium text-foreground">{overallStat.accuracy}%</span> de
               réussite ({overallStat.correct}/{overallStat.total}).
             </p>
           )}
@@ -298,9 +305,9 @@ export function QuizView({ quiz, onRegenerate }: QuizViewProps) {
         <Card className="flex items-center gap-3 p-5">
           <Sparkle size={16} className="shrink-0 text-muted-foreground" />
           <p className="text-[13px] text-muted-foreground">
-            Pas encore assez de données : une même notion doit revenir dans au moins 3 questions (dans ce QCM ou les
-            suivants) pour être analysée de façon fiable. Continue à générer des QCM sur tes différents cours pour
-            débloquer ton analyse de points faibles.
+            Pas encore assez de données sur ce document : une même notion doit revenir dans au moins 3 questions
+            (dans ce QCM ou les suivants). Génère un nouveau QCM sur ce même contenu pour débloquer ton analyse de
+            points faibles.
           </p>
         </Card>
       )}

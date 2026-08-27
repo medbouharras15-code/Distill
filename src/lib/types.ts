@@ -83,17 +83,22 @@ export interface QuizGenerationResult {
 
 /** Corps de la requête vers POST /api/quiz-attempts — envoyée par QuizView
  * une fois le QCM corrigé, pour enregistrer chaque réponse et recevoir en
- * retour l'analyse de lacunes à jour (voir QuizThemeStat ci-dessous). */
+ * retour l'analyse de lacunes à jour (voir QuizThemeStat ci-dessous).
+ * distillationId identifie le document/texte distillé à l'origine de ce QCM
+ * (généré une fois par nouvelle distillation dans AiPanel, partagé par le
+ * premier QCM et toutes ses régénérations sur ce même contenu) — l'analyse
+ * ne porte que sur ce document, jamais mélangée avec d'autres PDF. */
 export interface QuizAttemptsRequestBody {
+  distillationId: string;
   answers: { theme: string; question: string; isCorrect: boolean }[];
 }
 
-/** Bilan par thème, cumulé sur toutes les réponses déjà enregistrées de
- * l'utilisateur (pas seulement celles du QCM qui vient d'être corrigé) —
- * trié du thème le plus fragile au plus solide (accuracy croissante). Un
- * thème n'apparaît ici qu'à partir de QUIZ_ATTEMPTS_MIN_PER_THEME réponses
- * (voir @/app/api/quiz-attempts/route.ts), pour ne pas juger un thème sur
- * une seule question. */
+/** Bilan par thème, cumulé sur toutes les réponses déjà enregistrées pour ce
+ * même document (voir distillationId ci-dessus, jamais mélangé avec
+ * d'autres PDF) — trié du thème le plus fragile au plus solide (accuracy
+ * croissante). Un thème n'apparaît ici qu'à partir de
+ * QUIZ_ATTEMPTS_MIN_PER_THEME réponses (voir @/app/api/quiz-attempts/route.ts),
+ * pour ne pas juger un thème sur une seule question. */
 export interface QuizThemeStat {
   theme: string;
   total: number;
@@ -101,13 +106,13 @@ export interface QuizThemeStat {
   accuracy: number;
 }
 
-/** Réussite globale sur toutes les réponses des 14 derniers jours (pas
- * seulement les thèmes qualifiés ci-dessus) — sert de contexte à côté de la
- * carte "Points faibles" : sans lui, une poignée de thèmes réellement et
- * systématiquement ratés (ex. 0/5) peut occuper tout le top des thèmes les
- * plus fragiles alors que le reste des réponses est bien maîtrisé, donnant
- * à tort une impression d'échec généralisé. `null` si aucune réponse
- * enregistrée sur la période. */
+/** Réussite globale sur toutes les réponses enregistrées pour ce document
+ * (pas seulement les thèmes qualifiés ci-dessus) — sert de contexte à côté
+ * de la carte "Points faibles" : sans lui, une poignée de thèmes réellement
+ * et systématiquement ratés (ex. 0/5) peut occuper tout le top des thèmes
+ * les plus fragiles alors que le reste des réponses sur ce même document est
+ * bien maîtrisé, donnant à tort une impression d'échec généralisé. `null`
+ * si aucune réponse enregistrée pour ce document. */
 export interface QuizOverallStat {
   total: number;
   correct: number;

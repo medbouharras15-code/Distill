@@ -111,8 +111,18 @@ create table if not exists public.quiz_answers (
   is_correct boolean not null
 );
 
-create index if not exists quiz_answers_user_id_theme_idx
-  on public.quiz_answers (user_id, theme);
+-- Migration : identifie le document/texte distillé à l'origine de cette
+-- réponse (un uuid généré côté client à chaque nouvelle distillation, voir
+-- @/components/notes/AiPanel) — l'analyse de lacunes est scopée à ce seul
+-- document plutôt qu'à tout l'historique de l'utilisateur, pour ne jamais
+-- mélanger les résultats de plusieurs PDF différents. Nullable : les lignes
+-- enregistrées avant l'ajout de cette colonne restent en base mais ne sont
+-- rattachées à aucun document (elles ne remonteront simplement plus dans
+-- aucune analyse, jamais besoin de les corriger).
+alter table public.quiz_answers add column if not exists distillation_id text;
+
+create index if not exists quiz_answers_user_id_distillation_id_idx
+  on public.quiz_answers (user_id, distillation_id);
 
 alter table public.quiz_answers enable row level security;
 

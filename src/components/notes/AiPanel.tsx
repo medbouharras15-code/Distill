@@ -233,6 +233,13 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
   // de lacunes remises à zéro) à l'arrivée d'un nouveau jeu de questions,
   // qu'un simple changement de la prop `quiz` ne provoquerait pas seul.
   const [quizVersion, setQuizVersion] = useState(0);
+  // Identifie le document/texte distillé en cours — généré une fois par
+  // nouvelle distillation (voir handleSubmit), partagé par le premier QCM
+  // et toutes ses régénérations sur ce même contenu. Transmis à QuizView
+  // pour scoper la détection de lacunes à CE document uniquement (voir
+  // /api/quiz-attempts) — sans lui, les résultats de plusieurs PDF
+  // différents se mélangeraient dans une même analyse.
+  const [distillationId, setDistillationId] = useState<string | null>(null);
 
   const subscribed = isSubscribed({ subscription_status: subscriptionStatus });
   const remaining = subscribed ? Infinity : Math.max(0, FREE_GENERATIONS_LIMIT - localGenerationsUsed);
@@ -328,6 +335,9 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
     if (!hasInput || loading || limitReached) return;
     setLoading(true);
     setError(null);
+    // Nouveau document distillé : nouvel identifiant, voir distillationId
+    // ci-dessus.
+    setDistillationId(crypto.randomUUID());
 
     try {
       // Les photos sont compressées en JPEG côté client (poids réduit et
@@ -390,6 +400,7 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
     setQuizRequestedForResult(false);
     setQuizLoading(false);
     setQuizError(null);
+    setDistillationId(null);
   }
 
   const TAB_CONFIG: { id: Tab; label: string; icon: typeof Doc }[] = [
@@ -515,8 +526,13 @@ export function AiPanel({ subscriptionStatus, generationsUsed, checkoutStatus, o
 
             <div key={tab}>
               {tab === "quiz" ? (
-                result.quiz ? (
-                  <QuizView key={quizVersion} quiz={result.quiz} onRegenerate={() => void generateQuiz(true)} />
+                result.quiz && distillationId ? (
+                  <QuizView
+                    key={quizVersion}
+                    quiz={result.quiz}
+                    distillationId={distillationId}
+                    onRegenerate={() => void generateQuiz(true)}
+                  />
                 ) : quizError ? (
                   <div className="flex animate-fade flex-col items-center gap-3 rounded-xl border border-red-200 bg-red-50/40 p-6 text-center">
                     <p className="text-sm text-red-700">{quizError}</p>

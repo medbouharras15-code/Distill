@@ -14,13 +14,6 @@ const MIN_ATTEMPTS_PER_THEME = 3;
  * profondeur contre un corps de requête anormalement volumineux. */
 const MAX_ANSWERS_PER_REQUEST = 30;
 
-/** Fenêtre glissante sur laquelle porte l'analyse de lacunes — sans elle,
- * un thème testé une seule fois il y a des semaines (et jamais revu depuis)
- * reste comptabilisé pour toujours dès qu'il a franchi MIN_ATTEMPTS_PER_THEME
- * un jour, noyant en permanence les matières réellement étudiées en ce
- * moment sous d'anciennes lacunes qui ne sont plus forcément d'actualité. */
-const ANALYSIS_WINDOW_DAYS = 14;
-
 /** Clé de regroupement insensible à l'ordre des mots, aux accents, à la
  * casse et à la ponctuation — deux appels séparés à /api/distill/quiz ne
  * renvoient pas toujours le même intitulé de thème mot pour mot pour la
@@ -71,11 +64,12 @@ function isValidAnswer(value: unknown): value is { theme: string; question: stri
 }
 
 /** Enregistre les réponses d'un QCM corrigé et renvoie l'analyse de lacunes
- * à jour, cumulée sur tout l'historique de l'utilisateur (pas seulement ce
- * QCM) — appelée par QuizView une fois le score affiché. Écriture via le
- * client "service role" (RLS n'autorise que la lecture côté client, voir
- * schema.sql), lecture ensuite via le client de session (RLS filtre déjà
- * sur l'utilisateur courant) — même principe que les routes Team Brain. */
+ * à jour, scopée au document distillé à l'origine de ce QCM (voir
+ * distillationId, jamais mélangée avec d'autres PDF) — appelée par
+ * QuizView une fois le score affiché. Écriture via le client "service
+ * role" (RLS n'autorise que la lecture côté client, voir schema.sql),
+ * lecture ensuite via le client de session (RLS filtre déjà sur
+ * l'utilisateur courant) — même principe que les routes Team Brain. */
 export async function POST(request: Request) {
   const auth = await getUserAndProfile();
   if (!auth) {
@@ -89,6 +83,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Requête invalide." }, { status: 400 });
   }
 
+  if (typeof body.distillationId !== "string" || body.distillationId.trim().length === 0) {
+    return NextResponse.json({ error: "Distillation invalide." }, { status: 400 });
+  }
   if (!Array.isArray(body.answers) || body.answers.length === 0 || !body.answers.every(isValidAnswer)) {
     return NextResponse.json({ error: "Réponses de QCM invalides." }, { status: 400 });
   }
@@ -98,6 +95,7 @@ export async function POST(request: Request) {
   const { error: insertError } = await admin.from("quiz_answers").insert(
     answers.map((a) => ({
       user_id: auth.user.id,
+      distillation_id: body.distillationId,
       theme: a.theme,
       question_text: a.question,
       is_correct: a.isCorrect,
@@ -124,17 +122,17 @@ export async function POST(request: Request) {
   // QCM partagent le même thème.
   console.log("[quiz-attempts] Réponses enregistrées :", {
     userId: auth.user.id,
+    distillationId: body.distillationId,
     count: answers.length,
     answers: answers.map((a) => ({ theme: a.theme, isCorrect: a.isCorrect, question: a.question.slice(0, 80) })),
   });
 
-  const analysisWindowStart = new Date(Date.now() - ANALYSIS_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const supabase = await createClient();
   const { data, error: readError } = await supabase
     .from("quiz_answers")
     .select("theme, is_correct, created_at")
     .eq("user_id", auth.user.id)
-    .gte("created_at", analysisWindowStart);
+    .eq("distillation_id", body.distillationId);
 
   if (readError || !data) {
     console.error("Impossible de lire l'historique de QCM :", readError);
@@ -175,6 +173,7 @@ export async function POST(request: Request) {
   // variantes différentes pour un même sujet) malgré ce regroupement.
   console.log("[quiz-attempts] Répartition par thème normalisé (avant seuil de 3) :", {
     userId: auth.user.id,
+    distillationId: body.distillationId,
     breakdown: Array.from(byTheme.values()).map((s) => ({
       theme: mostCommonVariant(s.variantCounts),
       total: s.total,
@@ -199,10 +198,11 @@ export async function POST(request: Request) {
 
   // Contexte affiché à côté de la carte "Points faibles" : sans lui, une
   // poignée de thèmes réellement et systématiquement ratés peut occuper tout
-  // le classement alors que le reste des réponses (souvent la majorité) est
-  // bien maîtrisé — donnant à tort une impression d'échec généralisé plutôt
-  // que quelques lacunes précises. Porte sur TOUTES les réponses de la
-  // fenêtre de 14 jours, pas seulement les thèmes qui atteignent le seuil.
+  // le classement alors que le reste des réponses sur ce même document
+  // (souvent la majorité) est bien maîtrisé — donnant à tort une impression
+  // d'échec généralisé plutôt que quelques lacunes précises. Porte sur
+  // TOUTES les réponses de ce document, pas seulement les thèmes qui
+  // atteignent le seuil.
   const overallTotal = data.length;
   const overallCorrect = (data as { is_correct: boolean }[]).filter((row) => row.is_correct).length;
   const overall: QuizOverallStat | null =
