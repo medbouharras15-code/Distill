@@ -46,12 +46,29 @@ export function tierForPriceId(priceId: string): SubscriptionTier | null {
   return entry ? entry[0] : null;
 }
 
+/** Détail d'une erreur remontée par Paddle.js pendant le paiement (évènement
+ * `checkout.error`, voir openPaddleCheckout) — `code` et `detail` sont ceux
+ * documentés par Paddle (developer.paddle.com/errors/overview), affichables
+ * tels quels : plus précis qu'un message générique côté client pour
+ * diagnostiquer un souci de configuration (Price ID, token, compte...). */
+export interface PaddleCheckoutError {
+  type: string;
+  code: string;
+  detail: string;
+  documentation_url?: string;
+}
+
+interface PaddleEventData {
+  name: string;
+  error?: PaddleCheckoutError;
+}
+
 /** Espace de noms minimal des méthodes Paddle.js réellement utilisées ici —
  * pas la peine d'ajouter le SDK npm officiel pour appeler 3 méthodes sur un
  * global injecté par <script>. */
 interface PaddleGlobal {
   Environment: { set(env: "sandbox" | "production"): void };
-  Initialize(options: { token: string }): void;
+  Initialize(options: { token: string; eventCallback?: (data: PaddleEventData) => void }): void;
   Checkout: {
     open(options: {
       items: { priceId: string; quantity: number }[];
@@ -60,6 +77,12 @@ interface PaddleGlobal {
     }): void;
   };
 }
+
+/** Callback actif pour le paiement en cours (voir openPaddleCheckout) —
+ * Paddle.Initialize() n'est appelé qu'une seule fois (voir `paddleReady`),
+ * son `eventCallback` doit donc rester stable et déléguer à celui du
+ * paiement effectivement ouvert, qui peut changer à chaque appel. */
+let activeEventCallback: ((data: PaddleEventData) => void) | null = null;
 
 declare global {
   interface Window {
@@ -95,7 +118,10 @@ function loadPaddle(): Promise<PaddleGlobal> {
       if (PADDLE_ENVIRONMENT === "sandbox") {
         window.Paddle.Environment.set("sandbox");
       }
-      window.Paddle.Initialize({ token: PADDLE_CLIENT_TOKEN });
+      window.Paddle.Initialize({
+        token: PADDLE_CLIENT_TOKEN,
+        eventCallback: (data) => activeEventCallback?.(data),
+      });
       resolve(window.Paddle);
     };
     script.onerror = () => reject(new Error("Impossible de charger Paddle.js."));
@@ -108,19 +134,33 @@ function loadPaddle(): Promise<PaddleGlobal> {
 /** Ouvre l'overlay de paiement Paddle pour le palier demandé. `userId` est
  * transmis en custom_data : c'est le seul moyen pour le webhook (voir
  * /api/paddle/webhook) de savoir à quel profil rattacher l'abonnement créé,
- * Paddle ne connaissant pas nos comptes utilisateurs. */
+ * Paddle ne connaissant pas nos comptes utilisateurs.
+ *
+ * `onError`, s'il est fourni, est appelé avec le détail exact d'un éventuel
+ * échec Paddle (évènement `checkout.error`) — utile pour l'afficher dans
+ * l'interface plutôt que de forcer l'utilisateur à ouvrir la console du
+ * navigateur (impossible sur mobile/tablette). */
 export async function openPaddleCheckout({
   tier,
   priceId,
   userId,
   successUrl,
+  onError,
 }: {
   tier: SubscriptionTier;
   priceId: string;
   userId: string;
   successUrl: string;
+  onError?: (error: PaddleCheckoutError) => void;
 }): Promise<void> {
   const paddle = await loadPaddle();
+  activeEventCallback = (data) => {
+    if (data.name === "checkout.error" && data.error) {
+      onError?.(data.error);
+    } else if (data.name === "checkout.closed") {
+      activeEventCallback = null;
+    }
+  };
   paddle.Checkout.open({
     items: [{ priceId, quantity: 1 }],
     customData: { user_id: userId, tier },

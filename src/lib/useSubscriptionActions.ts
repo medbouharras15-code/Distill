@@ -80,7 +80,16 @@ export function useSubscriptionActions(provider: SubscriptionProvider = null) {
         throw new Error(typeof payload.error === "string" ? payload.error : "Impossible de démarrer le paiement.");
       }
       const successUrl = `${window.location.origin}${window.location.pathname}?checkout=success`;
-      await openPaddleCheckout({ tier, priceId: payload.priceId, userId: payload.userId, successUrl });
+      await openPaddleCheckout({
+        tier,
+        priceId: payload.priceId,
+        userId: payload.userId,
+        successUrl,
+        // Remonte l'erreur précise de Paddle (code + détail) dans le même
+        // message d'erreur affiché à l'écran — sans ça, impossible de
+        // diagnostiquer depuis un appareil sans console navigateur (iPad...).
+        onError: (error) => setBillingError(`Paddle : ${error.detail} (code : ${error.code})`),
+      });
     } catch (err) {
       setBillingError(err instanceof Error ? err.message : "Une erreur est survenue.");
     } finally {
