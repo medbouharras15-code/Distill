@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getUserAndProfile } from "@/lib/auth";
 import { PADDLE_PRICE_IDS } from "@/lib/paddle";
+import { paddleFetch } from "@/lib/paddleServer";
 
 /** Prépare l'ouverture de l'overlay de paiement Paddle (voir
  * openPaddleCheckout dans @/lib/paddle, appelée côté client juste après) :
@@ -34,6 +35,25 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: "Ce palier n'est pas encore configuré pour le paiement." },
       { status: 500 },
+    );
+  }
+
+  // Vérifie côté serveur, avant même d'ouvrir l'overlay Paddle.js, que ce
+  // Price ID est réellement utilisable (existe, actif, compte autorisé à
+  // facturer...). L'overlay Paddle.js, lui, ne remonte pas toujours un
+  // évènement exploitable pour ce genre d'échec de configuration — cette
+  // requête donne le message d'erreur exact renvoyé par l'API Paddle,
+  // affichable directement dans l'interface sans avoir besoin de la
+  // console du navigateur.
+  try {
+    await paddleFetch("/transactions/preview", {
+      method: "POST",
+      body: { items: [{ price_id: priceId, quantity: 1 }] },
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { error: `Paddle a rejeté ce palier : ${err instanceof Error ? err.message : "erreur inconnue"}` },
+      { status: 502 },
     );
   }
 
