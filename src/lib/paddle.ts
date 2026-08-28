@@ -16,7 +16,8 @@
  */
 import type { SubscriptionTier } from "@/lib/billing";
 
-export const PADDLE_ENVIRONMENT = process.env.NEXT_PUBLIC_PADDLE_ENVIRONMENT === "production" ? "production" : "sandbox";
+export const PADDLE_ENVIRONMENT =
+  (process.env.NEXT_PUBLIC_PADDLE_ENVIRONMENT ?? "").trim() === "production" ? "production" : "sandbox";
 
 /** Base de l'API REST Paddle — distincte entre sandbox et production
  * (contrairement à Lemon Squeezy, qui n'a qu'une seule URL d'API pour les
@@ -24,14 +25,18 @@ export const PADDLE_ENVIRONMENT = process.env.NEXT_PUBLIC_PADDLE_ENVIRONMENT ===
 export const PADDLE_API_BASE =
   PADDLE_ENVIRONMENT === "production" ? "https://api.paddle.com" : "https://sandbox-api.paddle.com";
 
-export const PADDLE_CLIENT_TOKEN = process.env.NEXT_PUBLIC_PADDLE_CLIENT_TOKEN ?? "";
+// .trim() défensif : un copier-coller depuis le dashboard Paddle vers
+// Vercel a déjà laissé un retour à la ligne collé en fin de valeur, ce qui
+// invalide silencieusement le token (Paddle.js échoue sans erreur exploitable
+// côté client, voir le diagnostic dans la conversation qui a mené à ce fix).
+export const PADDLE_CLIENT_TOKEN = (process.env.NEXT_PUBLIC_PADDLE_CLIENT_TOKEN ?? "").trim();
 
 /** Un Price ID par palier (voir SubscriptionForm) — configurés dans le
  * dashboard Paddle, un produit + un prix récurrent par palier. */
 export const PADDLE_PRICE_IDS: Record<SubscriptionTier, string> = {
-  essentiel: process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_ESSENTIEL ?? "",
-  etudiant: process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_ETUDIANT ?? "",
-  intensif: process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_INTENSIF ?? "",
+  essentiel: (process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_ESSENTIEL ?? "").trim(),
+  etudiant: (process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_ETUDIANT ?? "").trim(),
+  intensif: (process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_INTENSIF ?? "").trim(),
 };
 
 /** Retrouve le palier à partir d'un Price ID Paddle réellement acheté (voir
