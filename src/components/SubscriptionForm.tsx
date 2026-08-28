@@ -150,7 +150,7 @@ export function SubscriptionForm({ subscribed, tier, provider, remaining, checko
 
       {billingError && (
         <div className="mx-auto mt-6 flex max-w-[640px] items-start justify-between gap-3 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">
-          <span>{billingError}</span>
+          <span className="whitespace-pre-wrap break-words">{billingError}</span>
           <button
             type="button"
             onClick={() => setBillingError(null)}

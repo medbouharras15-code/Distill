@@ -89,6 +89,9 @@ export function useSubscriptionActions(provider: SubscriptionProvider = null) {
         // message d'erreur affiché à l'écran — sans ça, impossible de
         // diagnostiquer depuis un appareil sans console navigateur (iPad...).
         onError: (error) => setBillingError(`Paddle : ${error.detail} (code : ${error.code})`),
+        // Filet de secours : le contenu brut de la requête réseau en échec,
+        // pour les cas où checkout.error ne se déclenche pas du tout.
+        onNetworkError: (info) => setBillingError(`Requête Paddle en échec :\n${info}`),
       });
     } catch (err) {
       setBillingError(err instanceof Error ? err.message : "Une erreur est survenue.");

@@ -89,6 +89,71 @@ interface PaddleGlobal {
  * paiement effectivement ouvert, qui peut changer à chaque appel. */
 let activeEventCallback: ((data: PaddleEventData) => void) | null = null;
 
+/** Callback actif pour la requête réseau en échec du paiement en cours (voir
+ * installPaddleNetworkInterceptor et openPaddleCheckout) — même principe que
+ * `activeEventCallback` ci-dessus. */
+let activeNetworkErrorListener: ((info: string) => void) | null = null;
+
+let networkInterceptorInstalled = false;
+
+/** Intercepte, une seule fois pour toute la session, les requêtes fetch/XHR
+ * faites vers un domaine paddle.com et remonte le détail de toute réponse
+ * en échec. Sert de filet de secours quand l'évènement `checkout.error` de
+ * Paddle.js ne remonte rien d'exploitable (voir openPaddleCheckout) : utile
+ * uniquement pour les appels faits dans le contexte de *notre* page (par ex.
+ * la création de la session de checkout, avant l'affichage du formulaire) —
+ * les requêtes faites depuis l'intérieur de l'iframe de paiement elle-même
+ * restent invisibles ici, le navigateur interdisant à une page d'inspecter
+ * le réseau d'une iframe cross-origin. Best-effort, jamais bloquant : toute
+ * erreur d'interception est avalée pour ne jamais casser un vrai paiement. */
+function installPaddleNetworkInterceptor(): void {
+  if (networkInterceptorInstalled || typeof window === "undefined") return;
+  networkInterceptorInstalled = true;
+
+  const report = (method: string, url: string, status: number, body: string) => {
+    activeNetworkErrorListener?.(`${method} ${url} → HTTP ${status}\n${body.slice(0, 600)}`);
+  };
+
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = async (...args: Parameters<typeof fetch>) => {
+    const response = await originalFetch(...args);
+    try {
+      const input = args[0];
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("paddle.com")) {
+        const text = await response.clone().text();
+        if (!response.ok || /"error"/.test(text)) {
+          report((args[1]?.method ?? "GET").toUpperCase(), url, response.status, text);
+        }
+      }
+    } catch {
+      // Diagnostic best-effort : une réponse illisible (binaire...) ne doit
+      // jamais faire échouer la vraie requête déjà renvoyée ci-dessous.
+    }
+    return response;
+  };
+
+  const originalOpen = window.XMLHttpRequest.prototype.open;
+  window.XMLHttpRequest.prototype.open = function (
+    this: XMLHttpRequest,
+    method: string,
+    url: string | URL,
+    async: boolean = true,
+    username?: string | null,
+    password?: string | null,
+  ) {
+    const urlString = url.toString();
+    if (urlString.includes("paddle.com")) {
+      this.addEventListener("load", () => {
+        if (this.status >= 400 || /"error"/.test(this.responseText || "")) {
+          report(method.toUpperCase(), urlString, this.status, this.responseText || "");
+        }
+      });
+    }
+    return originalOpen.call(this, method, url, async, username, password);
+  };
+}
+
 declare global {
   interface Window {
     Paddle?: PaddleGlobal;
@@ -103,6 +168,7 @@ let paddleReady: Promise<PaddleGlobal> | null = null;
  * le cache `paddleReady`) et l'initialise avec le token client et le bon
  * environnement. Doit être appelée avant tout Paddle.Checkout.open(). */
 function loadPaddle(): Promise<PaddleGlobal> {
+  installPaddleNetworkInterceptor();
   if (paddleReady) return paddleReady;
 
   paddleReady = new Promise((resolve, reject) => {
@@ -144,19 +210,24 @@ function loadPaddle(): Promise<PaddleGlobal> {
  * `onError`, s'il est fourni, est appelé avec le détail exact d'un éventuel
  * échec Paddle (évènement `checkout.error`) — utile pour l'afficher dans
  * l'interface plutôt que de forcer l'utilisateur à ouvrir la console du
- * navigateur (impossible sur mobile/tablette). */
+ * navigateur (impossible sur mobile/tablette). `onNetworkError`, filet de
+ * secours, est appelé avec le contenu brut de toute requête réseau en échec
+ * vers paddle.com (voir installPaddleNetworkInterceptor) — utile quand
+ * `checkout.error` ne se déclenche pas du tout. */
 export async function openPaddleCheckout({
   tier,
   priceId,
   userId,
   successUrl,
   onError,
+  onNetworkError,
 }: {
   tier: SubscriptionTier;
   priceId: string;
   userId: string;
   successUrl: string;
   onError?: (error: PaddleCheckoutError) => void;
+  onNetworkError?: (info: string) => void;
 }): Promise<void> {
   // Vérifie que le token client est bien présent avant même de charger
   // Paddle.js : une variable Vercel manquante ou mal scopée (ex. cochée
@@ -175,8 +246,10 @@ export async function openPaddleCheckout({
       onError?.(data.error);
     } else if (data.name === "checkout.closed") {
       activeEventCallback = null;
+      activeNetworkErrorListener = null;
     }
   };
+  activeNetworkErrorListener = (info) => onNetworkError?.(info);
   paddle.Checkout.open({
     items: [{ priceId, quantity: 1 }],
     customData: { user_id: userId, tier },
