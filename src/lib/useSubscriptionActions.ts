@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { SubscriptionProvider, SubscriptionTier } from "@/lib/billing";
-import { openPaddleCheckout } from "@/lib/paddle";
+import { openPaddleCheckout, openTeamPaddleCheckout } from "@/lib/paddle";
 
 /** Lit une réponse HTTP comme du JSON, en donnant un message clair si le
  * serveur (ou une plateforme intermédiaire comme Vercel) a renvoyé autre
@@ -128,4 +128,71 @@ export function useSubscriptionActions(provider: SubscriptionProvider = null, pa
   }
 
   return { billingLoading, billingError, setBillingError, subscribe, subscribeToTier, cancel };
+}
+
+/** Actions d'abonnement pour l'offre Business Team (par siège) — pendant de
+ * useSubscriptionActions ci-dessus pour les 3 paliers individuels, mais
+ * routes et payloads distincts (team-checkout-init/team-cancel, quantité de
+ * sièges plutôt que palier fixe) : voir TeamSubscriptionForm. */
+export function useTeamSubscriptionActions(paddleCustomerId: string | null = null) {
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingError, setBillingError] = useState<string | null>(null);
+
+  /** Même principe que subscribeToTier ci-dessus (voir son commentaire) :
+   * /api/paddle/team-checkout-init résout l'équipe active de l'utilisateur
+   * et le Price ID de la bande correspondant au nombre de sièges choisi. */
+  async function subscribeTeam(seats: number) {
+    if (billingLoading) return;
+    setBillingLoading(true);
+    setBillingError(null);
+    try {
+      const res = await fetch("/api/paddle/team-checkout-init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seats }),
+      });
+      const payload = await parseJsonResponse(res);
+      if (!res.ok || typeof payload.teamId !== "string" || typeof payload.priceId !== "string") {
+        throw new Error(typeof payload.error === "string" ? payload.error : "Impossible de démarrer le paiement.");
+      }
+      const successUrl = `${window.location.origin}${window.location.pathname}?checkout=success`;
+      await openTeamPaddleCheckout({
+        teamId: payload.teamId,
+        priceId: payload.priceId,
+        seats,
+        successUrl,
+        paddleCustomerId,
+        onError: (error) => setBillingError(`Paddle : ${error.detail} (code : ${error.code})`),
+        onNetworkError: (info) => setBillingError(`Requête Paddle en échec :\n${info}`),
+      });
+    } catch (err) {
+      setBillingError(err instanceof Error ? err.message : "Une erreur est survenue.");
+    } finally {
+      setBillingLoading(false);
+    }
+  }
+
+  async function cancelTeam() {
+    if (billingLoading) return;
+    if (
+      !window.confirm("Annuler l'abonnement Business Team ? L'accès aux sièges payants s'arrêtera immédiatement.")
+    ) {
+      return;
+    }
+    setBillingLoading(true);
+    setBillingError(null);
+    try {
+      const res = await fetch("/api/paddle/team-cancel", { method: "POST" });
+      const payload = await parseJsonResponse(res);
+      if (!res.ok) {
+        throw new Error(typeof payload.error === "string" ? payload.error : "Impossible d'annuler l'abonnement.");
+      }
+      window.location.reload();
+    } catch (err) {
+      setBillingError(err instanceof Error ? err.message : "Une erreur est survenue.");
+      setBillingLoading(false);
+    }
+  }
+
+  return { billingLoading, billingError, setBillingError, subscribeTeam, cancelTeam };
 }

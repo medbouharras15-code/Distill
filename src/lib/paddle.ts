@@ -51,6 +51,38 @@ export function tierForPriceId(priceId: string): SubscriptionTier | null {
   return entry ? entry[0] : null;
 }
 
+/** Palier de facturation par siège (offre Business Team, voir
+ * TeamSubscriptionForm) — `pricePerSeat` est indicatif (affichage), le
+ * montant réellement facturé est `unit_price × quantity` calculé par
+ * Paddle lui-même à partir de `priceId` et du nombre de sièges choisi.
+ * Contrairement aux 3 paliers individuels ci-dessus (quantité fixe à 1),
+ * Paddle n'a pas de prix dégressif natif par palier de quantité sur un
+ * même Price : chaque bande de sièges est un Price Paddle distinct, dont
+ * le champ `quantity.minimum`/`maximum` (configuré côté Paddle) doit
+ * correspondre à `min`/`max` ici. */
+export interface SeatTier {
+  min: number;
+  max: number;
+  pricePerSeat: number;
+  priceId: string;
+}
+
+export const TEAM_SEAT_TIERS: SeatTier[] = [
+  { min: 3, max: 9, pricePerSeat: 8, priceId: (process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_TEAM_3_9 ?? "").trim() },
+  { min: 10, max: 24, pricePerSeat: 7, priceId: (process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_TEAM_10_24 ?? "").trim() },
+  { min: 25, max: 50, pricePerSeat: 6, priceId: (process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_TEAM_25_50 ?? "").trim() },
+];
+
+export function teamTierForSeats(seats: number): SeatTier {
+  return TEAM_SEAT_TIERS.find((t) => seats >= t.min && seats <= t.max) ?? TEAM_SEAT_TIERS[TEAM_SEAT_TIERS.length - 1];
+}
+
+/** Équivalent de tierForPriceId, pour les 3 Price ID Business Team — voir
+ * son commentaire, même principe (webhook /api/paddle/webhook). */
+export function teamTierForPriceId(priceId: string): SeatTier | null {
+  return TEAM_SEAT_TIERS.find((t) => t.priceId && t.priceId === priceId) ?? null;
+}
+
 /** Détail d'une erreur remontée par Paddle.js pendant le paiement (évènement
  * `checkout.error`, voir openPaddleCheckout) — `code` et `detail` sont ceux
  * documentés par Paddle (developer.paddle.com/errors/overview), affichables
@@ -207,42 +239,37 @@ function loadPaddle(): Promise<PaddleGlobal> {
   return paddleReady;
 }
 
-/** Ouvre l'overlay de paiement Paddle pour le palier demandé. `userId` est
- * transmis en custom_data : c'est le seul moyen pour le webhook (voir
- * /api/paddle/webhook) de savoir à quel profil rattacher l'abonnement créé,
- * Paddle ne connaissant pas nos comptes utilisateurs.
- *
- * `onError`, s'il est fourni, est appelé avec le détail exact d'un éventuel
- * échec Paddle (évènement `checkout.error`) — utile pour l'afficher dans
- * l'interface plutôt que de forcer l'utilisateur à ouvrir la console du
- * navigateur (impossible sur mobile/tablette). `onNetworkError`, filet de
- * secours, est appelé avec le contenu brut de toute requête réseau en échec
- * vers paddle.com (voir installPaddleNetworkInterceptor) — utile quand
- * `checkout.error` ne se déclenche pas du tout.
- *
- * `paddleCustomerId` (profiles.paddle_customer_id, rempli par le webhook
- * après un premier paiement réussi — absent pour un client qui n'a encore
- * jamais payé) renseigne `pwCustomer` pour Paddle Retain, qui en a besoin
- * pour reconnaître le client connecté. Paddle n'accepte ici qu'un véritable
- * ID client Paddle (`ctm_...`), jamais un email — un objet vide est passé
- * en son absence, comme documenté par Paddle. */
-export async function openPaddleCheckout({
-  tier,
-  priceId,
-  userId,
-  successUrl,
-  paddleCustomerId,
-  onError,
-  onNetworkError,
-}: {
-  tier: SubscriptionTier;
-  priceId: string;
-  userId: string;
+interface OpenCheckoutOptions {
   successUrl: string;
+  /** profiles.paddle_customer_id, rempli par le webhook après un premier
+   * paiement réussi — absent pour un client qui n'a encore jamais payé.
+   * Renseigne `pwCustomer` pour Paddle Retain, qui en a besoin pour
+   * reconnaître le client connecté (identifie la personne qui paie, pas ce
+   * qu'elle achète — même valeur pour un checkout individuel ou d'équipe).
+   * Paddle n'accepte ici qu'un véritable ID client Paddle (`ctm_...`),
+   * jamais un email — un objet vide est passé en son absence, comme
+   * documenté par Paddle. */
   paddleCustomerId: string | null;
+  /** Appelé avec le détail exact d'un éventuel échec Paddle (évènement
+   * `checkout.error`) — utile pour l'afficher dans l'interface plutôt que
+   * de forcer l'utilisateur à ouvrir la console du navigateur (impossible
+   * sur mobile/tablette). */
   onError?: (error: PaddleCheckoutError) => void;
+  /** Filet de secours : contenu brut de toute requête réseau en échec vers
+   * paddle.com (voir installPaddleNetworkInterceptor) — utile quand
+   * `checkout.error` ne se déclenche pas du tout. */
   onNetworkError?: (info: string) => void;
-}): Promise<void> {
+}
+
+/** Cœur commun à openPaddleCheckout (palier individuel) et
+ * openTeamPaddleCheckout (Business Team, par siège) — charge Paddle.js,
+ * renseigne pwCustomer, branche les callbacks d'erreur, puis ouvre l'overlay
+ * avec les `items`/`customData` propres à chaque cas d'usage. */
+async function openCheckout(
+  items: { priceId: string; quantity: number }[],
+  customData: Record<string, string>,
+  { successUrl, paddleCustomerId, onError, onNetworkError }: OpenCheckoutOptions,
+): Promise<void> {
   // Vérifie que le token client est bien présent avant même de charger
   // Paddle.js : une variable Vercel manquante ou mal scopée (ex. cochée
   // "Preview" mais pas "Production") laisserait sinon Paddle.Initialize()
@@ -265,9 +292,42 @@ export async function openPaddleCheckout({
     }
   };
   activeNetworkErrorListener = (info) => onNetworkError?.(info);
-  paddle.Checkout.open({
-    items: [{ priceId, quantity: 1 }],
-    customData: { user_id: userId, tier },
-    settings: { displayMode: "overlay", successUrl },
-  });
+  paddle.Checkout.open({ items, customData, settings: { displayMode: "overlay", successUrl } });
+}
+
+/** Ouvre l'overlay de paiement Paddle pour le palier individuel demandé
+ * (quantité fixe à 1). `userId` est transmis en custom_data : c'est le seul
+ * moyen pour le webhook (voir /api/paddle/webhook) de savoir à quel profil
+ * rattacher l'abonnement créé, Paddle ne connaissant pas nos comptes
+ * utilisateurs. Voir OpenCheckoutOptions pour les autres paramètres. */
+export async function openPaddleCheckout({
+  tier,
+  priceId,
+  userId,
+  ...options
+}: {
+  tier: SubscriptionTier;
+  priceId: string;
+  userId: string;
+} & OpenCheckoutOptions): Promise<void> {
+  return openCheckout([{ priceId, quantity: 1 }], { user_id: userId, tier }, options);
+}
+
+/** Ouvre l'overlay de paiement Paddle pour l'offre Business Team — quantité
+ * = nombre de sièges choisi, Paddle calcule lui-même unit_price × quantity.
+ * `teamId` est transmis en custom_data : c'est ce qui distingue un
+ * abonnement d'équipe d'un abonnement individuel côté webhook (voir
+ * /api/paddle/webhook), qui met alors à jour `teams` plutôt que
+ * `profiles`. */
+export async function openTeamPaddleCheckout({
+  teamId,
+  priceId,
+  seats,
+  ...options
+}: {
+  teamId: string;
+  priceId: string;
+  seats: number;
+} & OpenCheckoutOptions): Promise<void> {
+  return openCheckout([{ priceId, quantity: seats }], { team_id: teamId }, options);
 }

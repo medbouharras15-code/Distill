@@ -207,3 +207,20 @@ export interface Profile {
   subscription_tier: string | null;
   created_at: string;
 }
+
+/** Équipe Team Brain, avec sa facturation par siège (Business Team) — voir
+ * TeamSubscriptionForm et /api/paddle/team-checkout-init. Un seul
+ * prestataire réellement utilisé (Paddle) : lemonsqueezy_subscription_id
+ * existe en base mais aucune équipe n'a jamais eu de facturation Lemon
+ * Squeezy active. */
+export interface Team {
+  id: string;
+  name: string;
+  owner_id: string;
+  lemonsqueezy_subscription_id: string | null;
+  paddle_subscription_id: string | null;
+  paddle_customer_id: string | null;
+  subscription_status: string;
+  seat_count: number;
+  created_at: string;
+}

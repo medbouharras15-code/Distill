@@ -44,6 +44,16 @@ alter table public.profiles add column if not exists subscription_tier text
 alter table public.profiles add column if not exists paddle_subscription_id text unique;
 alter table public.profiles add column if not exists paddle_customer_id text;
 
+-- Migration : identifiants Paddle sur `teams` (facturation Business Team,
+-- par siège) — même principe que ci-dessus pour `profiles`, en plus de
+-- lemonsqueezy_subscription_id (jamais réellement utilisée : aucune équipe
+-- n'a de facturation Lemon Squeezy active, voir le commentaire sur `teams`
+-- plus haut). seat_count, déjà présente, reçoit le nombre de sièges
+-- réellement facturé (items[].quantity du webhook), pas seulement la valeur
+-- par défaut à la création de l'équipe.
+alter table public.teams add column if not exists paddle_subscription_id text unique;
+alter table public.teams add column if not exists paddle_customer_id text;
+
 -- 2. Sécurité au niveau des lignes : chaque utilisateur ne voit / ne modifie
 -- que sa propre ligne. Les écritures sensibles (compteur d'usage, statut
 -- d'abonnement) sont faites uniquement par le serveur avec la clé "service

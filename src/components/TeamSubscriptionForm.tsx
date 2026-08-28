@@ -1,8 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
-import { BackLink, Card, Eyebrow } from "@/components/ui";
+import { BackLink, Button, Card, Eyebrow } from "@/components/ui";
 import { Brain, Doc, FolderOpen, Users } from "@/lib/icons";
+import { TEAM_SEAT_TIERS, teamTierForSeats } from "@/lib/paddle";
+import { useTeamSubscriptionActions } from "@/lib/useSubscriptionActions";
+import type { Team } from "@/lib/types";
 
 const FEATURES = [
   { icon: FolderOpen, label: "Projets & dossiers partagés", desc: "Organisez les documents par client ou sujet." },
@@ -11,35 +15,38 @@ const FEATURES = [
   { icon: Users, label: "Rôles & permissions", desc: "Admin, Manager, Membre — contrôle fin." },
 ];
 
-/** Paliers de tarification par siège — dégressifs par taille d'équipe.
- * Au-delà de 50 comptes, cas Enterprise à négocier séparément (pas de prix
- * public). Simulateur borné à 3-50 sièges en conséquence : au-delà, la
- * bonne réponse est "Contactez-nous", pas un chiffre calculé. */
-const SEAT_TIERS = [
-  { min: 3, max: 9, pricePerSeat: 8, label: "3 – 9 comptes" },
-  { min: 10, max: 24, pricePerSeat: 7, label: "10 – 24 comptes" },
-  { min: 25, max: 50, pricePerSeat: 6, label: "25 – 50 comptes" },
-] as const;
+const MIN_SEATS = TEAM_SEAT_TIERS[0].min;
+const MAX_SEATS = TEAM_SEAT_TIERS[TEAM_SEAT_TIERS.length - 1].max;
 
-const MIN_SEATS = 3;
-const MAX_SEATS = 50;
-
-function tierForSeats(seats: number) {
-  return SEAT_TIERS.find((t) => seats >= t.min && seats <= t.max) ?? SEAT_TIERS[SEAT_TIERS.length - 1];
+interface TeamSubscriptionFormProps {
+  /** `null` tant que l'utilisateur connecté n'a aucune équipe (voir
+   * getUserActiveTeam côté page) — aucune création d'équipe ici, seulement
+   * un renvoi vers /team-brain. */
+  team: Team | null;
+  /** Seul le propriétaire de l'équipe (teams.owner_id) peut gérer sa
+   * facturation — un membre/admin ordinaire ne le peut pas. */
+  isOwner: boolean;
+  paddleCustomerId: string | null;
+  checkoutStatus: "success" | "cancelled" | null;
 }
 
-const CONTACT_EMAIL = "med.bouharras.15@gmail.com";
-const CONTACT_HREF = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent("Offre Team Brain — demande d'information")}`;
-
 /** Page dédiée à l'offre Team Brain (par équipe, tarif dégressif par
- * siège) — distincte des 3 paliers individuels de /subscription. Aucun
- * paiement réel : le simulateur est un pur calcul côté client, le seul
- * bouton d'action ouvre un mailto vers une adresse de contact déjà
- * utilisée ailleurs dans l'app (FAQ), pas de nouveau flux à construire. */
-export function TeamSubscriptionForm() {
-  const [seats, setSeats] = useState(10);
-  const tier = tierForSeats(seats);
-  const total = tier.pricePerSeat * seats;
+ * siège), réellement payante via Paddle depuis cette migration — un seul
+ * produit Paddle, trois Price ID à quantité variable (voir TEAM_SEAT_TIERS
+ * dans @/lib/paddle), Paddle calculant lui-même unit_price × quantité de
+ * sièges. Simulateur borné à 3-50 sièges : au-delà, cas Enterprise à
+ * négocier séparément (pas de prix public, voir carte de contact finale,
+ * conservée telle quelle). */
+export function TeamSubscriptionForm({ team, isOwner, paddleCustomerId, checkoutStatus }: TeamSubscriptionFormProps) {
+  const subscribed = team?.subscription_status === "active";
+  const [selectedSeats, setSelectedSeats] = useState(10);
+  const seats = subscribed && team ? team.seat_count : selectedSeats;
+  const seatTier = teamTierForSeats(seats);
+  const total = seatTier.pricePerSeat * seats;
+
+  const { billingLoading, billingError, setBillingError, subscribeTeam, cancelTeam } =
+    useTeamSubscriptionActions(paddleCustomerId);
+  const [dismissedCheckoutBanner, setDismissedCheckoutBanner] = useState(false);
 
   return (
     <div className="mx-auto max-w-[860px] animate-fade px-6 py-8 md:px-10 md:py-12">
@@ -65,6 +72,24 @@ export function TeamSubscriptionForm() {
         la source exacte — jamais de réponse inventée. Un tarif qui baisse à mesure que l&apos;équipe grandit.
       </p>
 
+      {checkoutStatus && !dismissedCheckoutBanner && (
+        <div className="mx-auto mt-6 flex max-w-[640px] animate-fade items-start justify-between gap-3 rounded-xl border border-accent-light bg-accent-light/30 px-4 py-3 text-sm text-accent-dark">
+          <span>
+            {checkoutStatus === "success"
+              ? "Merci ! L'abonnement de votre équipe est en cours d'activation — cela prend quelques secondes."
+              : "Paiement annulé. Vous pouvez réessayer quand vous le souhaitez."}
+          </span>
+          <button
+            type="button"
+            onClick={() => setDismissedCheckoutBanner(true)}
+            className="shrink-0 text-accent-dark/70 hover:text-accent-dark"
+            aria-label="Fermer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Fonctionnalités — icône + texte sans encadré, même traitement que
           l'écran Verrouillé de Team Brain plutôt qu'une nouvelle grille de
           cartes. */}
@@ -85,14 +110,17 @@ export function TeamSubscriptionForm() {
         ))}
       </div>
 
-      {/* Simulateur — pur calcul côté client (aucun appel réseau, aucun
-          paiement), pour visualiser le total mensuel selon la taille de
-          l'équipe avant de nous contacter. */}
+      {/* Simulateur (S'abonner pas encore actif) / récapitulatif (déjà
+          abonné) — le curseur devient un simple affichage, non éditable,
+          une fois abonné : ni upgrade ni downgrade de sièges pour l'instant
+          (même choix que les 3 paliers individuels). */}
       <Card className="mt-10 p-6 sm:p-8">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <div className="text-sm font-medium text-foreground">Nombre de sièges</div>
-            <div className="text-[12px] text-muted-foreground">À partir de 3 comptes</div>
+            <div className="text-sm font-medium text-foreground">
+              {subscribed ? "Sièges de votre équipe" : "Nombre de sièges"}
+            </div>
+            <div className="text-[12px] text-muted-foreground">À partir de {MIN_SEATS} comptes</div>
           </div>
           <div className="font-display text-3xl font-medium tabular-nums text-foreground">{seats}</div>
         </div>
@@ -102,8 +130,9 @@ export function TeamSubscriptionForm() {
           min={MIN_SEATS}
           max={MAX_SEATS}
           value={seats}
-          onChange={(e) => setSeats(Number(e.target.value))}
-          className="mt-5 w-full accent-[var(--team)]"
+          disabled={subscribed}
+          onChange={(e) => setSelectedSeats(Number(e.target.value))}
+          className="mt-5 w-full accent-[var(--team)] disabled:opacity-50"
           aria-label="Nombre de sièges"
         />
 
@@ -111,11 +140,13 @@ export function TeamSubscriptionForm() {
           <div>
             <div className="text-[12px] text-muted-foreground">Prix par siège</div>
             <div className="mt-0.5 font-display text-xl font-medium text-foreground">
-              {tier.pricePerSeat}€<span className="text-sm font-normal text-muted-foreground">/mois</span>
+              {seatTier.pricePerSeat}€<span className="text-sm font-normal text-muted-foreground">/mois</span>
             </div>
           </div>
           <div className="text-right">
-            <div className="text-[12px] text-muted-foreground">Total mensuel estimé</div>
+            <div className="text-[12px] text-muted-foreground">
+              {subscribed ? "Total mensuel" : "Total mensuel estimé"}
+            </div>
             <div className="mt-0.5 font-display text-3xl font-medium tabular-nums" style={{ color: "var(--team)" }}>
               {total}€<span className="text-sm font-normal text-muted-foreground">/mois</span>
             </div>
@@ -126,39 +157,86 @@ export function TeamSubscriptionForm() {
       {/* Grille de référence des paliers — le palier courant du simulateur
           se distingue des autres, pour relier les deux présentations. */}
       <div className="mt-4 grid gap-2 sm:grid-cols-2">
-        {SEAT_TIERS.map((t) => (
+        {TEAM_SEAT_TIERS.map((t) => (
           <div
-            key={t.label}
+            key={`${t.min}-${t.max}`}
             className={`flex items-center justify-between rounded-xl border px-4 py-3 text-[13px] transition-colors ${
-              tier.label === t.label ? "border-[var(--team)]" : "border-border"
+              seatTier.min === t.min ? "border-[var(--team)]" : "border-border"
             }`}
-            style={tier.label === t.label ? { background: "color-mix(in srgb, var(--team) 6%, var(--card))" } : undefined}
+            style={seatTier.min === t.min ? { background: "color-mix(in srgb, var(--team) 6%, var(--card))" } : undefined}
           >
-            <span className="text-foreground">{t.label}</span>
+            <span className="text-foreground">
+              {t.min} – {t.max} comptes
+            </span>
             <span className="font-medium text-muted-foreground">{t.pricePerSeat}€ / mois / siège</span>
           </div>
         ))}
         <div className="flex items-center justify-between rounded-xl border border-dashed border-border px-4 py-3 text-[13px] sm:col-span-2">
-          <span className="text-foreground">Plus de 50 comptes</span>
+          <span className="text-foreground">Plus de {MAX_SEATS} comptes</span>
           <span className="font-medium text-muted-foreground">Contactez-nous</span>
         </div>
       </div>
 
-      <div className="mt-10 flex flex-col items-start gap-4 rounded-2xl border border-border bg-card p-6 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="text-[13px] font-semibold text-foreground">Prêt·e à équiper votre équipe ?</div>
-          <p className="mt-1 text-[13px] text-muted-foreground">
-            Pas encore de paiement en ligne pour cette offre — on met en place votre abonnement ensemble.
-          </p>
+      {billingError && (
+        <div className="mx-auto mt-4 flex max-w-[640px] items-start justify-between gap-3 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">
+          <span className="whitespace-pre-wrap break-words">{billingError}</span>
+          <button
+            type="button"
+            onClick={() => setBillingError(null)}
+            className="shrink-0 text-red-700/70 hover:text-red-700"
+            aria-label="Fermer"
+          >
+            ✕
+          </button>
         </div>
-        <a
-          href={CONTACT_HREF}
-          className="flex shrink-0 items-center gap-2 rounded-xl px-5 py-2.5 text-[13.5px] font-semibold text-white shadow-[0_4px_16px_-6px_var(--team-glow)] transition-all duration-200 hover:-translate-y-px"
-          style={{ background: "linear-gradient(135deg, var(--team) 0%, var(--team-2) 100%)" }}
-        >
-          Nous contacter
-        </a>
-      </div>
+      )}
+
+      {!team ? (
+        <div className="mt-10 flex flex-col items-start gap-4 rounded-2xl border border-border bg-card p-6 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-[13px] font-semibold text-foreground">Créez d&apos;abord votre équipe</div>
+            <p className="mt-1 text-[13px] text-muted-foreground">
+              L&apos;abonnement Business Team se rattache à une équipe existante — créez la vôtre gratuitement, puis
+              revenez ici pour l&apos;abonner.
+            </p>
+          </div>
+          <Link
+            href="/team-brain"
+            className="flex shrink-0 items-center gap-2 rounded-xl px-5 py-2.5 text-[13.5px] font-semibold text-white shadow-[0_4px_16px_-6px_var(--team-glow)] transition-all duration-200 hover:-translate-y-px"
+            style={{ background: "linear-gradient(135deg, var(--team) 0%, var(--team-2) 100%)" }}
+          >
+            Créer mon équipe
+          </Link>
+        </div>
+      ) : !isOwner ? (
+        <div className="mt-10 rounded-2xl border border-border bg-card p-6 text-[13px] text-muted-foreground">
+          Seul·e le/la propriétaire de l&apos;équipe <span className="font-medium text-foreground">{team.name}</span>{" "}
+          peut gérer son abonnement.
+        </div>
+      ) : (
+        <div className="mt-10 flex flex-col items-start gap-4 rounded-2xl border border-border bg-card p-6 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-[13px] font-semibold text-foreground">
+              {subscribed ? `Abonnement actif — ${team.seat_count} sièges` : "Prêt·e à équiper votre équipe ?"}
+            </div>
+            <p className="mt-1 text-[13px] text-muted-foreground">
+              {subscribed
+                ? "Vous pouvez annuler à tout moment ; l'accès aux sièges payants s'arrête immédiatement."
+                : "Paiement sécurisé par Paddle, résiliable à tout moment."}
+            </p>
+          </div>
+          <Button
+            variant="primary"
+            size="lg"
+            disabled={billingLoading}
+            onClick={() => void (subscribed ? cancelTeam() : subscribeTeam(seats))}
+            className="shrink-0"
+            style={{ background: subscribed ? undefined : "linear-gradient(135deg, var(--team) 0%, var(--team-2) 100%)" }}
+          >
+            {billingLoading ? "…" : subscribed ? "Annuler mon abonnement" : "S'abonner"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
