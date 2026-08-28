@@ -39,32 +39,27 @@ export async function POST(request: Request) {
   }
 
   // Vérifie côté serveur, avant même d'ouvrir l'overlay Paddle.js, que ce
-  // Price ID est réellement utilisable (existe, actif, compte autorisé à
-  // facturer...). L'overlay Paddle.js, lui, ne remonte pas toujours un
-  // évènement exploitable pour ce genre d'échec de configuration — cette
-  // requête donne le message d'erreur exact renvoyé par l'API Paddle,
-  // affichable directement dans l'interface sans avoir besoin de la
-  // console du navigateur.
-  //
-  // /transactions/preview exige une localisation du client pour calculer la
-  // taxe (customer_ip_address, address, ou customer_id/address_id) — sans
-  // elle, Paddle rejette toute la requête. On récupère l'IP transmise par
-  // Vercel (x-forwarded-for) ; à défaut (ex. en local), on saute cette
-  // vérification plutôt que de bloquer un abonnement légitime pour un
-  // problème purement diagnostique.
-  const customerIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  if (customerIp) {
-    try {
-      await paddleFetch("/transactions/preview", {
-        method: "POST",
-        body: { items: [{ price_id: priceId, quantity: 1 }], customer_ip_address: customerIp },
-      });
-    } catch (err) {
+  // Price ID est réellement utilisable (existe, actif, appartient bien au
+  // compte/environnement de PADDLE_API_KEY). L'overlay Paddle.js, lui, ne
+  // remonte pas toujours un évènement exploitable pour ce genre d'échec de
+  // configuration — GET /prices/{id} donne le message d'erreur exact
+  // renvoyé par l'API Paddle, affichable directement dans l'interface sans
+  // avoir besoin de la console du navigateur. Contrairement à
+  // /transactions/preview (essayé initialement), cet endpoint ne nécessite
+  // aucune donnée de localisation client pour calculer une taxe.
+  try {
+    const { data: price } = await paddleFetch<{ data: { status?: string } }>(`/prices/${priceId}`);
+    if (price.status !== "active") {
       return NextResponse.json(
-        { error: `Paddle a rejeté ce palier : ${err instanceof Error ? err.message : "erreur inconnue"}` },
+        { error: `Paddle a rejeté ce palier : le prix ${priceId} a le statut "${price.status}" (attendu : "active").` },
         { status: 502 },
       );
     }
+  } catch (err) {
+    return NextResponse.json(
+      { error: `Paddle a rejeté ce palier : ${err instanceof Error ? err.message : "erreur inconnue"}` },
+      { status: 502 },
+    );
   }
 
   return NextResponse.json({ userId: auth.user.id, priceId });
