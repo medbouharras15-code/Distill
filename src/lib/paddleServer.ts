@@ -11,7 +11,12 @@ import { PADDLE_API_BASE } from "@/lib/paddle";
 /** Appelle l'API Paddle avec authentification par clé API. Lève une erreur
  * contenant le détail renvoyé par Paddle si la requête échoue. */
 export async function paddleFetch<T = unknown>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
-  const apiKey = process.env.PADDLE_API_KEY;
+  // .trim() défensif : même classe de bug que NEXT_PUBLIC_PADDLE_CLIENT_TOKEN
+  // (voir @/lib/paddle) — un copier-coller depuis le dashboard Paddle vers
+  // Vercel peut laisser un retour à la ligne en fin de valeur, ce qui rend
+  // l'en-tête Authorization invalide ("authentication_malformed" côté
+  // Paddle) sans que la clé elle-même soit fausse.
+  const apiKey = (process.env.PADDLE_API_KEY ?? "").trim();
   if (!apiKey) {
     throw new Error("PADDLE_API_KEY n'est pas configurée.");
   }
