@@ -31,6 +31,7 @@ interface NotesAuth {
   subscriptionStatus: string;
   subscriptionTier: string | null;
   subscriptionProvider: SubscriptionProvider;
+  paddleCustomerId: string | null;
   generationsUsed: number;
 }
 
@@ -434,6 +435,7 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
               subscriptionStatus={auth.subscriptionStatus}
               subscriptionTier={auth.subscriptionTier}
               subscriptionProvider={auth.subscriptionProvider}
+              paddleCustomerId={auth.paddleCustomerId}
               generationsUsed={auth.generationsUsed}
               checkoutStatus={checkoutStatus}
               onClose={() => setAiOpen(false)}

@@ -33,8 +33,11 @@ export async function parseJsonResponse(res: Response): Promise<Record<string, u
  * Lemon Squeezy est conservé uniquement pour permettre à l'unique abonné
  * d'avant cette migration d'annuler son abonnement (`cancel`, qui choisit
  * la bonne route selon `provider`, voir getSubscriptionProvider dans
- * @/lib/billing) — jamais pour créer un nouvel abonnement. */
-export function useSubscriptionActions(provider: SubscriptionProvider = null) {
+ * @/lib/billing) — jamais pour créer un nouvel abonnement.
+ *
+ * `paddleCustomerId` (profiles.paddle_customer_id) est transmis à
+ * openPaddleCheckout pour Paddle Retain — voir sa doc dans @/lib/paddle. */
+export function useSubscriptionActions(provider: SubscriptionProvider = null, paddleCustomerId: string | null = null) {
   const [billingLoading, setBillingLoading] = useState(false);
   const [billingError, setBillingError] = useState<string | null>(null);
 
@@ -85,6 +88,7 @@ export function useSubscriptionActions(provider: SubscriptionProvider = null) {
         priceId: payload.priceId,
         userId: payload.userId,
         successUrl,
+        paddleCustomerId,
         // Remonte l'erreur précise de Paddle (code + détail) dans le même
         // message d'erreur affiché à l'écran — sans ça, impossible de
         // diagnostiquer depuis un appareil sans console navigateur (iPad...).

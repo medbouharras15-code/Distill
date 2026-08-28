@@ -28,6 +28,7 @@ interface AiPanelProps {
   subscriptionStatus: string;
   subscriptionTier: string | null;
   subscriptionProvider: SubscriptionProvider;
+  paddleCustomerId: string | null;
   generationsUsed: number;
   checkoutStatus: "success" | "cancelled" | null;
   onClose: () => void;
@@ -216,6 +217,7 @@ export function AiPanel({
   subscriptionStatus,
   subscriptionTier,
   subscriptionProvider,
+  paddleCustomerId,
   generationsUsed,
   checkoutStatus,
   onClose,
@@ -224,8 +226,10 @@ export function AiPanel({
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
-  const { billingLoading, billingError, setBillingError, subscribeToTier, cancel } =
-    useSubscriptionActions(subscriptionProvider);
+  const { billingLoading, billingError, setBillingError, subscribeToTier, cancel } = useSubscriptionActions(
+    subscriptionProvider,
+    paddleCustomerId,
+  );
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<DistillResult | null>(null);
   const [tab, setTab] = useState<Tab>("summary");

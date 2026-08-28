@@ -21,6 +21,7 @@ export default async function SubscriptionPage({
       subscribed={isSubscribed(auth.profile)}
       tier={getTier(auth.profile)}
       provider={getSubscriptionProvider(auth.profile)}
+      paddleCustomerId={auth.profile.paddle_customer_id}
       remaining={remainingFreeGenerations(auth.profile)}
       checkoutStatus={checkoutStatus}
     />

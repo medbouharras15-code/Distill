@@ -97,6 +97,7 @@ interface SubscriptionFormProps {
   subscribed: boolean;
   tier: SubscriptionTier | null;
   provider: SubscriptionProvider;
+  paddleCustomerId: string | null;
   remaining: number;
   checkoutStatus: "success" | "cancelled" | null;
 }
@@ -112,8 +113,11 @@ const TIER_NAMES: Record<SubscriptionTier, string> = {
  * détermine seulement quelle route d'annulation appeler pour l'abonné
  * courant (Paddle pour tout nouvel abonné, Lemon Squeezy pour l'unique
  * abonné d'avant cette migration) — voir useSubscriptionActions. */
-export function SubscriptionForm({ subscribed, tier, provider, remaining, checkoutStatus }: SubscriptionFormProps) {
-  const { billingLoading, billingError, setBillingError, subscribeToTier, cancel } = useSubscriptionActions(provider);
+export function SubscriptionForm({ subscribed, tier, provider, paddleCustomerId, remaining, checkoutStatus }: SubscriptionFormProps) {
+  const { billingLoading, billingError, setBillingError, subscribeToTier, cancel } = useSubscriptionActions(
+    provider,
+    paddleCustomerId,
+  );
   const [dismissedCheckoutBanner, setDismissedCheckoutBanner] = useState(false);
 
   return (

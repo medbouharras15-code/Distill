@@ -74,6 +74,11 @@ interface PaddleEventData {
 interface PaddleGlobal {
   Environment: { set(env: "sandbox" | "production"): void };
   Initialize(options: { token: string; eventCallback?: (data: PaddleEventData) => void }): void;
+  /** Met à jour les options passées à Initialize() sans le rappeler — sert
+   * ici uniquement à renseigner `pwCustomer` une fois l'identité du client
+   * connue (voir openPaddleCheckout), Initialize n'étant appelé qu'une
+   * seule fois par session (voir `paddleReady`). */
+  Update(options: { pwCustomer?: { id: string } | Record<string, never> }): void;
   Checkout: {
     open(options: {
       items: { priceId: string; quantity: number }[];
@@ -213,12 +218,20 @@ function loadPaddle(): Promise<PaddleGlobal> {
  * navigateur (impossible sur mobile/tablette). `onNetworkError`, filet de
  * secours, est appelé avec le contenu brut de toute requête réseau en échec
  * vers paddle.com (voir installPaddleNetworkInterceptor) — utile quand
- * `checkout.error` ne se déclenche pas du tout. */
+ * `checkout.error` ne se déclenche pas du tout.
+ *
+ * `paddleCustomerId` (profiles.paddle_customer_id, rempli par le webhook
+ * après un premier paiement réussi — absent pour un client qui n'a encore
+ * jamais payé) renseigne `pwCustomer` pour Paddle Retain, qui en a besoin
+ * pour reconnaître le client connecté. Paddle n'accepte ici qu'un véritable
+ * ID client Paddle (`ctm_...`), jamais un email — un objet vide est passé
+ * en son absence, comme documenté par Paddle. */
 export async function openPaddleCheckout({
   tier,
   priceId,
   userId,
   successUrl,
+  paddleCustomerId,
   onError,
   onNetworkError,
 }: {
@@ -226,6 +239,7 @@ export async function openPaddleCheckout({
   priceId: string;
   userId: string;
   successUrl: string;
+  paddleCustomerId: string | null;
   onError?: (error: PaddleCheckoutError) => void;
   onNetworkError?: (info: string) => void;
 }): Promise<void> {
@@ -241,6 +255,7 @@ export async function openPaddleCheckout({
     );
   }
   const paddle = await loadPaddle();
+  paddle.Update({ pwCustomer: paddleCustomerId ? { id: paddleCustomerId } : {} });
   activeEventCallback = (data) => {
     if (data.name === "checkout.error" && data.error) {
       onError?.(data.error);

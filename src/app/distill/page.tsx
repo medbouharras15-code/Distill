@@ -17,6 +17,7 @@ export default async function DistillPage() {
       subscriptionStatus={auth.profile.subscription_status}
       subscriptionTier={auth.profile.subscription_tier}
       subscriptionProvider={getSubscriptionProvider(auth.profile)}
+      paddleCustomerId={auth.profile.paddle_customer_id}
       generationsUsed={auth.profile.generations_used}
     />
   );

@@ -11,6 +11,7 @@ interface AiFullScreenProps {
   subscriptionStatus: string;
   subscriptionTier: string | null;
   subscriptionProvider: SubscriptionProvider;
+  paddleCustomerId: string | null;
   generationsUsed: number;
 }
 
@@ -23,6 +24,7 @@ export function AiFullScreen({
   subscriptionStatus,
   subscriptionTier,
   subscriptionProvider,
+  paddleCustomerId,
   generationsUsed,
 }: AiFullScreenProps) {
   const router = useRouter();
@@ -42,6 +44,7 @@ export function AiFullScreen({
           subscriptionStatus={subscriptionStatus}
           subscriptionTier={subscriptionTier}
           subscriptionProvider={subscriptionProvider}
+          paddleCustomerId={paddleCustomerId}
           generationsUsed={generationsUsed}
           checkoutStatus={null}
           onClose={() => router.push("/dashboard")}
