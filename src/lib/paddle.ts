@@ -153,6 +153,17 @@ export async function openPaddleCheckout({
   successUrl: string;
   onError?: (error: PaddleCheckoutError) => void;
 }): Promise<void> {
+  // Vérifie que le token client est bien présent avant même de charger
+  // Paddle.js : une variable Vercel manquante ou mal scopée (ex. cochée
+  // "Preview" mais pas "Production") laisserait sinon Paddle.Initialize()
+  // tourner avec un token vide, et l'overlay s'ouvrirait quand même avant
+  // d'échouer silencieusement — impossible à distinguer d'un vrai problème
+  // de compte Paddle sans ce message explicite.
+  if (!PADDLE_CLIENT_TOKEN) {
+    throw new Error(
+      "NEXT_PUBLIC_PADDLE_CLIENT_TOKEN est vide côté client. Vérifiez qu'elle est bien définie sur Vercel pour l'environnement Production (pas seulement Preview), puis redéployez.",
+    );
+  }
   const paddle = await loadPaddle();
   activeEventCallback = (data) => {
     if (data.name === "checkout.error" && data.error) {
