@@ -8,7 +8,7 @@ import { Badge, Button, Card, buttonClasses } from "@/components/ui";
 import type { MonthlyUsageSummaryJetons } from "@/lib/aiUsage";
 import { IS_SUBSCRIBED_OVERRIDDEN, type SubscriptionTier } from "@/lib/billing";
 import { Bell, Check, Contrast, Crown, LogOut, Pen, Shield, Users } from "@/lib/icons";
-import { JETONS_PACK_MAX_QUANTITY, JETONS_PACK_MIN_QUANTITY, JETONS_PACK_PRICE_EUR } from "@/lib/paddle";
+import { JETONS_PACK_MAX_QUANTITY, JETONS_PACK_MIN_QUANTITY, JETONS_PACK_PRICE_EUR, JETONS_PER_PACK } from "@/lib/paddle";
 import { useJetonsPurchaseActions } from "@/lib/useSubscriptionActions";
 import { setDarkMode, useIsDarkMode } from "@/lib/useTheme";
 
@@ -84,13 +84,6 @@ function DarkModeToggle() {
   );
 }
 
-/** Carte de consommation IA du mois en cours, affichée en jetons — le
- * calcul en euros reste la source de vérité interne (voir @/lib/aiUsage),
- * jamais montré ici. La barre est divisée en deux segments proportionnels
- * à la part de chaque catégorie dans le total dépensé, sur une largeur
- * totale plafonnée à 100% du palier (le vrai plafond d'application, avec
- * sa marge de sécurité intégrée, est le même que celui affiché ici — voir
- * TIER_CAPS_JETONS dans @/lib/jetons). */
 /** Achat de jetons à la carte, section affichée sous la barre de
  * consommation ci-dessous — réservée à Essentiel/Étudiant (voir plan
  * validé : Intensif a déjà un plafond confortable). Solde persistant
@@ -114,7 +107,12 @@ function JetonsPurchaseSection({ paddleCustomerId, purchasedJetonsBalance }: { p
       </div>
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-        <JetonsQuantityStepper quantity={quantity} onChange={setQuantity} min={JETONS_PACK_MIN_QUANTITY} max={JETONS_PACK_MAX_QUANTITY} />
+        <div>
+          <JetonsQuantityStepper quantity={quantity} onChange={setQuantity} min={JETONS_PACK_MIN_QUANTITY} max={JETONS_PACK_MAX_QUANTITY} />
+          <div className="mt-1.5 text-[11px] text-muted-foreground">
+            = {quantity * JETONS_PER_PACK} jetons pour {totalEur}&nbsp;€
+          </div>
+        </div>
         <Button type="button" variant="outline" size="sm" onClick={() => void buyJetons(quantity)} disabled={billingLoading}>
           {billingLoading ? "…" : `Acheter — ${totalEur} €`}
         </Button>
@@ -132,6 +130,13 @@ function JetonsPurchaseSection({ paddleCustomerId, purchasedJetonsBalance }: { p
   );
 }
 
+/** Carte de consommation IA du mois en cours, affichée en jetons — le
+ * calcul en euros reste la source de vérité interne (voir @/lib/aiUsage),
+ * jamais montré ici. La barre est divisée en deux segments proportionnels
+ * à la part de chaque catégorie dans le total dépensé, sur une largeur
+ * totale plafonnée à 100% du palier (le vrai plafond d'application, avec
+ * sa marge de sécurité intégrée, est le même que celui affiché ici — voir
+ * TIER_CAPS_JETONS dans @/lib/jetons). */
 function CreditUsageCard({
   usage,
   tier,
