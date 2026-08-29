@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { NextResponse } from "next/server";
-import { teamTierForPriceId, tierForPriceId } from "@/lib/paddle";
+import { isJetonsPriceId, JETONS_PER_PACK, teamTierForPriceId, tierForPriceId } from "@/lib/paddle";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 interface PaddleWebhookEvent {
@@ -57,6 +57,60 @@ function isValidPaddleSignature(rawBody: string, signatureHeader: string | null,
   return expectedBuf.length === receivedBuf.length && timingSafeEqual(expectedBuf, receivedBuf);
 }
 
+/** Traite un achat de jetons à la carte (produit Paddle one-time — voir
+ * openJetonsPurchase dans @/lib/paddle) : contrairement aux abonnements,
+ * une transaction one-time ne crée aucune Subscription côté Paddle, donc
+ * aucun `subscription.created` n'est jamais émis pour cet achat — c'est
+ * `transaction.completed` qu'il faut écouter. Cet évènement peut aussi être
+ * émis pour d'autres transactions (ex. le premier paiement d'un
+ * abonnement) : on ignore silencieusement tout ce qui n'est pas le Price ID
+ * du pack de jetons. */
+async function handleJetonsTransaction(event: PaddleWebhookEvent): Promise<NextResponse> {
+  const priceId = event.data.items?.[0]?.price?.id;
+  if (!priceId || !isJetonsPriceId(priceId)) {
+    return NextResponse.json({ received: true });
+  }
+
+  const userId = event.data.custom_data?.user_id;
+  const quantity = event.data.items?.[0]?.quantity;
+  if (!userId || !quantity) {
+    console.error(
+      "transaction.completed (jetons) sans custom_data.user_id ou quantity — impossible de créditer :",
+      event.data.id,
+    );
+    return NextResponse.json({ received: true });
+  }
+
+  const jetonsGranted = quantity * JETONS_PER_PACK;
+  const admin = createAdminClient();
+
+  // Idempotence : Paddle peut livrer le même webhook plusieurs fois (comportement
+  // normal, pas une erreur) — paddle_transaction_id UNIQUE garantit qu'on ne
+  // crédite jamais deux fois le même achat. Code 23505 = violation de
+  // contrainte unique (déjà traité), pas une vraie erreur.
+  const { error: insertError } = await admin
+    .from("jeton_purchases")
+    .insert({ user_id: userId, paddle_transaction_id: event.data.id, jetons_granted: jetonsGranted });
+  if (insertError) {
+    if (insertError.code === "23505") {
+      return NextResponse.json({ received: true });
+    }
+    console.error("Impossible d'enregistrer l'achat de jetons :", insertError);
+    return NextResponse.json({ error: "Erreur de traitement." }, { status: 500 });
+  }
+
+  const { error: rpcError } = await admin.rpc("increment_purchased_jetons", {
+    p_user_id: userId,
+    p_amount: jetonsGranted,
+  });
+  if (rpcError) {
+    console.error("Impossible de créditer le solde de jetons achetés :", rpcError);
+    return NextResponse.json({ error: "Erreur de traitement." }, { status: 500 });
+  }
+
+  return NextResponse.json({ received: true });
+}
+
 /** Reçoit les événements Paddle (abonnement créé, mis à jour, annulé) et met
  * à jour le profil Supabase correspondant — équivalent Paddle de
  * /api/lemonsqueezy/webhook, qui reste actif en parallèle pour l'unique
@@ -86,6 +140,10 @@ export async function POST(request: Request) {
     event = JSON.parse(rawBody) as PaddleWebhookEvent;
   } catch {
     return NextResponse.json({ error: "Corps de requête invalide." }, { status: 400 });
+  }
+
+  if (event.event_type === "transaction.completed") {
+    return handleJetonsTransaction(event);
   }
 
   if (!SUBSCRIPTION_EVENTS.has(event.event_type)) {

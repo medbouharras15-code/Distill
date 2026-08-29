@@ -3,10 +3,13 @@
 import { useState } from "react";
 import Link from "next/link";
 import { AiOrb } from "@/components/Brand";
+import { JetonsQuantityStepper } from "@/components/JetonsQuantityStepper";
 import { Badge, Button, Card, buttonClasses } from "@/components/ui";
 import type { MonthlyUsageSummaryJetons } from "@/lib/aiUsage";
-import { IS_SUBSCRIBED_OVERRIDDEN } from "@/lib/billing";
+import { IS_SUBSCRIBED_OVERRIDDEN, type SubscriptionTier } from "@/lib/billing";
 import { Bell, Check, Contrast, Crown, LogOut, Pen, Shield, Users } from "@/lib/icons";
+import { JETONS_PACK_MAX_QUANTITY, JETONS_PACK_MIN_QUANTITY, JETONS_PACK_PRICE_EUR } from "@/lib/paddle";
+import { useJetonsPurchaseActions } from "@/lib/useSubscriptionActions";
 import { setDarkMode, useIsDarkMode } from "@/lib/useTheme";
 
 type SettingsSection = "compte" | "apparence" | "ia" | "notifications" | "abonnement" | "confidentialite" | "securite";
@@ -88,13 +91,65 @@ function DarkModeToggle() {
  * totale plafonnée à 100% du palier (le vrai plafond d'application, avec
  * sa marge de sécurité intégrée, est le même que celui affiché ici — voir
  * TIER_CAPS_JETONS dans @/lib/jetons). */
-function CreditUsageCard({ usage }: { usage: MonthlyUsageSummaryJetons }) {
+/** Achat de jetons à la carte, section affichée sous la barre de
+ * consommation ci-dessous — réservée à Essentiel/Étudiant (voir plan
+ * validé : Intensif a déjà un plafond confortable). Solde persistant
+ * (profiles.purchased_jetons_balance, voir @/lib/aiUsage) : jamais remis à
+ * zéro automatiquement, contrairement au plafond mensuel juste au-dessus. */
+function JetonsPurchaseSection({ paddleCustomerId, purchasedJetonsBalance }: { paddleCustomerId: string | null; purchasedJetonsBalance: number }) {
+  const [quantity, setQuantity] = useState(JETONS_PACK_MIN_QUANTITY);
+  const { billingLoading, billingError, setBillingError, buyJetons } = useJetonsPurchaseActions(paddleCustomerId);
+  const totalEur = (quantity * JETONS_PACK_PRICE_EUR).toFixed(2).replace(".", ",").replace(",00", "");
+
+  return (
+    <div className="mt-4 border-t border-border pt-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-[12.5px] text-muted-foreground">Jetons achetés</div>
+          <div className="mt-0.5 text-xl font-medium tabular-nums text-foreground">
+            {purchasedJetonsBalance} <span className="text-xs font-normal text-muted-foreground">restants</span>
+          </div>
+          <div className="mt-0.5 text-[11px] text-muted-foreground">Ne périment jamais</div>
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+        <JetonsQuantityStepper quantity={quantity} onChange={setQuantity} min={JETONS_PACK_MIN_QUANTITY} max={JETONS_PACK_MAX_QUANTITY} />
+        <Button type="button" variant="outline" size="sm" onClick={() => void buyJetons(quantity)} disabled={billingLoading}>
+          {billingLoading ? "…" : `Acheter — ${totalEur} €`}
+        </Button>
+      </div>
+
+      {billingError && (
+        <div className="relative mt-3 flex items-start justify-between gap-3 rounded-lg bg-red-50 px-3 py-2.5 text-xs text-red-700">
+          <span className="whitespace-pre-wrap break-words">{billingError}</span>
+          <button type="button" onClick={() => setBillingError(null)} className="shrink-0 text-red-700/70 hover:text-red-700" aria-label="Fermer">
+            ✕
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CreditUsageCard({
+  usage,
+  tier,
+  paddleCustomerId,
+  purchasedJetonsBalance,
+}: {
+  usage: MonthlyUsageSummaryJetons;
+  tier: SubscriptionTier | null;
+  paddleCustomerId: string | null;
+  purchasedJetonsBalance: number;
+}) {
   const { generationJetons, chatJetons, totalJetons, capJetons } = usage;
   const totalPercent = capJetons > 0 ? Math.min(100, (totalJetons / capJetons) * 100) : 0;
   const generationShare = totalJetons > 0 ? generationJetons / totalJetons : 0;
   const generationWidthPercent = totalPercent * generationShare;
   const chatWidthPercent = totalPercent - generationWidthPercent;
   const nearCap = totalJetons >= capJetons * 0.9;
+  const canBuyJetons = tier === "essentiel" || tier === "etudiant";
 
   return (
     <Card className="p-5">
@@ -123,6 +178,10 @@ function CreditUsageCard({ usage }: { usage: MonthlyUsageSummaryJetons }) {
           <span className="h-2 w-2 rounded-full bg-accent-dark" /> Mode Explication · {chatJetons} jetons
         </span>
       </div>
+
+      {canBuyJetons && (
+        <JetonsPurchaseSection paddleCustomerId={paddleCustomerId} purchasedJetonsBalance={purchasedJetonsBalance} />
+      )}
     </Card>
   );
 }
@@ -134,6 +193,11 @@ interface SettingsFormProps {
   /** `null` pour les comptes non abonnés (le quota gratuit se mesure en
    * générations, pas en jetons — voir @/lib/aiUsage). */
   usage: MonthlyUsageSummaryJetons | null;
+  /** Détermine la visibilité de l'achat de jetons (Essentiel/Étudiant
+   * uniquement, voir CreditUsageCard). */
+  tier: SubscriptionTier | null;
+  paddleCustomerId: string | null;
+  purchasedJetonsBalance: number;
 }
 
 /** Écran Paramètres — sur le modèle du Figma Make (Library.tsx → Settings),
@@ -145,7 +209,15 @@ interface SettingsFormProps {
  * sombre" pilote le vrai thème du site. Le reste (préférences IA,
  * notifications, confidentialité) reste en interrupteurs locaux non
  * persistés, comme le reste de cette phase de refonte. */
-export function SettingsForm({ email, subscribed, memberSince, usage }: SettingsFormProps) {
+export function SettingsForm({
+  email,
+  subscribed,
+  memberSince,
+  usage,
+  tier,
+  paddleCustomerId,
+  purchasedJetonsBalance,
+}: SettingsFormProps) {
   const [active, setActive] = useState<SettingsSection>("compte");
   const initial = (email[0] ?? "?").toUpperCase();
 
@@ -261,7 +333,14 @@ export function SettingsForm({ email, subscribed, memberSince, usage }: Settings
                   </div>
                 </div>
               </Card>
-              {usage && <CreditUsageCard usage={usage} />}
+              {usage && (
+                <CreditUsageCard
+                  usage={usage}
+                  tier={tier}
+                  paddleCustomerId={paddleCustomerId}
+                  purchasedJetonsBalance={purchasedJetonsBalance}
+                />
+              )}
               <Card className="overflow-hidden">
                 <div className="px-5">
                   <SettingsRow title="Suggestions automatiques" desc="Propose un résumé après chaque session de notes.">

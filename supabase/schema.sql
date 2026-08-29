@@ -440,3 +440,58 @@ as $$
 $$;
 
 grant execute on function public.team_brain_team_roster(uuid) to authenticated;
+
+-- 7. Jetons supplémentaires à la carte (achat one-time via Paddle, voir
+-- /api/paddle/webhook et @/lib/aiUsage) — réservé aux abonnés Essentiel/
+-- Étudiant. purchased_jetons_balance persiste indéfiniment d'un mois à
+-- l'autre (jamais remis à zéro automatiquement, contrairement au plafond
+-- mensuel de base qui, lui, se recalcule à partir de ai_usage_events) : un
+-- abonné peut cumuler son nouveau plafond mensuel avec un solde acheté non
+-- utilisé le mois précédent.
+alter table public.profiles add column if not exists purchased_jetons_balance integer not null default 0;
+
+-- Historique des achats de jetons, avec paddle_transaction_id UNIQUE :
+-- garantit qu'un webhook Paddle livré plusieurs fois pour le même achat
+-- (comportement normal, pas une erreur) ne crédite jamais deux fois le
+-- solde — voir son usage dans /api/paddle/webhook.
+create table if not exists public.jeton_purchases (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  paddle_transaction_id text unique not null,
+  jetons_granted integer not null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.jeton_purchases enable row level security;
+create policy "jeton_purchases_select_own"
+  on public.jeton_purchases for select
+  using (auth.uid() = user_id);
+
+-- Incrémente/décrémente purchased_jetons_balance en une seule instruction
+-- SQL (atomique), pour éviter une course lecture-puis-écriture entre deux
+-- requêtes concurrentes (deux webhooks d'achat, ou deux générations lancées
+-- en parallèle depuis deux onglets) — jamais de simple `select` puis
+-- `update` séparés côté application pour ces deux opérations. Appelées
+-- uniquement via le client admin (service_role, qui contourne déjà RLS) :
+-- pas besoin de security definer, seule l'atomicité de l'expression compte
+-- ici.
+create or replace function public.increment_purchased_jetons(p_user_id uuid, p_amount integer)
+returns void
+language sql
+as $$
+  update public.profiles
+  set purchased_jetons_balance = purchased_jetons_balance + p_amount
+  where id = p_user_id;
+$$;
+
+-- Décrémente sans jamais passer sous 0 (greatest) — un solde acheté ne
+-- peut pas devenir négatif même en cas de calcul de coût imprécis sur un
+-- appel Claude particulièrement volumineux.
+create or replace function public.debit_purchased_jetons(p_user_id uuid, p_amount integer)
+returns void
+language sql
+as $$
+  update public.profiles
+  set purchased_jetons_balance = greatest(purchased_jetons_balance - p_amount, 0)
+  where id = p_user_id;
+$$;

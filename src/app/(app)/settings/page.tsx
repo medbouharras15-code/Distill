@@ -29,6 +29,9 @@ export default async function SettingsPage() {
       subscribed={subscribed}
       memberSince={memberSince}
       usage={usage}
+      tier={tier}
+      paddleCustomerId={auth.profile.paddle_customer_id}
+      purchasedJetonsBalance={auth.profile.purchased_jetons_balance}
     />
   );
 }

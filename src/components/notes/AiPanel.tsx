@@ -4,6 +4,7 @@ import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import FileDropZone from "@/components/FileDropZone";
 import { AiOrb, DistillMark } from "@/components/Brand";
+import { JetonsQuantityStepper } from "@/components/JetonsQuantityStepper";
 import { Badge, Card, Eyebrow, buttonClasses, staggerDelay } from "@/components/ui";
 import { IS_SIMULATION_ENABLED } from "@/lib/aiSimulation";
 import { Cards, Chat, Close, Doc, Pen, Quiz, Sparkle } from "@/lib/icons";
@@ -12,7 +13,12 @@ import { FREE_GENERATIONS_LIMIT, IS_FREE_LIMIT_OVERRIDDEN, getTier, isSubscribed
 import type { SubscriptionProvider } from "@/lib/billing";
 import { MAX_PDF_FILE_BYTES } from "@/lib/fileSizeLimits";
 import { TYPICAL_JETONS } from "@/lib/jetons";
-import { parseJsonResponse, useSubscriptionActions } from "@/lib/useSubscriptionActions";
+import { JETONS_PACK_MAX_QUANTITY, JETONS_PACK_MIN_QUANTITY, JETONS_PACK_PRICE_EUR, JETONS_PER_PACK } from "@/lib/paddle";
+import {
+  parseJsonResponse,
+  useJetonsPurchaseActions,
+  useSubscriptionActions,
+} from "@/lib/useSubscriptionActions";
 import type { DistillResult, QuizDifficulty, QuizGenerationResult } from "@/lib/types";
 import { ChatView } from "./ChatView";
 import { FlashcardDeck } from "./FlashcardDeck";
@@ -230,6 +236,19 @@ export function AiPanel({
     subscriptionProvider,
     paddleCustomerId,
   );
+  // Distinct de `limitReached` (essai gratuit épuisé, jamais abonné) :
+  // signale qu'un abonné Essentiel/Étudiant/Intensif a atteint son plafond
+  // mensuel de jetons ET son solde acheté (voir checkUsageCap dans
+  // @/lib/aiUsage) — seuls Essentiel/Étudiant peuvent alors racheter des
+  // jetons (voir jetonsQuantity/buyJetons plus bas).
+  const [usageCapReached, setUsageCapReached] = useState(false);
+  const [jetonsQuantity, setJetonsQuantity] = useState(JETONS_PACK_MIN_QUANTITY);
+  const {
+    billingLoading: jetonsLoading,
+    billingError: jetonsError,
+    setBillingError: setJetonsError,
+    buyJetons,
+  } = useJetonsPurchaseActions(paddleCustomerId);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<DistillResult | null>(null);
   const [tab, setTab] = useState<Tab>("summary");
@@ -263,6 +282,10 @@ export function AiPanel({
   const remaining = subscribed ? Infinity : Math.max(0, FREE_GENERATIONS_LIMIT - localGenerationsUsed);
   const limitReached = !subscribed && remaining <= 0;
   const hasInput = text.trim().length > 0 || !!imageFile || !!pdfFile;
+  // L'achat de jetons est réservé à Essentiel/Étudiant, jamais Intensif —
+  // voir checkUsageCap dans @/lib/aiUsage, même règle appliquée côté serveur.
+  const canBuyJetons = tier === "essentiel" || tier === "etudiant";
+  const jetonsPurchaseTotalEur = (jetonsQuantity * JETONS_PACK_PRICE_EUR).toFixed(2).replace(".", ",").replace(",00", "");
 
   function selectImage(file: File) {
     setError(null);
@@ -333,6 +356,9 @@ export function AiPanel({
         if (payload.limitReached) {
           setLocalGenerationsUsed(FREE_GENERATIONS_LIMIT);
         }
+        if (payload.usageCapReached) {
+          setUsageCapReached(true);
+        }
         throw new Error(typeof payload.error === "string" ? payload.error : "Impossible de générer le QCM.");
       }
 
@@ -350,7 +376,7 @@ export function AiPanel({
   }
 
   async function handleSubmit() {
-    if (!hasInput || loading || limitReached) return;
+    if (!hasInput || loading || limitReached || usageCapReached) return;
     setLoading(true);
     setError(null);
     // Nouveau document distillé : nouvel identifiant, voir distillationId
@@ -384,6 +410,9 @@ export function AiPanel({
       if (!res.ok) {
         if (payload.limitReached) {
           setLocalGenerationsUsed(FREE_GENERATIONS_LIMIT);
+        }
+        if (payload.usageCapReached) {
+          setUsageCapReached(true);
         }
         throw new Error(typeof payload.error === "string" ? payload.error : "Une erreur est survenue.");
       }
@@ -666,11 +695,52 @@ export function AiPanel({
                   >
                     {billingLoading ? "Redirection vers le paiement…" : "Limite atteinte — S'abonner pour continuer"}
                   </button>
+                ) : usageCapReached && canBuyJetons ? (
+                  <>
+                    <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-border bg-background-alt px-4 py-3">
+                      <div>
+                        <div className="text-[12.5px] font-medium text-foreground">Lots de 100 jetons</div>
+                        <div className="mt-0.5 text-[11px] text-muted-foreground">
+                          = {jetonsQuantity * JETONS_PER_PACK} jetons pour {jetonsPurchaseTotalEur}&nbsp;€
+                        </div>
+                      </div>
+                      <JetonsQuantityStepper
+                        quantity={jetonsQuantity}
+                        onChange={setJetonsQuantity}
+                        min={JETONS_PACK_MIN_QUANTITY}
+                        max={JETONS_PACK_MAX_QUANTITY}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void buyJetons(jetonsQuantity)}
+                      disabled={jetonsLoading}
+                      className={buttonClasses("primary", "lg", "mt-3 w-full rounded-2xl shadow-[0_2px_4px_rgba(0,0,0,0.08),0_16px_40px_-16px_var(--primary)]")}
+                    >
+                      {jetonsLoading ? "…" : `Acheter — ${jetonsPurchaseTotalEur} €`}
+                    </button>
+                    <p className="mt-2 text-center text-[11px] text-muted-foreground">
+                      Utilisables immédiatement · ne périment jamais
+                    </p>
+                    {jetonsError && (
+                      <div className="relative mt-2 flex items-start justify-between gap-3 rounded-lg bg-red-50 px-3 py-2.5 text-xs text-red-700">
+                        <span className="whitespace-pre-wrap break-words">{jetonsError}</span>
+                        <button
+                          type="button"
+                          onClick={() => setJetonsError(null)}
+                          className="shrink-0 text-red-700/70 hover:text-red-700"
+                          aria-label="Fermer"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <button
                     type="button"
                     onClick={handleSubmit}
-                    disabled={!hasInput}
+                    disabled={!hasInput || usageCapReached}
                     className={buttonClasses("primary", "lg", "mt-4 w-full rounded-2xl shadow-[0_2px_4px_rgba(0,0,0,0.08),0_16px_40px_-16px_var(--primary)]")}
                   >
                     <span className="relative flex h-4 w-4 items-center justify-center">
@@ -680,7 +750,7 @@ export function AiPanel({
                   </button>
                 )}
 
-                {subscribed && !limitReached && (
+                {subscribed && !limitReached && !usageCapReached && (
                   <p className="mt-2 text-center text-[11px] text-muted-foreground">
                     ≈ {quizRequested ? TYPICAL_JETONS.resumeEtQcm : TYPICAL_JETONS.resumeSeul} jetons pour un document
                     de taille standard — le coût réel peut varier selon la taille du document.

@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { buildFakeChatResponse, IS_SIMULATION_ENABLED } from "@/lib/aiSimulation";
-import { logAiUsageEvent, usageCapResponse } from "@/lib/aiUsage";
+import { checkUsageCap, debitPurchasedJetonsIfNeeded, logAiUsageEvent } from "@/lib/aiUsage";
 import { getUserAndProfile } from "@/lib/auth";
 import { getTier } from "@/lib/billing";
 import {
@@ -47,7 +47,7 @@ function isChatResponse(value: unknown): value is ChatResponseBody {
  * réponse changent. N'incrémente jamais generations_used — jamais limité
  * par le compteur de générations gratuites, y compris pendant l'essai
  * gratuit (inchangé). Le seul plafond réel est celui de jetons de l'abonné
- * (voir usageCapResponse ci-dessous), désormais différent selon le palier
+ * (voir checkUsageCap ci-dessous), désormais différent selon le palier
  * (Étudiant 700, Intensif 1400 — Essentiel n'y a pas accès du tout, voir la
  * vérification juste après auth). Historique géré entièrement côté client
  * (aucune persistance serveur) : chaque appel reçoit l'historique complet
@@ -114,9 +114,11 @@ export async function POST(request: Request) {
       // directement une réponse factice pour tester l'interface sans coût.
       parsed = await buildFakeChatResponse(question);
     } else {
+      let drawsFromPurchasedBalance = false;
       if (tier) {
-        const capResponse = await usageCapResponse(user.id, tier);
-        if (capResponse) return capResponse;
+        const capCheck = await checkUsageCap(user.id, tier, profile.purchased_jetons_balance);
+        if (capCheck.blockedResponse) return capCheck.blockedResponse;
+        drawsFromPurchasedBalance = capCheck.drawsFromPurchasedBalance;
       }
 
       if (pdf) {
@@ -190,6 +192,12 @@ export async function POST(request: Request) {
       // Suivi de consommation (Paramètres > IA Distill) — voir la même
       // logique dans /api/distill.
       await logAiUsageEvent({ userId: user.id, category: "chat", model: response.model, usage: response.usage });
+      await debitPurchasedJetonsIfNeeded({
+        userId: user.id,
+        drawsFromPurchasedBalance,
+        model: response.model,
+        usage: response.usage,
+      });
 
       if (response.stop_reason === "refusal") {
         return NextResponse.json(

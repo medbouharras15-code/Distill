@@ -21,7 +21,7 @@ const MODEL_PRICING_USD: Record<string, { input: number; output: number }> = {
   [FALLBACK_MODEL]: { input: 3, output: 15 },
 };
 
-/** Plafond réel appliqué à l'abonné selon son palier (voir usageCapResponse
+/** Plafond réel appliqué à l'abonné selon son palier (voir checkUsageCap
  * plus bas), dérivé du plafond en jetons validé avec l'utilisateur (voir
  * TIER_CAPS_JETONS dans @/lib/jetons pour le détail de la marge de
  * sécurité intégrée) plutôt que d'un plafond nominal en euros séparé — la
@@ -166,29 +166,100 @@ export async function getMonthlyUsageSummaryJetons(
   };
 }
 
+export interface UsageCapCheck {
+  /** `null` = pas bloqué, l'appelant peut poursuivre normalement. Sinon,
+   * réponse HTTP prête à l'emploi à renvoyer telle quelle. */
+  blockedResponse: NextResponse | null;
+  /** true si cet appel, une fois abouti, doit décrémenter le solde de
+   * jetons achetés (voir debitPurchasedJetonsIfNeeded) — le plafond mensuel
+   * de base était déjà dépassé au moment de cette vérification, cet appel
+   * n'est autorisé que grâce au solde acheté. */
+  drawsFromPurchasedBalance: boolean;
+}
+
 /** Vérifie si l'abonné a déjà atteint son plafond mensuel de consommation
  * IA — à appeler juste avant tout appel Claude réel (résumé, QCM, chat),
  * jamais en mode simulation (voir @/lib/aiSimulation, qui court-circuite
  * l'appel avant même d'atteindre ce point dans chaque route). Ne concerne
  * que les abonnés : le quota des comptes gratuits reste géré séparément
- * par generations_used/FREE_GENERATIONS_LIMIT, inchangé. Renvoie une
- * réponse HTTP prête à l'emploi si le plafond est atteint, sinon `null`
- * pour laisser l'appelant poursuivre normalement.
+ * par generations_used/FREE_GENERATIONS_LIMIT, inchangé.
+ *
+ * Si le plafond mensuel de base est dépassé, `purchasedJetonsBalance` (voir
+ * profiles.purchased_jetons_balance, achat à la carte réservé à
+ * Essentiel/Étudiant) prend le relais avant de bloquer — ce solde persiste
+ * indéfiniment d'un mois à l'autre (jamais remis à zéro), contrairement au
+ * plafond de base qui se recalcule chaque mois à partir de
+ * ai_usage_events : un abonné peut donc cumuler son nouveau plafond mensuel
+ * avec un solde acheté non consommé le mois précédent.
  *
  * Échoue "ouvert" en cas d'erreur de lecture Supabase : getMonthlyUsageSummary
  * renvoie déjà un total à 0 dans ce cas (voir son fallback ci-dessus), donc
  * cette fonction ne bloque jamais à cause d'un problème d'infrastructure
  * sans rapport — décision explicitement validée plutôt que de bloquer tous
  * les abonnés à cause d'une panne technique. */
-export async function usageCapResponse(userId: string, tier: SubscriptionTier): Promise<NextResponse | null> {
+export async function checkUsageCap(
+  userId: string,
+  tier: SubscriptionTier,
+  purchasedJetonsBalance: number,
+): Promise<UsageCapCheck> {
   const summary = await getMonthlyUsageSummary(userId, tier);
-  if (summary.totalEur < summary.capEur) return null;
+  if (summary.totalEur < summary.capEur) {
+    return { blockedResponse: null, drawsFromPurchasedBalance: false };
+  }
 
-  return NextResponse.json(
-    {
-      error: `Tu as atteint ton plafond de ${TIER_CAPS_JETONS[tier]} jetons pour ce mois-ci. Il sera réinitialisé au début du mois prochain.`,
-      usageCapReached: true,
-    },
-    { status: 403 },
-  );
+  if (purchasedJetonsBalance > 0) {
+    return { blockedResponse: null, drawsFromPurchasedBalance: true };
+  }
+
+  // L'achat de jetons est réservé à Essentiel/Étudiant (voir plan validé :
+  // Intensif a déjà un plafond confortable) — un abonné Intensif qui
+  // atteindrait quand même son plafond ne doit jamais voir un message lui
+  // proposant un achat que /api/paddle/jetons-checkout-init refuserait.
+  const canBuyMore = tier === "essentiel" || tier === "etudiant";
+
+  return {
+    blockedResponse: NextResponse.json(
+      {
+        error: canBuyMore
+          ? `Tu as atteint ton plafond de ${TIER_CAPS_JETONS[tier]} jetons pour ce mois-ci, et ton solde de jetons achetés est épuisé. Le plafond mensuel sera réinitialisé au début du mois prochain, ou achète un lot de jetons pour continuer dès maintenant.`
+          : `Tu as atteint ton plafond de ${TIER_CAPS_JETONS[tier]} jetons pour ce mois-ci. Il sera réinitialisé au début du mois prochain.`,
+        usageCapReached: true,
+      },
+      { status: 403 },
+    ),
+    drawsFromPurchasedBalance: false,
+  };
+}
+
+/** Décrémente le solde de jetons achetés après un appel Claude réel ayant
+ * dépassé le plafond mensuel de base (voir checkUsageCap ci-dessus,
+ * `drawsFromPurchasedBalance`) — appelée juste après logAiUsageEvent, avec
+ * le même usage/model, pour convertir le coût réel de CET appel précis en
+ * jetons plutôt qu'un montant forfaitaire. No-op si `drawsFromPurchasedBalance`
+ * est faux (appel resté sous le plafond de base, rien à décrémenter).
+ * N'échoue jamais la requête si l'écriture échoue — même principe que
+ * logAiUsageEvent, indicateur de solde, pas donnée bloquante pour la
+ * génération déjà effectuée. */
+export async function debitPurchasedJetonsIfNeeded({
+  userId,
+  drawsFromPurchasedBalance,
+  model,
+  usage,
+}: {
+  userId: string;
+  drawsFromPurchasedBalance: boolean;
+  model: string;
+  usage: Anthropic.Usage;
+}): Promise<void> {
+  if (!drawsFromPurchasedBalance) return;
+
+  const jetons = jetonsForCostEur(computeCostEur(usage, model));
+  if (jetons <= 0) return;
+
+  try {
+    const admin = createAdminClient();
+    await admin.rpc("debit_purchased_jetons", { p_user_id: userId, p_amount: jetons });
+  } catch (error) {
+    console.error("Impossible de décrémenter le solde de jetons achetés :", error);
+  }
 }

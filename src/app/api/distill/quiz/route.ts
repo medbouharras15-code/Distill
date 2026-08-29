@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { buildFakeQuizResult, IS_SIMULATION_ENABLED } from "@/lib/aiSimulation";
-import { logAiUsageEvent, usageCapResponse } from "@/lib/aiUsage";
+import { checkUsageCap, debitPurchasedJetonsIfNeeded, logAiUsageEvent } from "@/lib/aiUsage";
 import { getUserAndProfile } from "@/lib/auth";
 import { FREE_GENERATIONS_LIMIT, getTier, isSubscribed } from "@/lib/billing";
 import {
@@ -155,9 +155,11 @@ export async function POST(request: Request) {
       // directement un QCM factice pour tester l'interface sans coût.
       quiz = await buildFakeQuizResult(QUIZ_QUESTION_COUNT);
     } else {
+      let drawsFromPurchasedBalance = false;
       if (tier) {
-        const capResponse = await usageCapResponse(user.id, tier);
-        if (capResponse) return capResponse;
+        const capCheck = await checkUsageCap(user.id, tier, profile.purchased_jetons_balance);
+        if (capCheck.blockedResponse) return capCheck.blockedResponse;
+        drawsFromPurchasedBalance = capCheck.drawsFromPurchasedBalance;
       }
 
       if (pdf) {
@@ -205,6 +207,12 @@ export async function POST(request: Request) {
       // Suivi de consommation (Paramètres > IA Distill) — voir la même
       // logique dans /api/distill.
       await logAiUsageEvent({ userId: user.id, category: "generation", model: response.model, usage: response.usage });
+      await debitPurchasedJetonsIfNeeded({
+        userId: user.id,
+        drawsFromPurchasedBalance,
+        model: response.model,
+        usage: response.usage,
+      });
 
       if (response.stop_reason === "refusal") {
         return NextResponse.json(
@@ -274,7 +282,7 @@ export async function POST(request: Request) {
     // Ne consomme une génération gratuite que pour un QCM explicitement
     // redemandé sur un contenu déjà distillé — voir le commentaire sur POST
     // ci-dessus. Un abonné n'a pas de compteur de ce type (déjà couvert par
-    // usageCapResponse plus haut).
+    // checkUsageCap plus haut).
     if (!subscribed && body.isRegeneration) {
       const admin = createAdminClient();
       await admin

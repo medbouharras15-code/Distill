@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { SubscriptionProvider, SubscriptionTier } from "@/lib/billing";
-import { openPaddleCheckout, openTeamPaddleCheckout } from "@/lib/paddle";
+import { openJetonsPurchase, openPaddleCheckout, openTeamPaddleCheckout } from "@/lib/paddle";
 
 /** Lit une réponse HTTP comme du JSON, en donnant un message clair si le
  * serveur (ou une plateforme intermédiaire comme Vercel) a renvoyé autre
@@ -195,4 +195,50 @@ export function useTeamSubscriptionActions(paddleCustomerId: string | null = nul
   }
 
   return { billingLoading, billingError, setBillingError, subscribeTeam, cancelTeam };
+}
+
+/** Achat de jetons à la carte (produit Paddle one-time, réservé aux abonnés
+ * Essentiel/Étudiant — voir /api/paddle/jetons-checkout-init) — même
+ * principe que les autres hooks de ce fichier, mais pas de `cancel` (un
+ * achat one-time n'est pas un abonnement, rien à résilier). */
+export function useJetonsPurchaseActions(paddleCustomerId: string | null = null) {
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingError, setBillingError] = useState<string | null>(null);
+
+  async function buyJetons(quantity: number) {
+    if (billingLoading) return;
+    setBillingLoading(true);
+    setBillingError(null);
+    try {
+      const res = await fetch("/api/paddle/jetons-checkout-init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quantity }),
+      });
+      const payload = await parseJsonResponse(res);
+      if (
+        !res.ok ||
+        typeof payload.userId !== "string" ||
+        typeof payload.priceId !== "string" ||
+        typeof payload.quantity !== "number"
+      ) {
+        throw new Error(typeof payload.error === "string" ? payload.error : "Impossible de démarrer le paiement.");
+      }
+      const successUrl = `${window.location.origin}${window.location.pathname}?checkout=success`;
+      await openJetonsPurchase({
+        userId: payload.userId,
+        quantity: payload.quantity,
+        successUrl,
+        paddleCustomerId,
+        onError: (error) => setBillingError(`Paddle : ${error.detail} (code : ${error.code})`),
+        onNetworkError: (info) => setBillingError(`Requête Paddle en échec :\n${info}`),
+      });
+    } catch (err) {
+      setBillingError(err instanceof Error ? err.message : "Une erreur est survenue.");
+    } finally {
+      setBillingLoading(false);
+    }
+  }
+
+  return { billingLoading, billingError, setBillingError, buyJetons };
 }

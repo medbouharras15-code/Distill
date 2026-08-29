@@ -205,6 +205,12 @@ export interface Profile {
    * l'introduction des paliers — voir getTier dans @/lib/billing pour la
    * règle de repli qui traite ce dernier cas comme "intensif"). */
   subscription_tier: string | null;
+  /** Solde de jetons achetés à la carte (voir /api/paddle/jetons-checkout-init
+   * et @/lib/aiUsage) — persiste indéfiniment d'un mois à l'autre,
+   * contrairement au plafond mensuel de base qui se réinitialise chaque
+   * mois. Toujours 0 pour un compte gratuit ou un abonné Intensif (achat
+   * réservé à Essentiel/Étudiant, voir la route ci-dessus). */
+  purchased_jetons_balance: number;
   created_at: string;
 }
 

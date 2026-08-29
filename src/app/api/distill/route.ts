@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { buildFakeDistillResult, IS_SIMULATION_ENABLED } from "@/lib/aiSimulation";
-import { logAiUsageEvent, usageCapResponse } from "@/lib/aiUsage";
+import { checkUsageCap, debitPurchasedJetonsIfNeeded, logAiUsageEvent } from "@/lib/aiUsage";
 import { getUserAndProfile } from "@/lib/auth";
 import { FREE_GENERATIONS_LIMIT, getTier, isSubscribed } from "@/lib/billing";
 import {
@@ -172,9 +172,11 @@ export async function POST(request: Request) {
       parsed = await buildFakeDistillResult();
     } else {
       const tier = getTier(profile);
+      let drawsFromPurchasedBalance = false;
       if (tier) {
-        const capResponse = await usageCapResponse(user.id, tier);
-        if (capResponse) return capResponse;
+        const capCheck = await checkUsageCap(user.id, tier, profile.purchased_jetons_balance);
+        if (capCheck.blockedResponse) return capCheck.blockedResponse;
+        drawsFromPurchasedBalance = capCheck.drawsFromPurchasedBalance;
       }
 
       if (pdf) {
@@ -219,6 +221,12 @@ export async function POST(request: Request) {
       // reflète le modèle qui a réellement répondu (Haiku ou Sonnet selon
       // repli). N'échoue jamais la requête si l'écriture échoue.
       await logAiUsageEvent({ userId: user.id, category: "generation", model: response.model, usage: response.usage });
+      await debitPurchasedJetonsIfNeeded({
+        userId: user.id,
+        drawsFromPurchasedBalance,
+        model: response.model,
+        usage: response.usage,
+      });
 
       if (response.stop_reason === "refusal") {
         return NextResponse.json(

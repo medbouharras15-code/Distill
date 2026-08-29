@@ -83,6 +83,25 @@ export function teamTierForPriceId(priceId: string): SeatTier | null {
   return TEAM_SEAT_TIERS.find((t) => t.priceId && t.priceId === priceId) ?? null;
 }
 
+/** Achat de jetons à la carte (produit Paddle one-time, réservé aux abonnés
+ * Essentiel/Étudiant — voir /api/paddle/jetons-checkout-init et
+ * useJetonsPurchaseActions). Un seul Price Paddle, à quantité variable
+ * (1 à JETONS_PACK_MAX_QUANTITY lots) : contrairement aux paliers/sièges
+ * ci-dessus, il n'y a qu'un seul tarif, pas de palier dégressif. */
+export const JETONS_PACK_PRICE_ID = (process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_JETONS ?? "").trim();
+export const JETONS_PER_PACK = 100;
+export const JETONS_PACK_PRICE_EUR = 1.5;
+export const JETONS_PACK_MIN_QUANTITY = 1;
+export const JETONS_PACK_MAX_QUANTITY = 10;
+
+/** true si ce Price ID Paddle est celui du pack de jetons — permet au
+ * webhook (voir /api/paddle/webhook) de distinguer un achat de jetons d'une
+ * éventuelle autre transaction one-time future, sans dépendre uniquement de
+ * l'absence d'abonnement associé. */
+export function isJetonsPriceId(priceId: string): boolean {
+  return Boolean(JETONS_PACK_PRICE_ID) && priceId === JETONS_PACK_PRICE_ID;
+}
+
 /** Détail d'une erreur remontée par Paddle.js pendant le paiement (évènement
  * `checkout.error`, voir openPaddleCheckout) — `code` et `detail` sont ceux
  * documentés par Paddle (developer.paddle.com/errors/overview), affichables
@@ -330,4 +349,20 @@ export async function openTeamPaddleCheckout({
   seats: number;
 } & OpenCheckoutOptions): Promise<void> {
   return openCheckout([{ priceId, quantity: seats }], { team_id: teamId }, options);
+}
+
+/** Ouvre l'overlay de paiement Paddle pour un achat de jetons à la carte
+ * (produit one-time — voir JETONS_PACK_PRICE_ID). `userId` en custom_data,
+ * comme openPaddleCheckout : c'est ce que le webhook (voir
+ * /api/paddle/webhook, évènement transaction.completed) utilise pour créditer
+ * le bon profil. */
+export async function openJetonsPurchase({
+  userId,
+  quantity,
+  ...options
+}: {
+  userId: string;
+  quantity: number;
+} & OpenCheckoutOptions): Promise<void> {
+  return openCheckout([{ priceId: JETONS_PACK_PRICE_ID, quantity }], { user_id: userId }, options);
 }
