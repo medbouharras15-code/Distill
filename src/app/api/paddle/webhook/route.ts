@@ -62,7 +62,13 @@ function isValidPaddleSignature(rawBody: string, signatureHeader: string | null,
  * /api/lemonsqueezy/webhook, qui reste actif en parallèle pour l'unique
  * abonné existant avant cette migration (voir @/lib/paddle, en-tête). */
 export async function POST(request: Request) {
-  const secret = process.env.PADDLE_WEBHOOK_SECRET;
+  // .trim() défensif : même classe de bug que PADDLE_API_KEY et
+  // NEXT_PUBLIC_PADDLE_CLIENT_TOKEN (voir leur historique) — un copier-coller
+  // depuis le dashboard Paddle vers Vercel peut laisser un caractère
+  // invisible en fin de valeur, ce qui fait échouer silencieusement le calcul
+  // HMAC (signature toujours rejetée en 400) sans que le secret affiché soit
+  // visiblement faux.
+  const secret = (process.env.PADDLE_WEBHOOK_SECRET ?? "").trim();
   if (!secret) {
     console.error("PADDLE_WEBHOOK_SECRET n'est pas configurée sur le serveur.");
     return NextResponse.json({ error: "Webhook non configuré." }, { status: 500 });
