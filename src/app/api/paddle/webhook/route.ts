@@ -66,9 +66,19 @@ function isValidPaddleSignature(rawBody: string, signatureHeader: string | null,
  * abonnement) : on ignore silencieusement tout ce qui n'est pas le Price ID
  * du pack de jetons. */
 async function handleJetonsTransaction(event: PaddleWebhookEvent): Promise<NextResponse> {
+  // DEBUG TEMPORAIRE — le corps de cette réponse est visible directement
+  // dans Paddle > Developer Tools > Notifications > Delivery log (onglet
+  // Response de chaque tentative), sans avoir besoin des logs Vercel. À
+  // retirer une fois le diagnostic du solde non crédité terminé.
+  const debug = {
+    rawItems: event.data.items,
+    rawCustomData: event.data.custom_data,
+    transactionId: event.data.id,
+  };
+
   const priceId = event.data.items?.[0]?.price?.id;
   if (!priceId || !isJetonsPriceId(priceId)) {
-    return NextResponse.json({ received: true });
+    return NextResponse.json({ received: true, debug: { ...debug, reason: "price_id_not_matched", priceId } });
   }
 
   const userId = event.data.custom_data?.user_id;
@@ -78,7 +88,7 @@ async function handleJetonsTransaction(event: PaddleWebhookEvent): Promise<NextR
       "transaction.completed (jetons) sans custom_data.user_id ou quantity — impossible de créditer :",
       event.data.id,
     );
-    return NextResponse.json({ received: true });
+    return NextResponse.json({ received: true, debug: { ...debug, reason: "missing_user_id_or_quantity" } });
   }
 
   const jetonsGranted = quantity * JETONS_PER_PACK;
@@ -93,10 +103,13 @@ async function handleJetonsTransaction(event: PaddleWebhookEvent): Promise<NextR
     .insert({ user_id: userId, paddle_transaction_id: event.data.id, jetons_granted: jetonsGranted });
   if (insertError) {
     if (insertError.code === "23505") {
-      return NextResponse.json({ received: true });
+      return NextResponse.json({ received: true, debug: { ...debug, reason: "already_processed" } });
     }
     console.error("Impossible d'enregistrer l'achat de jetons :", insertError);
-    return NextResponse.json({ error: "Erreur de traitement." }, { status: 500 });
+    return NextResponse.json(
+      { error: "Erreur de traitement.", debug: { ...debug, reason: "insert_error", insertError } },
+      { status: 500 },
+    );
   }
 
   const { error: rpcError } = await admin.rpc("increment_purchased_jetons", {
@@ -105,10 +118,13 @@ async function handleJetonsTransaction(event: PaddleWebhookEvent): Promise<NextR
   });
   if (rpcError) {
     console.error("Impossible de créditer le solde de jetons achetés :", rpcError);
-    return NextResponse.json({ error: "Erreur de traitement." }, { status: 500 });
+    return NextResponse.json(
+      { error: "Erreur de traitement.", debug: { ...debug, reason: "rpc_error", rpcError } },
+      { status: 500 },
+    );
   }
 
-  return NextResponse.json({ received: true });
+  return NextResponse.json({ received: true, debug: { ...debug, reason: "credited", jetonsGranted } });
 }
 
 /** Reçoit les événements Paddle (abonnement créé, mis à jour, annulé) et met
