@@ -40,14 +40,14 @@ interface Tier {
  * qu'Étudiant. Un seul abonné, créé avant cette migration, reste sur Lemon
  * Squeezy (voir provider ci-dessous) : ni son abonnement ni ses données ne
  * sont touchés, mais tout nouvel abonnement passe par Paddle. Le prix
- * Étudiant affiché ici (8,99$) est en avance sur le prix historique de cet
+ * Étudiant affiché ici (8,99€) est en avance sur le prix historique de cet
  * unique abonné Lemon Squeezy (9,99€) — sans lien entre les deux, chacun
  * facture désormais réellement le montant affiché sur sa propre carte. */
 const TIERS: Tier[] = [
   {
     id: "essentiel",
     name: "Essentiel",
-    priceLabel: "4,99$",
+    priceLabel: "4,99€",
     tagline: "Pour distiller ses notes à l'essentiel.",
     icon: Sparkle,
     features: [
@@ -62,7 +62,7 @@ const TIERS: Tier[] = [
   {
     id: "etudiant",
     name: "Étudiant",
-    priceLabel: "8,99$",
+    priceLabel: "8,99€",
     tagline: "Le plus complet pour réviser en profondeur.",
     icon: Star,
     features: [
@@ -78,7 +78,7 @@ const TIERS: Tier[] = [
   {
     id: "intensif",
     name: "Intensif",
-    priceLabel: "14,99$",
+    priceLabel: "14,99€",
     tagline: "Pour les révisions les plus intenses.",
     icon: Bolt,
     features: [

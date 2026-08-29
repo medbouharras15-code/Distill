@@ -21,11 +21,11 @@ interface Tier {
 
 // Mêmes 3 paliers que /subscription (voir @/components/SubscriptionForm,
 // seule source de vérité pour le contenu des paliers — à garder synchronisé
-// si les prix/fonctionnalités changent). Seule différence ici : un visiteur
+// si les prix/fonctionnalités changent, doivent toujours correspondre
+// exactement au catalogue Paddle réel). Seule différence ici : un visiteur
 // de la landing n'est jamais connecté, donc pas d'état "abonné" ni d'action
-// subscribe/cancel — chaque palier renvoie simplement vers l'inscription
-// (Essentiel/Intensif n'ont de toute façon pas encore de prix configuré
-// chez le prestataire, "Bientôt disponible" comme sur /subscription).
+// subscribe/cancel — chaque palier renvoie simplement vers l'inscription, le
+// choix et le paiement du palier se faisant après coup sur /subscription.
 const TIERS: Tier[] = [
   {
     id: "essentiel",
@@ -42,7 +42,7 @@ const TIERS: Tier[] = [
   {
     id: "etudiant",
     name: "Étudiant",
-    priceLabel: "9,99€",
+    priceLabel: "8,99€",
     tagline: "Le plus complet pour réviser en profondeur.",
     icon: Star,
     features: [
@@ -54,7 +54,7 @@ const TIERS: Tier[] = [
   {
     id: "intensif",
     name: "Intensif",
-    priceLabel: "19,99€",
+    priceLabel: "14,99€",
     tagline: "Pour les révisions les plus intenses.",
     icon: Bolt,
     features: [
@@ -142,21 +142,12 @@ export function PricingSection() {
                     ))}
                   </ul>
 
-                  {tier.id === "etudiant" ? (
-                    <Link href="/signup" className={buttonClasses("primary", "sm", "mt-6 w-full")}>
-                      Créer un compte gratuit
-                    </Link>
-                  ) : (
-                    // Traitement volontairement distinct d'un bouton désactivé
-                    // (bordure pointillée, pas de fond plein grisé) — même
-                    // langage que le panneau "Bientôt disponible" de
-                    // ExplanationSection, pour que ça se lise comme "pas
-                    // encore ouvert" plutôt que "cassé".
-                    <div className="mt-6 flex w-full items-center justify-center gap-2 rounded-full border border-dashed border-border py-2.5 text-[13px] font-medium text-muted-foreground">
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/40" aria-hidden="true" />
-                      Bientôt disponible
-                    </div>
-                  )}
+                  <Link
+                    href="/signup"
+                    className={buttonClasses(tier.highlighted ? "primary" : "outline", "sm", "mt-6 w-full")}
+                  >
+                    Créer un compte gratuit
+                  </Link>
                 </Card>
               </div>
             </Reveal>

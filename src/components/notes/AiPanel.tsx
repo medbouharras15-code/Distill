@@ -476,7 +476,7 @@ export function AiPanel({
             disabled={billingLoading}
             className={buttonClasses("outline", "sm")}
           >
-            {subscribed ? "Annuler mon abonnement" : "S'abonner — 8,99$/mois"}
+            {subscribed ? "Annuler mon abonnement" : "S'abonner — 8,99€/mois"}
           </button>
         </div>
 
