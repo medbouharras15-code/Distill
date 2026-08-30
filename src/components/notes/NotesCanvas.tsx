@@ -1883,6 +1883,13 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
           <div>panState : {panState.current ? "actif" : "null"}</div>
           <div>touchPoints : {touchPoints.current.size}</div>
           <div>pinchState : {pinchState.current ? "actif" : "null"}</div>
+          <div>
+            scroll actuel : {containerRef.current?.scrollLeft ?? "—"}×{containerRef.current?.scrollTop ?? "—"}
+          </div>
+          <div>
+            scroll max : {containerRef.current ? containerRef.current.scrollWidth - containerRef.current.clientWidth : "—"}×
+            {containerRef.current ? containerRef.current.scrollHeight - containerRef.current.clientHeight : "—"}
+          </div>
         </div>
       )}
     </div>
