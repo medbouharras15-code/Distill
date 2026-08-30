@@ -251,7 +251,7 @@ function ToolButton({
         }`}
         style={EASE_SIGNATURE_STYLE}
       >
-        <ToolIconAsset asset={TOOL_ICON_ASSETS[iconKey]} fallback={fallback} alt={label} className="h-6 w-6" />
+        <ToolIconAsset asset={TOOL_ICON_ASSETS[iconKey]} fallback={fallback} alt={label} />
       </span>
       <span
         className={`text-[10px] font-medium leading-none transition-colors duration-200 ${
@@ -289,7 +289,7 @@ function ActionIconButton({
       aria-label={title}
       className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl text-foreground/70 transition-all duration-200 hover:bg-background-alt hover:text-foreground active:scale-90 disabled:cursor-not-allowed disabled:text-muted/40 disabled:hover:bg-transparent disabled:active:scale-100"
     >
-      <ToolIconAsset asset={TOOL_ICON_ASSETS[iconKey]} fallback={fallback} alt={title} className="h-5 w-5" />
+      <ToolIconAsset asset={TOOL_ICON_ASSETS[iconKey]} fallback={fallback} alt={title} />
     </button>
   );
 }
