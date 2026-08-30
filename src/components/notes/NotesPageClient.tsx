@@ -366,7 +366,7 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
             qu'il s'assombrisse aussi avec le canvas à l'ouverture du panneau
             IA plutôt que de rester au premier plan, détaché du reste. */}
         <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center px-4">
-          <div className="pointer-events-auto w-full max-w-3xl">
+          <div className="pointer-events-auto w-fit max-w-full">
             <NotesToolbar
               tool={tool}
               onSelectPen={selectPen}

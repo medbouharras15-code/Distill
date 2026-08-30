@@ -89,12 +89,14 @@ const RAINBOW_GRADIENT =
  * Tailwind. */
 const EASE_SIGNATURE_STYLE = { transitionTimingFunction: "var(--ease-signature)" };
 
-/** Glow menthe (accent) d'un outil sélectionné dans la barre principale :
- * double halo (anneau serré + diffusion large) construit sur les tokens
+/** Glow menthe (accent) d'un outil sélectionné dans la barre principale : un
+ * contour net + une diffusion large autour d'un fond à peine teinté — un
+ * halo, pas un aplat plein — pour coller à la carte à contour lumineux de la
+ * référence plutôt qu'à un rond de couleur pleine. Construit sur les tokens
  * --accent existants plutôt qu'une couleur codée en dur, pour rester correct
  * en mode clair comme en mode sombre. */
 const SELECTED_TOOL_GLOW =
-  "shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_30%,transparent),0_0_18px_-2px_color-mix(in_srgb,var(--accent)_80%,transparent)]";
+  "bg-accent/12 text-accent-dark ring-2 ring-accent shadow-[0_0_22px_-4px_color-mix(in_srgb,var(--accent)_85%,transparent)]";
 
 function ColorRow({
   colors,
@@ -240,16 +242,16 @@ function ToolButton({
       className="flex w-14 shrink-0 flex-col items-center gap-1 rounded-2xl py-1 transition-all duration-200 active:scale-95 disabled:cursor-not-allowed disabled:active:scale-100"
     >
       <span
-        className={`grid h-11 w-11 place-items-center rounded-full transition-all duration-200 ${
+        className={`grid h-11 w-11 place-items-center rounded-2xl transition-all duration-200 ${
           disabled
             ? "text-muted/50"
             : active
-              ? `bg-accent text-accent-foreground ${SELECTED_TOOL_GLOW}`
+              ? SELECTED_TOOL_GLOW
               : "text-foreground/70 hover:bg-background-alt hover:text-foreground"
         }`}
         style={EASE_SIGNATURE_STYLE}
       >
-        <ToolIconAsset asset={TOOL_ICON_ASSETS[iconKey]} fallback={fallback} alt={label} className="h-5 w-5" />
+        <ToolIconAsset asset={TOOL_ICON_ASSETS[iconKey]} fallback={fallback} alt={label} className="h-6 w-6" />
       </span>
       <span
         className={`text-[10px] font-medium leading-none transition-colors duration-200 ${
@@ -258,6 +260,36 @@ function ToolButton({
       >
         {label}
       </span>
+    </button>
+  );
+}
+
+/** Bouton compact sans étiquette pour Annuler/Rétablir — comme dans la
+ * référence, ces deux actions restent de simples icônes, sans nom dessous
+ * ni glow de sélection (ce ne sont pas des outils qu'on "sélectionne"). */
+function ActionIconButton({
+  disabled,
+  iconKey,
+  fallback,
+  onClick,
+  title,
+}: {
+  disabled?: boolean;
+  iconKey: ToolIconKey;
+  fallback: ReactNode;
+  onClick?: () => void;
+  title: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      aria-label={title}
+      className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl text-foreground/70 transition-all duration-200 hover:bg-background-alt hover:text-foreground active:scale-90 disabled:cursor-not-allowed disabled:text-muted/40 disabled:hover:bg-transparent disabled:active:scale-100"
+    >
+      <ToolIconAsset asset={TOOL_ICON_ASSETS[iconKey]} fallback={fallback} alt={title} className="h-5 w-5" />
     </button>
   );
 }
@@ -461,20 +493,16 @@ export function NotesToolbar({
 
           <div className="h-12 w-px shrink-0 bg-border/70" />
 
-          <div className="flex shrink-0 items-start gap-0.5">
-            <ToolButton
-              active={false}
+          <div className="flex shrink-0 items-center gap-0.5">
+            <ActionIconButton
               disabled={!canUndo}
-              label="Annuler"
               iconKey="undo"
               fallback={<UndoIcon className="h-5 w-5" />}
               onClick={onUndo}
               title="Annuler"
             />
-            <ToolButton
-              active={false}
+            <ActionIconButton
               disabled={!canRedo}
-              label="Rétablir"
               iconKey="redo"
               fallback={<RedoIcon className="h-5 w-5" />}
               onClick={onRedo}
