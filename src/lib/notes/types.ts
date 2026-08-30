@@ -4,7 +4,7 @@ export interface StrokePoint {
   pressure: number;
 }
 
-export type PenType = "fineliner" | "ballpoint" | "brush";
+export type PenType = "fineliner" | "ballpoint" | "crayon" | "brush";
 
 /** "whole" efface un trait/forme/photo/bloc de texte entier dès qu'on le
  * touche (comportement historique de la gomme) ; "partial" ne découpe que

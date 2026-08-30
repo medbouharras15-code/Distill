@@ -21,6 +21,93 @@ export function PenIcon({ className }: IconProps) {
   );
 }
 
+/** Stylo bille : corps cylindrique à clip, pointe fine — silhouette
+ * distincte du stylo plume (PenIcon) pour rester lisible même en icône
+ * de repli, une fois affiché comme bouton principal à part entière. */
+export function BallpointPenIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M14.5 3.5 20.5 9.5 10.2 19.8 4.5 20.5l.7-5.7Z"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M12.7 5.3 18.7 11.3" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+      <path d="M17 3.9 20.1 7" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+      <circle cx="5.9" cy="18.1" r="1" fill="currentColor" opacity="0.4" />
+    </svg>
+  );
+}
+
+/** Crayon à papier : corps hexagonal, pointe taillée et gomme en accent —
+ * pour distinguer clairement l'outil "Crayon" du feutre/stylo bille. */
+export function PencilIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M15.3 3.9 20.1 8.7 9.3 19.5l-5.8 1 1-5.8Z"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M13.5 5.7 18.3 10.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+      <path d="M4.5 15.7 8.3 19.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" opacity="0.55" />
+      <circle cx="5.4" cy="18.6" r="0.95" fill="currentColor" opacity="0.4" />
+    </svg>
+  );
+}
+
+/** Règle graduée simplifiée, avec quelques traits de graduation en accent. */
+export function RulerIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path
+        d="m5.6 3.6 14.8 14.8-4.2 4.2L1.4 7.8Z"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinejoin="round"
+      />
+      <path d="M6.9 4.9 5.3 6.5M9.3 7.3 7 9.6M11.7 9.7l-2.9 2.9M14.1 12.1l-1.6 1.6M16.5 14.5l-2.9 2.9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" opacity="0.55" />
+    </svg>
+  );
+}
+
+/** Boucle en pointillés façon lasso, avec un point d'accroche en accent. */
+export function LassoIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M12 4.2c4.4 0 7.8 2.6 7.8 6s-3.4 6-7.8 6c-3.3 0-6.1-1.4-7.3-3.5"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeDasharray="2.6 2.6"
+      />
+      <path d="M4 12.7 3 17l4.2-1.3" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="15.5" cy="8.2" r="1" fill="currentColor" opacity="0.4" />
+    </svg>
+  );
+}
+
+/** Note autocollante avec un coin replié en accent. */
+export function NoteIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M4.5 4.5h11.4L19.5 8.4V19.5h-15Z"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinejoin="round"
+      />
+      <path d="M15.9 4.5V8.4h3.6" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" opacity="0.55" />
+      <path d="M7.5 11.5h8M7.5 14.8h5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
+    </svg>
+  );
+}
+
 /** Surligneur à pointe biseautée avec une touche de couleur (le trait de
  * surlignage lui-même, en accent semi-transparent) plutôt qu'un simple
  * soulignement au trait. */

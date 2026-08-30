@@ -5,9 +5,14 @@ import type { ImageElement, ShapeElement, SheetType, Stroke, StrokePoint } from 
  * s'accumule là où les traits se croisent (comme un vrai surligneur). */
 const HIGHLIGHTER_ALPHA = 0.38;
 
-/** Épaisseur effective d'un point de trait : les feutres fins, stylos bille
- * et le surligneur gardent une épaisseur constante, seul le feutre pinceau
- * réagit à la pression (comme un vrai pinceau). */
+/** Opacité du crayon : légèrement réduite par rapport à l'encre pleine
+ * (fine liner/stylo bille) pour évoquer un trait graphite plus mat, sans
+ * changer sa géométrie (même lissage, même épaisseur constante). */
+const CRAYON_ALPHA = 0.82;
+
+/** Épaisseur effective d'un point de trait : les feutres fins, stylos bille,
+ * crayons et le surligneur gardent une épaisseur constante, seul le feutre
+ * pinceau réagit à la pression (comme un vrai pinceau). */
 export function effectiveWidth(stroke: Pick<Stroke, "tool" | "penType" | "size">, pressure: number): number {
   if (stroke.tool !== "pen" || stroke.penType !== "brush") return stroke.size;
   const factor = 0.5 + pressure * 1.1;
@@ -23,11 +28,14 @@ export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
 
   const isHighlighter = stroke.tool === "highlighter";
   const isBrush = stroke.tool === "pen" && stroke.penType === "brush";
+  const isCrayon = stroke.tool === "pen" && stroke.penType === "crayon";
 
   ctx.save();
   if (isHighlighter) {
     ctx.globalAlpha = HIGHLIGHTER_ALPHA;
     ctx.globalCompositeOperation = "multiply";
+  } else if (isCrayon) {
+    ctx.globalAlpha = CRAYON_ALPHA;
   }
   ctx.strokeStyle = stroke.color;
   ctx.fillStyle = stroke.color;

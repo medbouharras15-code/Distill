@@ -1,21 +1,28 @@
 "use client";
 
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import type { EraserMode, PenType, ShapeType } from "@/lib/notes/types";
 import type { NotesTool } from "./NotesCanvas";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { AiOrb } from "@/components/Brand";
+import { TOOL_ICON_ASSETS, type ToolIconKey } from "@/lib/notes/toolIconAssets";
+import { ToolIconAsset } from "./ToolIconAsset";
 import {
+  BallpointPenIcon,
   CircleShapeIcon,
   EraserIcon,
   FitScreenIcon,
   HighlighterIcon,
+  LassoIcon,
   LineShapeIcon,
+  NoteIcon,
   PanIcon,
+  PencilIcon,
   PenIcon,
   PhotoIcon,
   RectangleShapeIcon,
   RedoIcon,
+  RulerIcon,
   ShapesIcon,
   TextToolIcon,
   TriangleShapeIcon,
@@ -46,10 +53,18 @@ export const HIGHLIGHTER_SIZES = [8, 14, 20, 28, 36];
 export const ERASER_SIZES = [6, 12, 18, 26, 36];
 export const SHAPE_STROKE_WIDTHS = [1.5, 3, 4.5, 7, 10];
 
-const PEN_TYPES: { label: string; value: PenType }[] = [
-  { label: "Fine liner", value: "fineliner" },
-  { label: "Stylo bille", value: "ballpoint" },
-  { label: "Feutre pinceau", value: "brush" },
+/** Les trois variantes de stylo, promues en boutons visibles de la barre
+ * principale (auparavant un menu déroulant caché) — chacune sélectionne
+ * l'outil "pen" et fixe `penType`, la couleur/taille restant partagées. */
+const PEN_TYPE_TOOLS: {
+  value: PenType;
+  label: string;
+  iconKey: ToolIconKey;
+  Icon: ComponentType<{ className?: string }>;
+}[] = [
+  { value: "fineliner", label: "Stylo", iconKey: "pen-fineliner", Icon: PenIcon },
+  { value: "ballpoint", label: "Stylo bille", iconKey: "pen-ballpoint", Icon: BallpointPenIcon },
+  { value: "crayon", label: "Crayon", iconKey: "pen-crayon", Icon: PencilIcon },
 ];
 
 const ERASER_MODES: { value: EraserMode; label: string }[] = [
@@ -73,6 +88,13 @@ const RAINBOW_GRADIENT =
  * panneau IA) car --ease-signature n'est pas exposée comme utilitaire
  * Tailwind. */
 const EASE_SIGNATURE_STYLE = { transitionTimingFunction: "var(--ease-signature)" };
+
+/** Glow menthe (accent) d'un outil sélectionné dans la barre principale :
+ * double halo (anneau serré + diffusion large) construit sur les tokens
+ * --accent existants plutôt qu'une couleur codée en dur, pour rester correct
+ * en mode clair comme en mode sombre. */
+const SELECTED_TOOL_GLOW =
+  "shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_30%,transparent),0_0_18px_-2px_color-mix(in_srgb,var(--accent)_80%,transparent)]";
 
 function ColorRow({
   colors,
@@ -127,6 +149,21 @@ function ColorRow({
   );
 }
 
+/** Aperçu non-interactif de la couleur actuellement active — distinct de la
+ * pastille sélectionnée dans ColorRow, pour rester lisible même quand la
+ * couleur en cours est une couleur personnalisée qui ne fait pas partie de
+ * la palette rapide. */
+function SelectedColorIndicator({ color }: { color: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      title="Couleur actuelle"
+      className="h-8 w-8 shrink-0 rounded-full border-2 border-border/70 shadow-[var(--shadow-sm)]"
+      style={{ backgroundColor: color }}
+    />
+  );
+}
+
 function SizeDotPicker({
   sizes,
   value,
@@ -166,6 +203,62 @@ function SizeDotPicker({
         );
       })}
     </div>
+  );
+}
+
+/** Bouton de la barre principale : icône (asset réaliste si configuré, sinon
+ * repli SVG plat) + nom sous l'icône + glow menthe quand sélectionné. Les
+ * outils pas encore branchés au moteur de dessin (Règle, Lasso, Note) sont
+ * rendus désactivés plutôt que masqués, pour montrer où ils arriveront. */
+function ToolButton({
+  active,
+  disabled,
+  label,
+  iconKey,
+  fallback,
+  onClick,
+  onDoubleClick,
+  title,
+}: {
+  active: boolean;
+  disabled?: boolean;
+  label: string;
+  iconKey: ToolIconKey;
+  fallback: ReactNode;
+  onClick?: () => void;
+  onDoubleClick?: () => void;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onDoubleClick={onDoubleClick}
+      disabled={disabled}
+      aria-pressed={active}
+      title={title ?? (disabled ? `${label} — bientôt disponible` : label)}
+      className="flex w-14 shrink-0 flex-col items-center gap-1 rounded-2xl py-1 transition-all duration-200 active:scale-95 disabled:cursor-not-allowed disabled:active:scale-100"
+    >
+      <span
+        className={`grid h-11 w-11 place-items-center rounded-full transition-all duration-200 ${
+          disabled
+            ? "text-muted/50"
+            : active
+              ? `bg-accent text-accent-foreground ${SELECTED_TOOL_GLOW}`
+              : "text-foreground/70 hover:bg-background-alt hover:text-foreground"
+        }`}
+        style={EASE_SIGNATURE_STYLE}
+      >
+        <ToolIconAsset asset={TOOL_ICON_ASSETS[iconKey]} fallback={fallback} alt={label} className="h-5 w-5" />
+      </span>
+      <span
+        className={`text-[10px] font-medium leading-none transition-colors duration-200 ${
+          disabled ? "text-muted/50" : active ? "text-accent-dark" : "text-muted"
+        }`}
+      >
+        {label}
+      </span>
+    </button>
   );
 }
 
@@ -255,191 +348,195 @@ export function NotesToolbar({
   onToggleAi,
 }: NotesToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [moreOptionsOpen, setMoreOptionsOpen] = useState(false);
 
-  const toolButtonClass = (active: boolean) =>
-    `grid h-10 w-10 shrink-0 place-items-center rounded-full transition-all duration-200 active:scale-90 ${
-      active
-        ? "bg-accent text-accent-foreground shadow-[0_4px_14px_-6px_color-mix(in_srgb,var(--accent)_70%,transparent)]"
-        : "text-foreground/70 hover:bg-background-alt hover:text-foreground"
-    }`;
+  const selectPenType = (type: PenType) => {
+    onSelectPen();
+    onPenTypeChange(type);
+  };
 
   return (
-    // Pilule flottante réellement positionnée au-dessus du canvas (voir
-    // NotesPageClient.tsx), avec un léger halo décoratif jade et un fond
-    // vitré (backdrop-blur) — cohérent avec la signature "premium" du reste
-    // du site (AiPanel, Dashboard) sans reprendre .ai-gradient, réservé à la
-    // signature IA elle-même.
-    <div className="relative">
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute -left-8 -top-10 h-36 w-36 rounded-full opacity-25 blur-2xl"
-        style={{ background: "radial-gradient(circle, color-mix(in srgb, var(--accent) 38%, transparent) 0%, transparent 72%)" }}
-      />
-      <div className="relative flex flex-nowrap items-center gap-3 overflow-x-auto rounded-full border border-border/60 bg-card/95 px-4 py-3 shadow-[var(--shadow-lg)] backdrop-blur-sm">
-        <button
-          type="button"
-          onClick={onToggleAi}
-          aria-pressed={aiOpen}
-          title="IA Distill — résumé & flashcards"
-          className={`flex shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition-all duration-200 active:scale-95 ${
-            aiOpen
-              ? "ai-gradient text-white shadow-[0_4px_14px_-6px_var(--ai-glow)]"
-              : "border border-border/70 text-foreground/80 hover:border-accent/40 hover:bg-background-alt hover:text-foreground"
-          }`}
-        >
-          <AiOrb size={20} active={aiOpen} /> IA
-        </button>
-
-        <div className="h-8 w-px shrink-0 bg-border/70" />
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          className="hidden"
-          onChange={(e) => {
-            if (e.target.files && e.target.files.length > 0) {
-              onImportPhotos(e.target.files);
-            }
-            e.target.value = "";
-          }}
+    <div className="flex flex-col items-center gap-2.5">
+      {/* Barre flottante principale : outils de dessin, réellement positionnée
+          au-dessus du canvas (voir NotesPageClient.tsx), avec un léger halo
+          décoratif jade et un fond vitré (backdrop-blur) — cohérent avec la
+          signature "premium" du reste du site (AiPanel, Dashboard) sans
+          reprendre .ai-gradient, réservé à la signature IA elle-même. */}
+      <div className="relative w-full">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -left-8 -top-10 h-36 w-36 rounded-full opacity-25 blur-2xl"
+          style={{ background: "radial-gradient(circle, color-mix(in srgb, var(--accent) 38%, transparent) 0%, transparent 72%)" }}
         />
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="relative flex flex-nowrap items-center gap-2 overflow-x-auto rounded-2xl border border-border/60 bg-card/95 px-3 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
           <button
             type="button"
-            onClick={onUndo}
-            disabled={!canUndo}
-            aria-label="Annuler"
-            title="Annuler"
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-border/70 text-foreground/80 transition-all duration-200 hover:border-accent/40 hover:bg-background-alt hover:text-foreground active:scale-90 disabled:opacity-30 disabled:active:scale-100"
+            onClick={onToggleAi}
+            aria-pressed={aiOpen}
+            title="IA Distill — résumé & flashcards"
+            className={`flex shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition-all duration-200 active:scale-95 ${
+              aiOpen
+                ? "ai-gradient text-white shadow-[0_4px_14px_-6px_var(--ai-glow)]"
+                : "border border-border/70 text-foreground/80 hover:border-accent/40 hover:bg-background-alt hover:text-foreground"
+            }`}
           >
-            <UndoIcon className="h-5 w-5" />
+            <AiOrb size={20} active={aiOpen} /> IA
           </button>
+
+          <div className="h-12 w-px shrink-0 bg-border/70" />
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files && e.target.files.length > 0) {
+                onImportPhotos(e.target.files);
+              }
+              e.target.value = "";
+            }}
+          />
+
+          <div className="flex shrink-0 items-start gap-0.5">
+            {PEN_TYPE_TOOLS.map(({ value, label, iconKey, Icon }) => (
+              <ToolButton
+                key={value}
+                active={tool === "pen" && penType === value}
+                label={label}
+                iconKey={iconKey}
+                fallback={<Icon className="h-5 w-5" />}
+                onClick={() => selectPenType(value)}
+                onDoubleClick={onPenDoubleClick}
+                title={`${label} (double-clic : gomme rapide)`}
+              />
+            ))}
+            <ToolButton
+              active={tool === "highlighter"}
+              label="Surligneur"
+              iconKey="highlighter"
+              fallback={<HighlighterIcon className="h-5 w-5" />}
+              onClick={onSelectHighlighter}
+            />
+            <ToolButton
+              active={tool === "eraser"}
+              label="Gomme"
+              iconKey="eraser"
+              fallback={<EraserIcon className="h-5 w-5" />}
+              onClick={onSelectEraser}
+            />
+            <ToolButton disabled active={false} label="Règle" iconKey="ruler" fallback={<RulerIcon className="h-5 w-5" />} />
+            <ToolButton disabled active={false} label="Lasso" iconKey="lasso" fallback={<LassoIcon className="h-5 w-5" />} />
+            <ToolButton
+              active={tool === "text"}
+              label="Texte"
+              iconKey="text"
+              fallback={<TextToolIcon className="h-5 w-5" />}
+              onClick={onSelectText}
+            />
+            <ToolButton disabled active={false} label="Note" iconKey="note" fallback={<NoteIcon className="h-5 w-5" />} />
+            <ToolButton
+              active={tool === "photo"}
+              label="Image"
+              iconKey="photo"
+              fallback={<PhotoIcon className="h-5 w-5" />}
+              onClick={onSelectPhoto}
+            />
+            <ToolButton
+              active={tool === "shapes"}
+              label="Formes"
+              iconKey="shapes"
+              fallback={<ShapesIcon className="h-5 w-5" />}
+              onClick={onSelectShapes}
+            />
+            <ToolButton
+              active={tool === "pan"}
+              label="Déplacer"
+              iconKey="pan"
+              fallback={<PanIcon className="h-5 w-5" />}
+              onClick={onSelectPan}
+            />
+          </div>
+
+          <div className="h-12 w-px shrink-0 bg-border/70" />
+
+          <div className="flex shrink-0 items-start gap-0.5">
+            <ToolButton
+              active={false}
+              disabled={!canUndo}
+              label="Annuler"
+              iconKey="undo"
+              fallback={<UndoIcon className="h-5 w-5" />}
+              onClick={onUndo}
+              title="Annuler"
+            />
+            <ToolButton
+              active={false}
+              disabled={!canRedo}
+              label="Rétablir"
+              iconKey="redo"
+              fallback={<RedoIcon className="h-5 w-5" />}
+              onClick={onRedo}
+              title="Rétablir"
+            />
+          </div>
+
+          <div className="h-12 w-px shrink-0 bg-border/70" />
+
           <button
             type="button"
-            onClick={onRedo}
-            disabled={!canRedo}
-            aria-label="Rétablir"
-            title="Rétablir"
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-border/70 text-foreground/80 transition-all duration-200 hover:border-accent/40 hover:bg-background-alt hover:text-foreground active:scale-90 disabled:opacity-30 disabled:active:scale-100"
+            onClick={onFitToScreen}
+            aria-label="Ajuster à l'écran (zoom 100%)"
+            title="Ajuster à l'écran (zoom 100%)"
+            className="flex shrink-0 items-center gap-1.5 rounded-full border border-accent/50 bg-accent-light px-3 py-1.5 text-xs font-semibold text-accent-dark transition-all duration-200 hover:brightness-95 active:scale-95"
           >
-            <RedoIcon className="h-5 w-5" />
+            <FitScreenIcon className="h-4 w-4" />
+            100%
           </button>
         </div>
+      </div>
 
-        <div className="h-8 w-px shrink-0 bg-border/70" />
-
-        <button
-          type="button"
-          onClick={onFitToScreen}
-          aria-label="Ajuster à l'écran (zoom 100%)"
-          title="Ajuster à l'écran (zoom 100%)"
-          className="flex shrink-0 items-center gap-1.5 rounded-full border border-accent/50 bg-accent-light px-3 py-1.5 text-xs font-semibold text-accent-dark transition-all duration-200 hover:brightness-95 active:scale-95"
-        >
-          <FitScreenIcon className="h-4 w-4" />
-          100%
-        </button>
-
-        <div className="h-8 w-px shrink-0 bg-border/70" />
-
-        <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            onClick={onSelectPen}
-            onDoubleClick={onPenDoubleClick}
-            aria-pressed={tool === "pen"}
-            title="Stylo (double-clic : gomme rapide)"
-            className={toolButtonClass(tool === "pen")}
-          >
-            <PenIcon className="h-5 w-5" />
-          </button>
-          <button
-            type="button"
-            onClick={onSelectHighlighter}
-            aria-pressed={tool === "highlighter"}
-            title="Surligneur"
-            className={toolButtonClass(tool === "highlighter")}
-          >
-            <HighlighterIcon className="h-5 w-5" />
-          </button>
-          <button
-            type="button"
-            onClick={onSelectEraser}
-            aria-pressed={tool === "eraser"}
-            title="Gomme"
-            className={toolButtonClass(tool === "eraser")}
-          >
-            <EraserIcon className="h-5 w-5" />
-          </button>
-          <button
-            type="button"
-            onClick={onSelectText}
-            aria-pressed={tool === "text"}
-            title="Texte"
-            className={toolButtonClass(tool === "text")}
-          >
-            <TextToolIcon className="h-5 w-5" />
-          </button>
-          <button
-            type="button"
-            onClick={onSelectShapes}
-            aria-pressed={tool === "shapes"}
-            title="Formes"
-            className={toolButtonClass(tool === "shapes")}
-          >
-            <ShapesIcon className="h-5 w-5" />
-          </button>
-          <button
-            type="button"
-            onClick={onSelectPhoto}
-            aria-pressed={tool === "photo"}
-            title="Photo"
-            className={toolButtonClass(tool === "photo")}
-          >
-            <PhotoIcon className="h-5 w-5" />
-          </button>
-          <button
-            type="button"
-            onClick={onSelectPan}
-            aria-pressed={tool === "pan"}
-            title="Déplacement (naviguer sans dessiner)"
-            className={toolButtonClass(tool === "pan")}
-          >
-            <PanIcon className="h-5 w-5" />
-          </button>
+      {/* Seconde barre flottante : réglages de l'outil actif (épaisseur,
+          couleurs, indicateur de couleur sélectionnée, "Plus d'options"). */}
+      {tool === "pen" && (
+        <div className="flex max-w-full flex-nowrap animate-fade items-center gap-3 overflow-x-auto rounded-full border border-border/60 bg-card/95 px-4 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
+          <SizeDotPicker sizes={PEN_SIZES} value={penSize} onChange={onPenSizeChange} />
+          <div className="h-8 w-px shrink-0 bg-border/70" />
+          <ColorRow colors={PEN_COLORS} value={penColor} onChange={onPenColorChange} />
+          <SelectedColorIndicator color={penColor} />
         </div>
+      )}
 
-        <div className="h-8 w-px shrink-0 bg-border/70" />
+      {tool === "highlighter" && (
+        <div className="flex max-w-full flex-nowrap animate-fade items-center gap-3 overflow-x-auto rounded-full border border-border/60 bg-card/95 px-4 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
+          <SizeDotPicker sizes={HIGHLIGHTER_SIZES} value={highlighterSize} onChange={onHighlighterSizeChange} />
+          <div className="h-8 w-px shrink-0 bg-border/70" />
+          <ColorRow colors={HIGHLIGHTER_COLORS} value={highlighterColor} onChange={onHighlighterColorChange} />
+          <SelectedColorIndicator color={highlighterColor} />
+        </div>
+      )}
 
-        {tool === "pen" && (
-          <div className="flex flex-nowrap animate-fade items-center gap-3">
-            <ColorRow colors={PEN_COLORS} value={penColor} onChange={onPenColorChange} />
-            <SizeDotPicker sizes={PEN_SIZES} value={penSize} onChange={onPenSizeChange} />
-            <select
-              value={penType}
-              onChange={(e) => onPenTypeChange(e.target.value as PenType)}
-              className="shrink-0 cursor-pointer rounded-full border border-border/70 bg-background-alt/70 px-3 py-1.5 text-xs font-medium text-foreground transition-all duration-200 hover:border-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-light"
+      {tool === "eraser" && (
+        <div className="flex max-w-full flex-col items-stretch gap-2 rounded-2xl border border-border/60 bg-card/95 px-4 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
+          <div className="flex flex-nowrap animate-fade items-center gap-3 overflow-x-auto">
+            <SizeDotPicker sizes={ERASER_SIZES} value={eraserRadius} onChange={onEraserRadiusChange} />
+            <div className="h-8 w-px shrink-0 bg-border/70" />
+            <button
+              type="button"
+              onClick={() => setMoreOptionsOpen((v) => !v)}
+              aria-expanded={moreOptionsOpen}
+              className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition-all duration-200 active:scale-95 ${
+                moreOptionsOpen
+                  ? "bg-accent-light text-accent-dark"
+                  : "border border-border/70 text-foreground/80 hover:border-accent/40 hover:bg-background-alt hover:text-foreground"
+              }`}
             >
-              {PEN_TYPES.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
+              Plus d&apos;options
+            </button>
           </div>
-        )}
-
-        {tool === "highlighter" && (
-          <div className="flex flex-nowrap animate-fade items-center gap-3">
-            <ColorRow colors={HIGHLIGHTER_COLORS} value={highlighterColor} onChange={onHighlighterColorChange} />
-            <SizeDotPicker sizes={HIGHLIGHTER_SIZES} value={highlighterSize} onChange={onHighlighterSizeChange} />
-          </div>
-        )}
-
-        {tool === "eraser" && (
-          <div className="flex flex-nowrap animate-fade items-center gap-3">
-            <div className="flex shrink-0 items-center gap-1 rounded-full border border-border/70 bg-background-alt/70 p-1">
+          {moreOptionsOpen && (
+            <div className="flex flex-nowrap animate-fade items-center gap-1 rounded-full border border-border/70 bg-background-alt/70 p-1">
               {ERASER_MODES.map(({ value, label }) => {
                 const active = eraserMode === value;
                 return (
@@ -461,50 +558,51 @@ export function NotesToolbar({
                 );
               })}
             </div>
-            <SizeDotPicker sizes={ERASER_SIZES} value={eraserRadius} onChange={onEraserRadiusChange} />
-          </div>
-        )}
+          )}
+        </div>
+      )}
 
-        {tool === "shapes" && (
-          <div className="flex flex-nowrap animate-fade items-center gap-3">
-            <div className="flex shrink-0 items-center gap-1 rounded-full border border-border/70 bg-background-alt/70 p-1">
-              {SHAPE_TYPES.map(({ value, label, Icon }) => {
-                const active = shapeType === value;
-                return (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => onShapeTypeChange(value)}
-                    aria-pressed={active}
-                    title={label}
-                    className={`grid h-8 w-8 shrink-0 place-items-center rounded-full transition-all duration-200 active:scale-90 ${
-                      active
-                        ? "scale-105 bg-card text-accent-dark shadow-[var(--shadow-sm)] ring-1 ring-accent/60"
-                        : "text-muted hover:bg-card/60 hover:text-foreground"
-                    }`}
-                    style={EASE_SIGNATURE_STYLE}
-                  >
-                    <Icon className="h-4 w-4" />
-                  </button>
-                );
-              })}
-            </div>
-            <ColorRow colors={SHAPE_COLORS} value={shapeColor} onChange={onShapeColorChange} />
-            <SizeDotPicker sizes={SHAPE_STROKE_WIDTHS} value={shapeStrokeWidth} onChange={onShapeStrokeWidthChange} />
+      {tool === "shapes" && (
+        <div className="flex max-w-full flex-nowrap animate-fade items-center gap-3 overflow-x-auto rounded-full border border-border/60 bg-card/95 px-4 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
+          <div className="flex shrink-0 items-center gap-1 rounded-full border border-border/70 bg-background-alt/70 p-1">
+            {SHAPE_TYPES.map(({ value, label, Icon }) => {
+              const active = shapeType === value;
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => onShapeTypeChange(value)}
+                  aria-pressed={active}
+                  title={label}
+                  className={`grid h-8 w-8 shrink-0 place-items-center rounded-full transition-all duration-200 active:scale-90 ${
+                    active
+                      ? "scale-105 bg-card text-accent-dark shadow-[var(--shadow-sm)] ring-1 ring-accent/60"
+                      : "text-muted hover:bg-card/60 hover:text-foreground"
+                  }`}
+                  style={EASE_SIGNATURE_STYLE}
+                >
+                  <Icon className="h-4 w-4" />
+                </button>
+              );
+            })}
           </div>
-        )}
+          <div className="h-8 w-px shrink-0 bg-border/70" />
+          <SizeDotPicker sizes={SHAPE_STROKE_WIDTHS} value={shapeStrokeWidth} onChange={onShapeStrokeWidthChange} />
+          <ColorRow colors={SHAPE_COLORS} value={shapeColor} onChange={onShapeColorChange} />
+          <SelectedColorIndicator color={shapeColor} />
+        </div>
+      )}
 
-        {tool === "photo" && (
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="flex shrink-0 animate-fade items-center gap-2 rounded-full border border-border/70 bg-background-alt/70 px-3 py-1.5 text-xs font-medium text-foreground transition-all duration-200 hover:border-accent/40 hover:bg-card active:scale-95"
-          >
-            <PhotoIcon className="h-4 w-4" />
-            Ajouter une photo
-          </button>
-        )}
-      </div>
+      {tool === "photo" && (
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="flex shrink-0 animate-fade items-center gap-2 rounded-full border border-border/60 bg-card/95 px-4 py-2.5 text-xs font-medium text-foreground shadow-[var(--shadow-lg)] backdrop-blur-sm transition-all duration-200 hover:border-accent/40 active:scale-95"
+        >
+          <PhotoIcon className="h-4 w-4" />
+          Ajouter une photo
+        </button>
+      )}
     </div>
   );
 }
