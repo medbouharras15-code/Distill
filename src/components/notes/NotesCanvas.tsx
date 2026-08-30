@@ -1877,6 +1877,12 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
             canvas affiché : {zoomDebug.current.canvasW}×{zoomDebug.current.canvasH}px
           </div>
           <div>dernier ancrage : {zoomDebug.current.lastAnchor}</div>
+          <div className="mt-2 border-t border-white/20 pt-2">— Déplacement —</div>
+          <div>activePointerId : {String(activePointerId.current)}</div>
+          <div>isPanning : {String(isPanning)}</div>
+          <div>panState : {panState.current ? "actif" : "null"}</div>
+          <div>touchPoints : {touchPoints.current.size}</div>
+          <div>pinchState : {pinchState.current ? "actif" : "null"}</div>
         </div>
       )}
     </div>
