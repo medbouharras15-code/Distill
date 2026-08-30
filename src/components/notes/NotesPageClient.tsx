@@ -359,14 +359,16 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
         </div>
 
         {/* Barre d'outils flottante, posée au-dessus de la feuille plutôt que
-            dans l'en-tête (voir plus haut) — pointer-events-none sur le
-            conteneur pleine largeur pour ne jamais intercepter le dessin
-            autour de la pilule, réactivé uniquement sur la pilule elle-même.
-            z-20 comme l'assombrissement ci-dessous, rendu avant lui pour
-            qu'il s'assombrisse aussi avec le canvas à l'ouverture du panneau
-            IA plutôt que de rester au premier plan, détaché du reste. */}
+            dans l'en-tête (voir plus haut) — pointer-events-none sur toute la
+            colonne (ce wrapper et la racine de NotesToolbar) pour ne jamais
+            intercepter le dessin/pincer-zoomer autour des barres, réactivé
+            uniquement sur chaque barre flottante elle-même (voir
+            NotesToolbar.tsx). z-20 comme l'assombrissement ci-dessous, rendu
+            avant lui pour qu'il s'assombrisse aussi avec le canvas à
+            l'ouverture du panneau IA plutôt que de rester au premier plan,
+            détaché du reste. */}
         <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center px-4">
-          <div className="pointer-events-auto w-fit max-w-full">
+          <div className="pointer-events-none w-fit max-w-full">
             <NotesToolbar
               tool={tool}
               onSelectPen={selectPen}

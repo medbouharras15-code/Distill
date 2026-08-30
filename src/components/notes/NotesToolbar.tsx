@@ -388,13 +388,18 @@ export function NotesToolbar({
   };
 
   return (
-    <div className="flex flex-col items-center gap-2.5">
+    // pointer-events-none sur la colonne : avec deux barres empilées (+ leur
+    // écart), le rectangle englobant du conteneur dépasse largement les
+    // barres visibles — sans ça, cette zone "vide" mais cliquable avalait le
+    // pincer-zoomer et le glisser du canvas juste en dessous/entre les
+    // barres. Chaque barre repasse en pointer-events-auto individuellement.
+    <div className="pointer-events-none flex flex-col items-center gap-2.5">
       {/* Barre flottante principale : outils de dessin, réellement positionnée
           au-dessus du canvas (voir NotesPageClient.tsx), avec un léger halo
           décoratif jade et un fond vitré (backdrop-blur) — cohérent avec la
           signature "premium" du reste du site (AiPanel, Dashboard) sans
           reprendre .ai-gradient, réservé à la signature IA elle-même. */}
-      <div className="relative w-full">
+      <div className="pointer-events-auto relative w-full">
         <div
           aria-hidden="true"
           className="pointer-events-none absolute -left-8 -top-10 h-36 w-36 rounded-full opacity-25 blur-2xl"
@@ -528,7 +533,7 @@ export function NotesToolbar({
       {/* Seconde barre flottante : réglages de l'outil actif (épaisseur,
           couleurs, indicateur de couleur sélectionnée, "Plus d'options"). */}
       {tool === "pen" && (
-        <div className="flex max-w-full flex-nowrap animate-fade items-center gap-3 overflow-x-auto rounded-full border border-border/60 bg-card/95 px-4 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
+        <div className="pointer-events-auto flex max-w-full flex-nowrap animate-fade items-center gap-3 overflow-x-auto rounded-full border border-border/60 bg-card/95 px-4 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
           <SizeDotPicker sizes={PEN_SIZES} value={penSize} onChange={onPenSizeChange} />
           <div className="h-8 w-px shrink-0 bg-border/70" />
           <ColorRow colors={PEN_COLORS} value={penColor} onChange={onPenColorChange} />
@@ -537,7 +542,7 @@ export function NotesToolbar({
       )}
 
       {tool === "highlighter" && (
-        <div className="flex max-w-full flex-nowrap animate-fade items-center gap-3 overflow-x-auto rounded-full border border-border/60 bg-card/95 px-4 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
+        <div className="pointer-events-auto flex max-w-full flex-nowrap animate-fade items-center gap-3 overflow-x-auto rounded-full border border-border/60 bg-card/95 px-4 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
           <SizeDotPicker sizes={HIGHLIGHTER_SIZES} value={highlighterSize} onChange={onHighlighterSizeChange} />
           <div className="h-8 w-px shrink-0 bg-border/70" />
           <ColorRow colors={HIGHLIGHTER_COLORS} value={highlighterColor} onChange={onHighlighterColorChange} />
@@ -546,7 +551,7 @@ export function NotesToolbar({
       )}
 
       {tool === "eraser" && (
-        <div className="flex max-w-full flex-col items-stretch gap-2 rounded-2xl border border-border/60 bg-card/95 px-4 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
+        <div className="pointer-events-auto flex max-w-full flex-col items-stretch gap-2 rounded-2xl border border-border/60 bg-card/95 px-4 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
           <div className="flex flex-nowrap animate-fade items-center gap-3 overflow-x-auto">
             <SizeDotPicker sizes={ERASER_SIZES} value={eraserRadius} onChange={onEraserRadiusChange} />
             <div className="h-8 w-px shrink-0 bg-border/70" />
@@ -591,7 +596,7 @@ export function NotesToolbar({
       )}
 
       {tool === "shapes" && (
-        <div className="flex max-w-full flex-nowrap animate-fade items-center gap-3 overflow-x-auto rounded-full border border-border/60 bg-card/95 px-4 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
+        <div className="pointer-events-auto flex max-w-full flex-nowrap animate-fade items-center gap-3 overflow-x-auto rounded-full border border-border/60 bg-card/95 px-4 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
           <div className="flex shrink-0 items-center gap-1 rounded-full border border-border/70 bg-background-alt/70 p-1">
             {SHAPE_TYPES.map(({ value, label, Icon }) => {
               const active = shapeType === value;
@@ -625,7 +630,7 @@ export function NotesToolbar({
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="flex shrink-0 animate-fade items-center gap-2 rounded-full border border-border/60 bg-card/95 px-4 py-2.5 text-xs font-medium text-foreground shadow-[var(--shadow-lg)] backdrop-blur-sm transition-all duration-200 hover:border-accent/40 active:scale-95"
+          className="pointer-events-auto flex shrink-0 animate-fade items-center gap-2 rounded-full border border-border/60 bg-card/95 px-4 py-2.5 text-xs font-medium text-foreground shadow-[var(--shadow-lg)] backdrop-blur-sm transition-all duration-200 hover:border-accent/40 active:scale-95"
         >
           <PhotoIcon className="h-4 w-4" />
           Ajouter une photo
