@@ -20,8 +20,9 @@ const FINELINER_ALPHA = 0.97;
  * - le Stylo ("fineliner") varie aussi avec la pression, mais avec une
  *   amplitude nettement plus subtile — un stylo plume premium s'épaissit
  *   légèrement sous la pression, il ne se transforme pas en pinceau ;
- * - stylo bille, crayon et surligneur gardent une épaisseur constante,
- *   inchangée par cette pression. */
+ * - crayon et surligneur gardent une épaisseur constante, inchangée par
+ *   cette pression (le stylo bille a sa propre fonction, voir
+ *   `ballpointWidth`, car sa variation ne doit pas se faire point à point). */
 export function effectiveWidth(stroke: Pick<Stroke, "tool" | "penType" | "size">, pressure: number): number {
   if (stroke.tool !== "pen") return stroke.size;
   if (stroke.penType === "brush") {
@@ -33,6 +34,21 @@ export function effectiveWidth(stroke: Pick<Stroke, "tool" | "penType" | "size">
     return stroke.size * factor;
   }
   return stroke.size;
+}
+
+/** Épaisseur du stylo bille : un stylo bille réel ne "respire" pas visiblement
+ * avec la pression — sa géométrie fixe la largeur d'encre. On modélise donc
+ * une très légère influence globale (0,95× à 1,08×) dérivée de la pression
+ * MOYENNE de tout le trait, appliquée une seule fois pour tout le trait
+ * plutôt que point par point : la largeur reste parfaitement constante à
+ * l'intérieur d'un même geste (trait "net, propre et régulier"), seule une
+ * infime différence peut apparaître d'un trait à l'autre selon l'appui. */
+function ballpointWidth(stroke: Stroke): number {
+  let sum = 0;
+  for (const p of stroke.points) sum += p.pressure;
+  const avgPressure = stroke.points.length > 0 ? sum / stroke.points.length : 0.5;
+  const factor = 0.95 + avgPressure * 0.13;
+  return stroke.size * factor;
 }
 
 /** Distance (unités logiques de page) sur laquelle le Stylo se réaffine en
@@ -93,6 +109,22 @@ function drawFinelinerStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   }
 }
 
+/** Trait lissé à épaisseur constante (courbes quadratiques entre points
+ * médians, une seule largeur de trait pour tout le geste) — partagé par le
+ * stylo bille et le crayon, qui ne diffèrent que par leur `lineWidth` et
+ * leur opacité (gérée séparément par l'appelant), pas par leur géométrie. */
+function drawSmoothConstantWidthStroke(ctx: CanvasRenderingContext2D, points: StrokePoint[], lineWidth: number) {
+  ctx.lineWidth = lineWidth;
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length - 1; i++) {
+    const mid = midpoint(points[i], points[i + 1]);
+    ctx.quadraticCurveTo(points[i].x, points[i].y, mid.x, mid.y);
+  }
+  ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+  ctx.stroke();
+}
+
 /** Dessine un trait lissé (courbes quadratiques entre points médians), avec
  * épaisseur variable point à point pour le feutre pinceau, et un rendu
  * semi-transparent en mode "multiply" pour le surligneur. */
@@ -104,6 +136,7 @@ export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   const isBrush = stroke.tool === "pen" && stroke.penType === "brush";
   const isCrayon = stroke.tool === "pen" && stroke.penType === "crayon";
   const isFineliner = stroke.tool === "pen" && stroke.penType === "fineliner";
+  const isBallpoint = stroke.tool === "pen" && stroke.penType === "ballpoint";
 
   ctx.save();
   if (isHighlighter) {
@@ -134,16 +167,14 @@ export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
     return;
   }
 
+  if (isBallpoint) {
+    drawSmoothConstantWidthStroke(ctx, points, ballpointWidth(stroke));
+    ctx.restore();
+    return;
+  }
+
   if (!isBrush) {
-    ctx.lineWidth = stroke.size;
-    ctx.beginPath();
-    ctx.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < points.length - 1; i++) {
-      const mid = midpoint(points[i], points[i + 1]);
-      ctx.quadraticCurveTo(points[i].x, points[i].y, mid.x, mid.y);
-    }
-    ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
-    ctx.stroke();
+    drawSmoothConstantWidthStroke(ctx, points, stroke.size);
     ctx.restore();
     return;
   }
