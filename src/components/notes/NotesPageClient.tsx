@@ -292,8 +292,11 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
             hauteur fixe (aspect-ratio du format papier appliqué au slot,
             voir slotAspectRatio plus haut), séparées par une fine ligne.
             C'est ce conteneur qui défile pour passer d'une page à l'autre ;
-            le défilement interne de chaque NotesCanvas (pan/zoom à
-            l'intérieur d'une page) reste indépendant et inchangé. */}
+            le zoom reste toujours interne à NotesCanvas, mais l'outil
+            Déplacement peut désormais y relayer le surplus de son geste une
+            fois arrivé en haut/bas de la page courante (voir onPanBoundary
+            ci-dessous), pour enchaîner sur la page suivante/précédente sans
+            à-coup, comme un long document continu. */}
         <div ref={pagesScrollRef} className="h-full w-full overflow-y-auto overflow-x-hidden">
           {pages.map((page, index) => (
             <div key={page.id}>
@@ -329,6 +332,9 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
                   backgroundColor={backgroundColor}
                   debugHoldDetection={debugHoldDetection}
                   onActionComplete={() => handlePageActionComplete(page.id)}
+                  onPanBoundary={(deltaY) => {
+                    pagesScrollRef.current?.scrollBy(0, deltaY);
+                  }}
                   onPenDoubleTap={activateTempEraser}
                   onHistoryChange={(undo, redo) => {
                     setHistoryByPage((prev) => ({ ...prev, [page.id]: { canUndo: undo, canRedo: redo } }));

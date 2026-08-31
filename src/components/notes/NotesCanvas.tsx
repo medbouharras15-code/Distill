@@ -232,6 +232,12 @@ interface NotesCanvasProps {
   debugHoldDetection?: boolean;
   /** Appelé après chaque trait terminé (dessiné ou effacé). */
   onActionComplete?: () => void;
+  /** Appelé pendant un glisser avec l'outil "Déplacement" une fois le
+   * défilement interne de la page déjà à sa limite haute/basse — reçoit
+   * l'incrément (pas le cumul) du surplus vertical du geste, positif vers le
+   * bas, pour que le parent puisse relayer le défilement vers la page
+   * suivante/précédente et donner l'impression d'un long document continu. */
+  onPanBoundary?: (deltaY: number) => void;
   /** Appelé quand un double-tap de la pointe du stylet est détecté sur la
    * feuille (bascule rapide vers la gomme). */
   onPenDoubleTap?: () => void;
@@ -257,6 +263,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     holdToSnapMs = DEFAULT_HOLD_TO_SNAP_MS,
     debugHoldDetection = false,
     onActionComplete,
+    onPanBoundary,
     onPenDoubleTap,
     onHistoryChange,
   },
@@ -394,6 +401,11 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     startScrollTop: number;
   } | null>(null);
   const [isPanning, setIsPanning] = useState(false);
+  /** Cumul du glisser "en trop" une fois le défilement interne déjà à sa
+   * limite (haut/bas de la page) — sert à faire remonter à `onPanBoundary`
+   * seulement l'incrément de chaque geste plutôt que sa valeur cumulée, pour
+   * que le relais vers la page suivante/précédente suive le doigt sans à-coup. */
+  const panOverflowY = useRef(0);
 
   /** Récupère (en la mettant en cache) l'image HTML correspondant à une
    * source donnée — ne retourne l'image que si elle est déjà chargée ;
@@ -1364,6 +1376,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
           startScrollLeft: container ? container.scrollLeft : 0,
           startScrollTop: container ? container.scrollTop : 0,
         };
+        panOverflowY.current = 0;
         setIsPanning(true);
       }
     } else if (tool === "highlighter") {
@@ -1441,7 +1454,24 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         const container = containerRef.current;
         if (container) {
           container.scrollLeft = panState.current.startScrollLeft - (e.clientX - panState.current.startClientX);
-          container.scrollTop = panState.current.startScrollTop - (e.clientY - panState.current.startClientY);
+
+          // Une fois le défilement interne déjà à sa limite (haut/bas de la
+          // page), le surplus du geste est relayé au parent (voir
+          // onPanBoundary) pour faire défiler vers la page suivante/
+          // précédente, plutôt que de rester bloqué au bord — seul
+          // l'incrément depuis le dernier mouvement est transmis (pas le
+          // total cumulé) pour suivre le doigt sans à-coup ni accélération.
+          const desiredScrollTop = panState.current.startScrollTop - (e.clientY - panState.current.startClientY);
+          const maxScrollTop = container.scrollHeight - container.clientHeight;
+          const clampedScrollTop = Math.max(0, Math.min(maxScrollTop, desiredScrollTop));
+          container.scrollTop = clampedScrollTop;
+
+          if (onPanBoundary) {
+            const overflow = desiredScrollTop - clampedScrollTop;
+            const delta = overflow - panOverflowY.current;
+            if (delta !== 0) onPanBoundary(delta);
+            panOverflowY.current = overflow;
+          }
         }
       }
       return;
