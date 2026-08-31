@@ -11,7 +11,10 @@ import {
 } from "react";
 import type {
   EraserMode,
+  EraserTarget,
+  HighlighterMode,
   ImageElement,
+  InkTool,
   PaperSize,
   PenType,
   ShapeElement,
@@ -31,6 +34,7 @@ import {
   drawStrokeEraseHighlight,
   imageHandleHitTest,
   imageHitTest,
+  isColorDark,
   partialEraseStroke,
   shapeHitTest,
   strokeHitTest,
@@ -136,11 +140,17 @@ interface SnapAnimation {
  * pour une forme) continue de suivre le stylet, jusqu'au relâchement. */
 interface LockedSnap {
   kind: "line" | "shape";
+  /** Outil auquel appartient ce verrouillage — détermine avec quels
+   * réglages (Stylo vs Surligneur) le rendre (voir renderAll) et comment le
+   * committer au relâchement (voir handlePointerUp). Le Surligneur ne
+   * produit jamais "shape" (voir scheduleHoldCheck). */
+  tool: InkTool;
   shapeType?: ShapeType;
   anchor: { x: number; y: number };
   current: { x: number; y: number };
   color: string;
   size: number;
+  /** Utilisé uniquement quand tool === "pen". */
   penType?: PenType;
 }
 
@@ -160,6 +170,7 @@ function deriveLockedSnap(
     const [start, end] = result.points;
     return {
       kind: "line",
+      tool: "pen",
       anchor: { x: start.x, y: start.y },
       current: { x: end.x, y: end.y },
       color,
@@ -178,12 +189,34 @@ function deriveLockedSnap(
 
   return {
     kind: "shape",
+    tool: "pen",
     shapeType: shape.type,
     anchor: { x: anchorX, y: anchorY },
     current: { x: anchorX === x0 ? x1 : x0, y: anchorY === y0 ? y1 : y0 },
     color,
     size,
   };
+}
+
+/** Écart (degrés) sous lequel le mode Droit du Surligneur accroche
+ * exactement à l'horizontale/verticale plutôt que de suivre l'angle brut du
+ * geste — juste assez large pour rattraper un tracé "presque droit" sans
+ * empêcher de tracer volontairement à un autre angle. */
+const STRAIGHT_HIGHLIGHT_SNAP_DEG = 6;
+
+/** Point d'arrivée du mode Droit du Surligneur : accroche à 0°/90°/180°/270°
+ * si le geste en est déjà proche, sinon suit l'angle réel du geste — un
+ * simple tracé à 2 points (ancrage → point courant), pas d'accumulation. */
+function snapStraightEndpoint(anchor: StrokePoint, current: StrokePoint): StrokePoint {
+  const dx = current.x - anchor.x;
+  const dy = current.y - anchor.y;
+  const length = Math.hypot(dx, dy);
+  if (length === 0) return current;
+  const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+  const nearestAxis = Math.round(angleDeg / 90) * 90;
+  if (Math.abs(angleDeg - nearestAxis) > STRAIGHT_HIGHLIGHT_SNAP_DEG) return current;
+  const rad = (nearestAxis * Math.PI) / 180;
+  return { ...current, x: anchor.x + Math.cos(rad) * length, y: anchor.y + Math.sin(rad) * length };
 }
 
 export type NotesTool = "pen" | "highlighter" | "eraser" | "shapes" | "photo" | "pan" | "text";
@@ -194,7 +227,7 @@ export interface NotesCanvasHandle {
   importPhotos(files: FileList | File[]): void;
 }
 
-interface Document {
+export interface Document {
   strokes: Stroke[];
   shapes: ShapeElement[];
   images: ImageElement[];
@@ -213,8 +246,11 @@ interface NotesCanvasProps {
   penType: PenType;
   highlighterColor: string;
   highlighterSize: number;
+  highlighterMode: HighlighterMode;
+  highlighterOpacity: number;
   eraserRadius: number;
   eraserMode: EraserMode;
+  eraserTarget: EraserTarget;
   shapeType: ShapeType;
   shapeColor: string;
   shapeStrokeWidth: number;
@@ -251,6 +287,19 @@ interface NotesCanvasProps {
    * feuille (bascule rapide vers la gomme). */
   onPenDoubleTap?: () => void;
   onHistoryChange?: (canUndo: boolean, canRedo: boolean) => void;
+  /** Contenu restauré (sauvegarde Supabase, utilisateur connecté) à charger
+   * au montage — ignoré après le premier rendu (changer cette prop en cours
+   * de vie du composant ne réhydrate pas). Absent : page vide, comme
+   * aujourd'hui (visiteur non connecté, ou nouvelle page jamais sauvegardée).
+   * La pile annuler/rétablir démarre toujours vide, y compris avec un
+   * contenu restauré : charger n'est pas une action "annulable". */
+  initialDocument?: Document;
+  /** Appelé (débounce ~1s) après chaque changement de contenu validé —
+   * jamais pour le tout premier rendu (évite un aller-retour réseau inutile
+   * juste après l'hydratation depuis `initialDocument`). Sert à
+   * l'autosauvegarde, voir NotesPageClient — absent pour un visiteur non
+   * connecté (aucun appel réseau dans ce cas). */
+  onDocChange?: (doc: Document) => void;
 }
 
 export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(function NotesCanvas(
@@ -261,8 +310,11 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     penType,
     highlighterColor,
     highlighterSize,
+    highlighterMode,
+    highlighterOpacity,
     eraserRadius,
     eraserMode,
+    eraserTarget,
     shapeType,
     shapeColor,
     shapeStrokeWidth,
@@ -277,6 +329,8 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     onActionComplete,
     onPenDoubleTap,
     onHistoryChange,
+    initialDocument,
+    onDocChange,
   },
   ref,
 ) {
@@ -285,14 +339,14 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
 
-  const [strokes, setStrokes] = useState<Stroke[]>([]);
-  const [shapes, setShapes] = useState<ShapeElement[]>([]);
-  const [images, setImages] = useState<ImageElement[]>([]);
-  const [textBoxes, setTextBoxes] = useState<TextBoxElement[]>([]);
-  const strokesRef = useRef<Stroke[]>([]);
-  const shapesRef = useRef<ShapeElement[]>([]);
-  const imagesRef = useRef<ImageElement[]>([]);
-  const textBoxesRef = useRef<TextBoxElement[]>([]);
+  const [strokes, setStrokes] = useState<Stroke[]>(() => initialDocument?.strokes ?? []);
+  const [shapes, setShapes] = useState<ShapeElement[]>(() => initialDocument?.shapes ?? []);
+  const [images, setImages] = useState<ImageElement[]>(() => initialDocument?.images ?? []);
+  const [textBoxes, setTextBoxes] = useState<TextBoxElement[]>(() => initialDocument?.textBoxes ?? []);
+  const strokesRef = useRef<Stroke[]>(strokes);
+  const shapesRef = useRef<ShapeElement[]>(shapes);
+  const imagesRef = useRef<ImageElement[]>(images);
+  const textBoxesRef = useRef<TextBoxElement[]>(textBoxes);
   const undoStack = useRef<Document[]>([]);
   const redoStack = useRef<Document[]>([]);
 
@@ -421,6 +475,26 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     textBoxesRef.current = textBoxes;
   }, [textBoxes]);
 
+  /** Autosauvegarde (voir onDocChange) : débounce le changement le plus
+   * récent plutôt que d'appeler onDocChange à chaque frappe/trait — un
+   * geste de dessin déclenche des dizaines de changements d'état en
+   * quelques centaines de ms (voir commitDoc), inutile d'en faire autant
+   * d'appels réseau. Ignore volontairement le tout premier rendu (via
+   * isFirstRender) : sans ça, hydrater depuis initialDocument déclencherait
+   * un aller-retour réseau qui réécrirait exactement ce qu'on vient de lire. */
+  const isFirstDocRender = useRef(true);
+  useEffect(() => {
+    if (isFirstDocRender.current) {
+      isFirstDocRender.current = false;
+      return;
+    }
+    if (!onDocChange) return;
+    const timer = setTimeout(() => {
+      onDocChange({ strokes, shapes, images, textBoxes });
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [strokes, shapes, images, textBoxes, onDocChange]);
+
   // Désélectionne le bloc de texte actif dès qu'on quitte l'outil "T" —
   // sinon son cadre de sélection et ses poignées resteraient visibles par-
   // dessus la feuille pendant qu'on dessine ou qu'on gomme avec un autre outil.
@@ -439,6 +513,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     ctx.fillStyle = backgroundColor;
     ctx.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
     drawSheetPattern(ctx, sheetType, PAGE_WIDTH, PAGE_HEIGHT, backgroundColor);
+    const isDarkBg = isColorDark(backgroundColor);
 
     for (const imageEl of imagesRef.current) {
       if (erasedImageIds.current?.has(imageEl.id)) continue;
@@ -449,7 +524,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     const strokesToRender = partialErasePreview.current ?? strokesRef.current;
     for (const stroke of strokesToRender) {
       if (erasedStrokeIds.current?.has(stroke.id)) continue;
-      drawStroke(ctx, stroke);
+      drawStroke(ctx, stroke, isDarkBg);
     }
     for (const shape of shapesRef.current) {
       if (erasedShapeIds.current?.has(shape.id)) continue;
@@ -468,31 +543,67 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
           pressure: p.pressure,
         };
       });
-      drawStroke(ctx, {
-        id: "__snap-anim__",
-        tool: "pen",
-        penType,
-        color: penColor,
-        size: penSize,
-        points: interpolated,
-      });
+      // Le résultat verrouillé (lockedSnap.current) est déjà posé avant
+      // l'animation (voir scheduleHoldCheck) : on s'y réfère pour savoir si
+      // c'est un redressement Stylo ou Surligneur, sans dupliquer l'info
+      // dans snapAnimation.current.
+      const animTarget = lockedSnap.current;
+      drawStroke(
+        ctx,
+        animTarget && animTarget.tool === "highlighter"
+          ? {
+              id: "__snap-anim__",
+              tool: "highlighter",
+              color: animTarget.color,
+              size: animTarget.size,
+              opacity: highlighterOpacity,
+              highlight: { mode: "freehand" },
+              points: interpolated,
+            }
+          : {
+              id: "__snap-anim__",
+              tool: "pen",
+              penType,
+              color: penColor,
+              size: penSize,
+              points: interpolated,
+            },
+        isDarkBg,
+      );
     } else if (lockedSnap.current) {
       // Forme verrouillée : le stylet n'ajuste plus que `current`, la
       // géométrie (ligne / rectangle / cercle) ne redevient jamais un tracé
       // à main levée.
       const locked = lockedSnap.current;
       if (locked.kind === "line") {
-        drawStroke(ctx, {
-          id: "__locked__",
-          tool: "pen",
-          penType: locked.penType ?? "fineliner",
-          color: locked.color,
-          size: locked.size,
-          points: [
-            { x: locked.anchor.x, y: locked.anchor.y, pressure: 0.5 },
-            { x: locked.current.x, y: locked.current.y, pressure: 0.5 },
-          ],
-        });
+        drawStroke(
+          ctx,
+          locked.tool === "highlighter"
+            ? {
+                id: "__locked__",
+                tool: "highlighter",
+                color: locked.color,
+                size: locked.size,
+                opacity: highlighterOpacity,
+                highlight: { mode: "freehand" },
+                points: [
+                  { x: locked.anchor.x, y: locked.anchor.y, pressure: 0.5 },
+                  { x: locked.current.x, y: locked.current.y, pressure: 0.5 },
+                ],
+              }
+            : {
+                id: "__locked__",
+                tool: "pen",
+                penType: locked.penType ?? "fineliner",
+                color: locked.color,
+                size: locked.size,
+                points: [
+                  { x: locked.anchor.x, y: locked.anchor.y, pressure: 0.5 },
+                  { x: locked.current.x, y: locked.current.y, pressure: 0.5 },
+                ],
+              },
+          isDarkBg,
+        );
       } else if (locked.shapeType) {
         drawShape(ctx, {
           id: "__locked__",
@@ -506,7 +617,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         });
       }
     } else if (currentStroke.current) {
-      drawStroke(ctx, currentStroke.current);
+      drawStroke(ctx, currentStroke.current, isDarkBg);
     }
 
     if (currentShape.current) {
@@ -603,7 +714,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
    * pas fausser l'analyse de forme — sans quoi un cercle bien rond peut se
    * faire mal classer à cause d'un amas de points parasites concentré à un
    * seul endroit de son contour. */
-  function scheduleHoldCheck(pos: { x: number; y: number }) {
+  function scheduleHoldCheck(pos: { x: number; y: number }, forTool: InkTool) {
     if (holdTimer.current) clearTimeout(holdTimer.current);
     holdAnchorPos.current = pos;
     holdAnchorTime.current = performance.now();
@@ -619,10 +730,26 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
             : "line"
           : "aucun (tracé non reconnu)";
       }
-      if (result) {
-        lockedSnap.current = deriveLockedSnap(result, snapshotPoints[0] ?? pos, penColor, penSize, penType);
+      if (!result) return;
+      if (forTool === "highlighter") {
+        // Le Surligneur ne se redresse qu'en ligne droite — un résultat
+        // "shape" (cercle/rectangle) est ignoré : un surlignage ne devient
+        // jamais une forme géométrique, contrairement au Stylo.
+        if (result.kind !== "line") return;
+        const [start, end] = result.points;
+        lockedSnap.current = {
+          kind: "line",
+          tool: "highlighter",
+          anchor: { x: start.x, y: start.y },
+          current: { x: end.x, y: end.y },
+          color: highlighterColor,
+          size: highlighterSize,
+        };
         startSnapAnimation(snapshotPoints, result);
+        return;
       }
+      lockedSnap.current = deriveLockedSnap(result, snapshotPoints[0] ?? pos, penColor, penSize, penType);
+      startSnapAnimation(snapshotPoints, result);
     }, holdToSnapMs);
   }
 
@@ -914,7 +1041,9 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     hoverEraserPos.current = pos;
     hoveredStrokeId.current =
       eraserMode === "whole"
-        ? (strokesRef.current.find((s) => strokeHitTest(s, pos.x, pos.y, eraserRadius))?.id ?? null)
+        ? (strokesRef.current.find(
+            (s) => (eraserTarget === "all" || s.tool === "highlighter") && strokeHitTest(s, pos.x, pos.y, eraserRadius),
+          )?.id ?? null)
         : null;
   }
 
@@ -928,6 +1057,10 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     let changed = false;
     const next: Stroke[] = [];
     for (const stroke of source) {
+      if (eraserTarget === "highlighter" && stroke.tool !== "highlighter") {
+        next.push(stroke);
+        continue;
+      }
       const pieces = partialEraseStroke(stroke, pos.x, pos.y, eraserRadius);
       if (!(pieces.length === 1 && pieces[0] === stroke)) changed = true;
       next.push(...pieces);
@@ -948,11 +1081,18 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     } else {
       for (const stroke of strokesRef.current) {
         if (erasedStrokeIds.current.has(stroke.id)) continue;
+        if (eraserTarget === "highlighter" && stroke.tool !== "highlighter") continue;
         if (strokeHitTest(stroke, pos.x, pos.y, eraserRadius)) {
           erasedStrokeIds.current.add(stroke.id);
           changed = true;
         }
       }
+    }
+    // La gomme ciblée "Surlignage" ne touche jamais les formes/photos/textes
+    // (seuls les traits de surlignage, gérés ci-dessus, sont candidats).
+    if (eraserTarget !== "all") {
+      if (changed) scheduleRender();
+      return;
     }
     for (const shape of shapesRef.current) {
       if (erasedShapeIds.current.has(shape.id)) continue;
@@ -1230,8 +1370,18 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         tool: "highlighter",
         color: highlighterColor,
         size: highlighterSize,
-        points: [pos],
+        opacity: highlighterOpacity,
+        highlight: { mode: highlighterMode },
+        // Mode Droit : 2 points dès le départ (l'ancrage et lui-même) — le
+        // second est remplacé à chaque déplacement (voir handlePointerMove),
+        // jamais accumulé comme en mode Libre.
+        points: highlighterMode === "straight" ? [pos, pos] : [pos],
       };
+      if (highlighterMode === "freehand") {
+        // Redressement automatique par maintien — seulement en Libre : en
+        // Droit, le tracé est déjà une ligne droite dès le départ.
+        scheduleHoldCheck(pos, "highlighter");
+      }
       scheduleRender();
     } else {
       currentStroke.current = {
@@ -1242,7 +1392,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         size: penSize,
         points: [pos],
       };
-      scheduleHoldCheck(pos);
+      scheduleHoldCheck(pos, "pen");
       scheduleRender();
     }
   }
@@ -1338,19 +1488,30 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
 
     if (!currentStroke.current) return;
 
-    if (tool === "pen" && lockedSnap.current) {
+    if ((tool === "pen" || tool === "highlighter") && lockedSnap.current) {
       // Verrouillé : la géométrie ne bouge plus jamais — le stylet
-      // n'ajuste plus que le point d'arrivée (ligne) ou le coin opposé à
-      // l'ancrage (cercle/rectangle).
+      // n'ajuste plus que le point d'arrivée (ligne, y compris pour le
+      // Surligneur en Libre après redressement automatique) ou le coin
+      // opposé à l'ancrage (cercle/rectangle, Stylo uniquement).
       lockedSnap.current = { ...lockedSnap.current, current: { x: pos.x, y: pos.y } };
       snapAnimation.current = null;
       scheduleRender();
       return;
     }
 
+    if (tool === "highlighter" && currentStroke.current.highlight?.mode === "straight") {
+      // Mode Droit : le premier point reste l'ancrage fixe, seul le second
+      // (point d'arrivée) est remplacé à chaque déplacement — pas
+      // d'accumulation de points intermédiaires comme en mode Libre.
+      const anchor = currentStroke.current.points[0];
+      currentStroke.current.points = [anchor, snapStraightEndpoint(anchor, pos)];
+      scheduleRender();
+      return;
+    }
+
     currentStroke.current.points.push(pos);
 
-    if (tool === "pen") {
+    if (tool === "pen" || (tool === "highlighter" && highlighterMode === "freehand")) {
       const anchor = holdAnchorPos.current;
       const distanceFromAnchor = anchor ? Math.hypot(pos.x - anchor.x, pos.y - anchor.y) : Infinity;
 
@@ -1367,7 +1528,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       if (distanceFromAnchor > HOLD_JITTER_TOLERANCE) {
         // Mouvement réel (pas juste du bruit de capteur) : on repart de zéro.
         snapAnimation.current = null;
-        scheduleHoldCheck(pos);
+        scheduleHoldCheck(pos, tool === "pen" ? "pen" : "highlighter");
       }
       // Sinon, gigue tolérée : on laisse le minuteur déjà armé continuer sans
       // le réinitialiser, pour qu'il puisse effectivement arriver à son terme.
@@ -1480,17 +1641,31 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
 
     if (locked) {
       if (locked.kind === "line") {
-        const stroke: Stroke = {
-          id: crypto.randomUUID(),
-          tool: "pen",
-          penType: locked.penType ?? "fineliner",
-          color: locked.color,
-          size: locked.size,
-          points: [
-            { x: locked.anchor.x, y: locked.anchor.y, pressure: 0.5 },
-            { x: locked.current.x, y: locked.current.y, pressure: 0.5 },
-          ],
-        };
+        const stroke: Stroke =
+          locked.tool === "highlighter"
+            ? {
+                id: crypto.randomUUID(),
+                tool: "highlighter",
+                color: locked.color,
+                size: locked.size,
+                opacity: highlighterOpacity,
+                highlight: { mode: "freehand" },
+                points: [
+                  { x: locked.anchor.x, y: locked.anchor.y, pressure: 0.5 },
+                  { x: locked.current.x, y: locked.current.y, pressure: 0.5 },
+                ],
+              }
+            : {
+                id: crypto.randomUUID(),
+                tool: "pen",
+                penType: locked.penType ?? "fineliner",
+                color: locked.color,
+                size: locked.size,
+                points: [
+                  { x: locked.anchor.x, y: locked.anchor.y, pressure: 0.5 },
+                  { x: locked.current.x, y: locked.current.y, pressure: 0.5 },
+                ],
+              };
         commitDoc({
           strokes: [...strokesRef.current, stroke],
           shapes: shapesRef.current,

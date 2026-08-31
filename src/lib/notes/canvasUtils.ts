@@ -1,9 +1,73 @@
 import type { ImageElement, ShapeElement, SheetType, Stroke, StrokePoint } from "./types";
 
-/** Opacité du surligneur : suffisamment transparent pour rester lisible en
- * superposition, combiné à un mélange "multiply" pour l'effet d'encre qui
- * s'accumule là où les traits se croisent (comme un vrai surligneur). */
-const HIGHLIGHTER_ALPHA = 0.38;
+/** Opacité par défaut du surligneur (intensité "Moyen") — suffisamment
+ * transparente pour rester lisible en superposition, combinée à un mélange
+ * "multiply" pour l'effet d'encre qui s'accumule là où les traits se
+ * croisent (comme un vrai surligneur). Surchargée par `stroke.opacity`
+ * quand présent (réglage d'intensité, voir NotesToolbar). */
+export const HIGHLIGHTER_ALPHA = 0.38;
+
+/** Amplitude de variation de largeur du Surligneur selon la pression —
+ * volontairement très faible (demandé explicitement, contrairement au
+ * Crayon) : appliquée une seule fois pour tout le trait (moyenne de la
+ * pression, comme `ballpointWidth`) plutôt que segment par segment, pour
+ * qu'un tracé large et lissé reste uniforme — un tracé par petits segments
+ * indépendants créerait des surépaisseurs visibles à chaque jonction sous
+ * "multiply"/"screen", inacceptable à cette taille de trait. */
+const HIGHLIGHTER_WIDTH_MIN_FACTOR = 0.94;
+const HIGHLIGHTER_WIDTH_MAX_FACTOR = 1.06;
+
+function highlighterWidth(stroke: Stroke): number {
+  let sum = 0;
+  for (const p of stroke.points) sum += p.pressure;
+  const avgPressure = stroke.points.length > 0 ? sum / stroke.points.length : 0.5;
+  const factor = HIGHLIGHTER_WIDTH_MIN_FACTOR + avgPressure * (HIGHLIGHTER_WIDTH_MAX_FACTOR - HIGHLIGHTER_WIDTH_MIN_FACTOR);
+  return stroke.size * factor;
+}
+
+/** Vrai si une couleur hex (#rgb ou #rrggbb) est perçue comme sombre —
+ * seul usage aujourd'hui : adapter le mélange du Surligneur (voir
+ * `drawHighlighterStroke`) au fond "Noir (mode nuit)" des feuilles. */
+export function isColorDark(hex: string): boolean {
+  let h = hex.replace("#", "");
+  if (h.length === 3) {
+    h = h
+      .split("")
+      .map((c) => c + c)
+      .join("");
+  }
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  if ([r, g, b].some((v) => Number.isNaN(v))) return false;
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  return luminance < 0.4;
+}
+
+/** Surligneur : une seule largeur pour tout le trait (voir
+ * `highlighterWidth`) tracée comme un unique tracé lissé (réutilise
+ * `drawSmoothConstantWidthStroke`, sans rééchantillonnage par segments —
+ * voir pourquoi ci-dessus) avec l'opacité choisie (intensité réglable,
+ * `stroke.opacity`, sinon `HIGHLIGHTER_ALPHA`). Sur fond sombre, "multiply"
+ * assombrirait le trait vers le noir au lieu de l'éclaircir (un vrai
+ * surligneur y resterait quasi invisible) : on bascule alors sur "screen"
+ * (l'inverse, éclaircit), à la même opacité — pas de boost qui donnerait un
+ * effet de halo/glow. */
+function drawHighlighterStroke(ctx: CanvasRenderingContext2D, stroke: Stroke, isDarkBackground: boolean) {
+  ctx.globalCompositeOperation = isDarkBackground ? "screen" : "multiply";
+  ctx.globalAlpha = stroke.opacity ?? HIGHLIGHTER_ALPHA;
+  drawSmoothConstantWidthStroke(ctx, stroke.points, highlighterWidth(stroke));
+}
+
+/** Point isolé (tap) au Surligneur : même logique d'opacité/mélange que
+ * `drawHighlighterStroke`. */
+function drawHighlighterDot(ctx: CanvasRenderingContext2D, stroke: Stroke, p: StrokePoint, isDarkBackground: boolean) {
+  ctx.globalCompositeOperation = isDarkBackground ? "screen" : "multiply";
+  ctx.globalAlpha = stroke.opacity ?? HIGHLIGHTER_ALPHA;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, highlighterWidth(stroke) / 2, 0, Math.PI * 2);
+  ctx.fill();
+}
 
 /** Opacité du Stylo (fine liner) : proche de 100% mais pas totalement plate,
  * pour une encre qui reste franche sans paraître dessinée en aplat pur. */
@@ -260,8 +324,10 @@ function drawCrayonDot(ctx: CanvasRenderingContext2D, stroke: Stroke, p: StrokeP
 
 /** Dessine un trait lissé (courbes quadratiques entre points médians), avec
  * épaisseur variable point à point pour le feutre pinceau, et un rendu
- * semi-transparent en mode "multiply" pour le surligneur. */
-export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
+ * semi-transparent en mode "multiply" (ou "screen" sur fond sombre) pour le
+ * surligneur. `isDarkBackground` n'affecte que le surligneur — voir
+ * `drawHighlighterStroke`. */
+export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke, isDarkBackground = false) {
   const { points } = stroke;
   if (points.length === 0) return;
 
@@ -272,10 +338,7 @@ export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   const isBallpoint = stroke.tool === "pen" && stroke.penType === "ballpoint";
 
   ctx.save();
-  if (isHighlighter) {
-    ctx.globalAlpha = HIGHLIGHTER_ALPHA;
-    ctx.globalCompositeOperation = "multiply";
-  } else if (isFineliner) {
+  if (isFineliner) {
     ctx.globalAlpha = FINELINER_ALPHA;
   }
   ctx.strokeStyle = stroke.color;
@@ -287,6 +350,11 @@ export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
     const p = points[0];
     if (isCrayon) {
       drawCrayonDot(ctx, stroke, p);
+      ctx.restore();
+      return;
+    }
+    if (isHighlighter) {
+      drawHighlighterDot(ctx, stroke, p, isDarkBackground);
       ctx.restore();
       return;
     }
@@ -311,6 +379,12 @@ export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
 
   if (isCrayon) {
     drawCrayonStroke(ctx, stroke);
+    ctx.restore();
+    return;
+  }
+
+  if (isHighlighter) {
+    drawHighlighterStroke(ctx, stroke, isDarkBackground);
     ctx.restore();
     return;
   }

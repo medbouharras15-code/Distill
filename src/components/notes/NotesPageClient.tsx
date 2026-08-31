@@ -6,6 +6,7 @@ import {
   MAX_ZOOM,
   MIN_ZOOM,
   NotesCanvas,
+  type Document,
   type NotesCanvasHandle,
   type NotesTool,
 } from "@/components/notes/NotesCanvas";
@@ -13,6 +14,7 @@ import { ZoomInIcon, ZoomOutIcon } from "@/components/notes/icons";
 import { BackLink } from "@/components/ui";
 import {
   HIGHLIGHTER_COLORS,
+  HIGHLIGHTER_OPACITIES,
   HIGHLIGHTER_SIZES,
   NotesToolbar,
   PEN_COLORS,
@@ -24,7 +26,15 @@ import { SheetSelector } from "@/components/notes/SheetSelector";
 import { AiPanel } from "@/components/notes/AiPanel";
 import type { SubscriptionProvider } from "@/lib/billing";
 import { BACKGROUND_COLORS, PAPER_SIZES, SHEET_TYPES, getPageDimensions } from "@/lib/notes/sheets";
-import type { EraserMode, PaperSize, PenType, ShapeType, SheetType } from "@/lib/notes/types";
+import type {
+  EraserMode,
+  EraserTarget,
+  HighlighterMode,
+  PaperSize,
+  PenType,
+  ShapeType,
+  SheetType,
+} from "@/lib/notes/types";
 
 function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
@@ -105,9 +115,12 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
 
   const [highlighterColor, setHighlighterColor] = useState(HIGHLIGHTER_COLORS[0].value);
   const [highlighterSize, setHighlighterSize] = useState(HIGHLIGHTER_SIZES[2]);
+  const [highlighterMode, setHighlighterMode] = useState<HighlighterMode>("freehand");
+  const [highlighterOpacity, setHighlighterOpacity] = useState(HIGHLIGHTER_OPACITIES[1].value);
 
   const [eraserRadius, setEraserRadius] = useState(18);
   const [eraserMode, setEraserMode] = useState<EraserMode>("whole");
+  const [eraserTarget, setEraserTarget] = useState<EraserTarget>("all");
 
   const [shapeType, setShapeType] = useState<ShapeType>("rectangle");
   const [shapeColor, setShapeColor] = useState(SHAPE_COLORS[0].value);
@@ -134,6 +147,86 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).get("debug") === "1";
   });
+
+  /** Contenu restauré par page (id → document), rempli une seule fois par le
+   * chargement initial ci-dessous — lu par chaque NotesCanvas à son montage
+   * (prop `initialDocument`), jamais mis à jour ensuite (voir sa prop). */
+  const [initialDocumentsById, setInitialDocumentsById] = useState<Map<string, Document>>(() => new Map());
+  /** Faux tant que le chargement Supabase initial n'est pas terminé, pour un
+   * visiteur connecté seulement — un visiteur anonyme n'a rien à charger
+   * (comportement actuel inchangé, aucun appel réseau). Évite d'afficher un
+   * carnet vide puis de le remplacer brusquement par le contenu restauré. */
+  const [pagesReady, setPagesReady] = useState(() => auth === null);
+
+  useEffect(() => {
+    if (auth === null) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/notes/pages");
+        if (!res.ok) throw new Error(`Échec du chargement (${res.status})`);
+        const body = (await res.json()) as {
+          pages: {
+            id: string;
+            position: number;
+            sheetType: SheetType;
+            paperSize: PaperSize;
+            backgroundColor: string;
+            content: Document;
+          }[];
+        };
+        if (cancelled) return;
+        if (body.pages.length > 0) {
+          const sorted = [...body.pages].sort((a, b) => a.position - b.position);
+          setInitialDocumentsById(new Map(sorted.map((p) => [p.id, p.content])));
+          // Réglages de feuille partagés par tout le carnet (voir sheetType/
+          // paperSize/backgroundColor plus haut, globaux à toutes les
+          // pages) : on les restaure depuis la première page sauvegardée —
+          // les pages suivantes gardent leur contenu propre mais s'affichent
+          // avec ce même réglage global, comme pour toute page ajoutée
+          // aujourd'hui.
+          setSheetType(sorted[0].sheetType);
+          setPaperSize(sorted[0].paperSize);
+          setBackgroundColor(sorted[0].backgroundColor);
+          setPages(sorted.map((p) => ({ id: p.id })));
+          setSheetChosen(true);
+        }
+      } catch (err) {
+        console.error("Impossible de charger les pages Notes sauvegardées :", err);
+      } finally {
+        if (!cancelled) setPagesReady(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Volontairement []: chargement unique au montage, pas à chaque rendu
+    // (auth est un objet recréé côté serveur à chaque navigation, pas une
+    // référence stable) ni à chaque changement des setters d'état appelés.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Autosauvegarde d'une page (voir la prop onDocChange de NotesCanvas) —
+   * no-op pour un visiteur anonyme (aucun appel réseau, comportement actuel
+   * inchangé). Fire-and-forget : pas de file d'attente/retry dans cette
+   * passe, une erreur reste silencieuse côté utilisateur (journalisée). */
+  function handlePageDocChange(pageId: string, position: number, doc: Document) {
+    if (auth === null) return;
+    fetch("/api/notes/pages", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: pageId,
+        position,
+        sheetType,
+        paperSize,
+        backgroundColor,
+        content: doc,
+      }),
+    }).catch((err) => {
+      console.error("Impossible d'enregistrer la page Notes :", err);
+    });
+  }
 
   function selectPen() {
     setTool("pen");
@@ -344,6 +437,13 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
   const sheetLabel = SHEET_TYPES.find((s) => s.value === sheetType)?.label ?? sheetType;
   const paperLabel = PAPER_SIZES.find((p) => p.value === paperSize)?.label ?? paperSize;
 
+  if (!pagesReady) {
+    // Chargement des pages sauvegardées (visiteur connecté uniquement, voir
+    // l'effet plus haut) — bref, évite d'afficher un carnet vide juste avant
+    // de le remplacer par le contenu restauré.
+    return <div className="flex min-h-full w-full items-center justify-center text-sm text-muted">Chargement…</div>;
+  }
+
   if (!sheetChosen) {
     return (
       <div
@@ -441,8 +541,11 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
                     penType={penType}
                     highlighterColor={highlighterColor}
                     highlighterSize={highlighterSize}
+                    highlighterMode={highlighterMode}
+                    highlighterOpacity={highlighterOpacity}
                     eraserRadius={eraserRadius}
                     eraserMode={eraserMode}
+                    eraserTarget={eraserTarget}
                     shapeType={shapeType}
                     shapeColor={shapeColor}
                     shapeStrokeWidth={shapeStrokeWidth}
@@ -458,6 +561,8 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
                     onHistoryChange={(undo, redo) => {
                       setHistoryByPage((prev) => ({ ...prev, [page.id]: { canUndo: undo, canRedo: redo } }));
                     }}
+                    initialDocument={initialDocumentsById.get(page.id)}
+                    onDocChange={(doc) => handlePageDocChange(page.id, index, doc)}
                   />
                 </div>
               </div>
@@ -543,10 +648,16 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
               onHighlighterColorChange={setHighlighterColor}
               highlighterSize={highlighterSize}
               onHighlighterSizeChange={setHighlighterSize}
+              highlighterMode={highlighterMode}
+              onHighlighterModeChange={setHighlighterMode}
+              highlighterOpacity={highlighterOpacity}
+              onHighlighterOpacityChange={setHighlighterOpacity}
               eraserRadius={eraserRadius}
               onEraserRadiusChange={setEraserRadius}
               eraserMode={eraserMode}
               onEraserModeChange={setEraserMode}
+              eraserTarget={eraserTarget}
+              onEraserTargetChange={setEraserTarget}
               shapeType={shapeType}
               onShapeTypeChange={setShapeType}
               shapeColor={shapeColor}

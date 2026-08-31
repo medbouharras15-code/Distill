@@ -495,3 +495,39 @@ as $$
   set purchased_jetons_balance = greatest(purchased_jetons_balance - p_amount, 0)
   where id = p_user_id;
 $$;
+
+-- ═════════════════════════════════════════════════════════════════════
+-- Sauvegarde de l'éditeur Notes (/notes) — une ligne par page du carnet de
+-- l'utilisateur connecté (visiteur non connecté : jamais de ligne créée,
+-- l'éditeur reste utilisable sans compte comme avant, purement en mémoire).
+-- `id` est généré côté client (crypto.randomUUID(), voir NotesPageClient) —
+-- pas de `default gen_random_uuid()` : le même id doit identifier la page
+-- dans le navigateur ET en base pour l'upsert. `content` porte traits/
+-- formes/photos/blocs de texte de la page (voir Document dans
+-- NotesCanvas.tsx) ; le reste de la fonctionnalité "Notebooks" (liste,
+-- tableau de bord, historique) reste sur données mock, non branché ici —
+-- chantier séparé.
+create table if not exists public.note_pages (
+  id uuid primary key,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  position integer not null default 0,
+  sheet_type text not null,
+  paper_size text not null,
+  background_color text not null,
+  content jsonb not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists note_pages_user_id_position_idx
+  on public.note_pages (user_id, position);
+
+alter table public.note_pages enable row level security;
+
+create policy "Un utilisateur voit ses propres pages"
+  on public.note_pages for select
+  using (auth.uid() = user_id);
+
+-- Aucune policy insert/update/delete : écritures uniquement via la route
+-- serveur /api/notes/pages (auth vérifiée applicativement, client admin),
+-- même principe que quiz_answers ci-dessus.

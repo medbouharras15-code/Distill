@@ -18,16 +18,43 @@ export type PenType = "fineliner" | "ballpoint" | "crayon" | "brush";
  * "portion" n'ayant pas d'équivalent naturel pour eux (voir plan validé). */
 export type EraserMode = "whole" | "partial";
 
+/** "all" efface tout ce que touche la gomme, comme aujourd'hui ; "highlighter"
+ * restreint l'effacement aux seuls traits de surlignage (stroke.tool ===
+ * "highlighter") — formes/photos/textes/traits stylo ne sont alors jamais
+ * touchés, même si la gomme les traverse aussi. */
+export type EraserTarget = "all" | "highlighter";
+
 export type InkTool = "pen" | "highlighter";
+
+/** Réservé à un futur ancrage sur couche texte PDF (id de page, plage de
+ * mots/bounding boxes) plutôt que des pixels bruts — vide aujourd'hui,
+ * aucun surlignage n'en produit encore (voir plan validé : pas de rendu ni
+ * d'import PDF dans l'éditeur actuel). N'existe que pour éviter d'avoir à
+ * changer la forme de `Stroke` le jour où ce chantier démarrera. */
+export type HighlightAnchor = Record<string, never>;
+
+export type HighlighterMode = "freehand" | "straight";
+
+export interface HighlightMeta {
+  mode: HighlighterMode;
+  /** Toujours absent dans cette version — voir `HighlightAnchor`. */
+  anchor?: HighlightAnchor;
+}
 
 export interface Stroke {
   id: string;
   tool: InkTool;
   /** Utilisé uniquement quand tool === "pen". */
   penType?: PenType;
+  /** Utilisé uniquement quand tool === "highlighter". */
+  highlight?: HighlightMeta;
   color: string;
   /** Épaisseur de base en pixels logiques (avant modulation par la pression). */
   size: number;
+  /** Opacité de base (0-1). Utilisé uniquement par le Surligneur (intensité
+   * réglable) ; les autres outils ont leur propre opacité fixe ou dérivée
+   * de la pression, voir canvasUtils.ts. */
+  opacity?: number;
   points: StrokePoint[];
 }
 
