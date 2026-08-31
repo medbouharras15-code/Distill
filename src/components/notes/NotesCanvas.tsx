@@ -53,6 +53,8 @@ import {
   type RulerState,
 } from "@/lib/notes/ruler";
 import {
+  AUTO_SCROLL_EDGE_PX,
+  AUTO_SCROLL_SPEED_PX,
   DUPLICATE_OFFSET,
   LASSO_MIN_POINT_SPACING,
   MIN_SELECTION_SCALE,
@@ -68,6 +70,7 @@ import {
   strokeBounds,
   strokeMostlyInPolygon,
   textBoxBounds,
+  translateAll,
   translateImage,
   translateShape,
   translateStroke,
@@ -265,6 +268,40 @@ export interface NotesCanvasHandle {
   /** Colle le contenu du presse-papiers partagé (voir NotesPageClient) sur
    * cette page — no-op si le presse-papiers est vide. */
   paste(): void;
+  /** Drag cross-page du Lasso (voir CrossPageDragBridge) — affiche/efface un
+   * aperçu "fantôme" d'une sélection en cours de glisser depuis une AUTRE
+   * page, déjà exprimé dans le repère logique de CETTE page. Ne touche
+   * jamais le Document/historique de cette page : purement un aperçu. */
+  setIncomingSelectionPreview(data: LassoClipboardData | null): void;
+  /** Drag cross-page du Lasso : ajoute réellement `data` (coordonnées déjà
+   * exactes pour cette page, mêmes ids que l'original — un déplacement, pas
+   * une copie) en UN SEUL commitDoc, et en fait la nouvelle sélection de
+   * cette page — même esprit que Coller cross-page déjà validé. */
+  receiveTransferredSelection(data: LassoClipboardData): void;
+}
+
+/** Pont imperatif (refs uniquement, jamais de state React — même esprit que
+ * `containerRef`) construit par NotesPageClient et partagé par toutes les
+ * pages, pour le drag cross-page du Lasso : détecter sous quelle page se
+ * trouve la sélection en cours de glisser, lui pousser un aperçu, et
+ * effectuer le transfert réel au relâchement. Ne remplace pas
+ * `NotesCanvasHandle` (déjà utilisé pour Annuler/Rétablir/Coller) : ce pont
+ * sert spécifiquement aux communications déclenchées PENDANT un geste
+ * (fréquence pointermove), donc jamais via un state React qui forcerait un
+ * re-rendu de NotesPageClient à chaque frame. */
+export interface CrossPageDragBridge {
+  /** Ids de toutes les pages du carnet, dans l'ordre d'affichage (haut en
+   * bas) — pour retrouver la page sous un point donné de l'écran. */
+  pageIds: string[];
+  /** Rect (coordonnées écran/viewport) du slot d'une page, ou `null` si
+   * cette page n'est pas (encore) montée. */
+  getPageRect(pageId: string): DOMRect | null;
+  /** Pousse (ou efface avec `null`) l'aperçu fantôme affiché par la page
+   * `pageId` — voir `setIncomingSelectionPreview`. */
+  setPreview(pageId: string, data: LassoClipboardData | null): void;
+  /** Effectue le transfert réel vers `pageId` au relâchement — voir
+   * `receiveTransferredSelection` — et fait de cette page la page active. */
+  transfer(pageId: string, data: LassoClipboardData): void;
 }
 
 export interface Document {
@@ -302,12 +339,48 @@ function applySelectionTransform<T>(
   return "dx" in t ? translateFn(el, t.dx, t.dy) : scaleFn(el, t.anchor, t.scale);
 }
 
+/** Dessine l'encadré pointillé + les 4 poignées de coin d'une sélection —
+ * partagé entre la sélection locale de cette page et l'aperçu fantôme d'une
+ * sélection en cours de glisser depuis une autre page (drag cross-page du
+ * Lasso), pour ne jamais avoir deux implémentations visuelles différentes. */
+function drawSelectionBoxAndHandles(ctx: CanvasRenderingContext2D, b: Bounds) {
+  ctx.save();
+  ctx.strokeStyle = "rgba(31, 92, 74, 0.85)";
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 4]);
+  ctx.strokeRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0);
+  ctx.setLineDash([]);
+  ctx.fillStyle = "#ffffff";
+  const corners: Point[] = [
+    { x: b.x0, y: b.y0 },
+    { x: b.x1, y: b.y0 },
+    { x: b.x1, y: b.y1 },
+    { x: b.x0, y: b.y1 },
+  ];
+  for (const c of corners) {
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, SELECTION_HANDLE_RADIUS / 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 /** Taille par défaut (unités logiques de page) d'un nouveau bloc de texte
  * créé d'un tap/clic avec l'outil "T". */
 const DEFAULT_TEXTBOX_WIDTH = 260;
 const MIN_TEXTBOX_HIT_HEIGHT = 32;
 
 interface NotesCanvasProps {
+  /** Id de cette page — nécessaire uniquement pour le drag cross-page du
+   * Lasso (voir `crossPageDrag`), pour que cette instance sache se
+   * reconnaître (se distinguer d'une éventuelle page cible) dans le pont
+   * partagé par NotesPageClient. */
+  pageId: string;
+  /** Pont partagé (voir CrossPageDragBridge) permettant au Lasso de
+   * détecter/transférer une sélection glissée vers une autre page du même
+   * carnet — un seul objet stable pour tout le carnet, comme `containerRef`. */
+  crossPageDrag: CrossPageDragBridge;
   tool: NotesTool;
   penColor: string;
   penSize: number;
@@ -384,6 +457,8 @@ interface NotesCanvasProps {
 
 export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(function NotesCanvas(
   {
+    pageId,
+    crossPageDrag,
     tool,
     penColor,
     penSize,
@@ -587,6 +662,34 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
    * uniquement à masquer le menu contextuel pendant le geste (voir JSX). */
   const [selectionDragging, setSelectionDragging] = useState(false);
 
+  /** Aperçu "fantôme" d'une sélection en cours de glisser depuis une AUTRE
+   * page (drag cross-page du Lasso) — déjà en coordonnées locales à CETTE
+   * page, jamais dans son Document/historique. `null` la plupart du temps. */
+  const incomingPreviewRef = useRef<LassoClipboardData | null>(null);
+  /** Miroir React (état, pas juste la ref ci-dessus) des SEULS blocs de
+   * texte de l'aperçu fantôme — comme pour `setSelectionTick`, le texte est
+   * rendu en DOM (pas sur le canvas), donc a besoin d'un vrai rendu React
+   * pour suivre ; traits/formes/photos, eux, se redessinent via le canvas
+   * (scheduleRender suffit, voir setIncomingSelectionPreview). */
+  const [incomingPreviewTextBoxes, setIncomingPreviewTextBoxes] = useState<TextBoxElement[]>([]);
+  /** Pendant un déplacement (mode "move" uniquement, jamais un
+   * redimensionnement) : page actuellement "verrouillée" comme destination
+   * potentielle du transfert si elle diffère de cette page, avec le (dx,dy)
+   * déjà calculé pour repositionner la sélection dans son repère — `null`
+   * tant que le glisser reste sur cette page. Lu une dernière fois au
+   * relâchement (voir endStroke) pour effectuer le transfert réel. */
+  const crossPageTargetRef = useRef<{ pageId: string; dx: number; dy: number } | null>(null);
+  /** Dernière position écran (clientX/clientY) connue du pointeur pendant un
+   * déplacement de sélection — relue par la boucle d'auto-scroll (voir
+   * updateAutoScrollForSelectionDrag) pour recalculer la position logique
+   * quand la page défile sous un pointeur qui, lui, ne bouge pas. */
+  const dragLastClientPosRef = useRef<{ x: number; y: number } | null>(null);
+  /** Direction active de l'auto-scroll (-1 haut, 1 bas, 0 arrêté). */
+  const autoScrollDirRef = useRef<-1 | 0 | 1>(0);
+  /** Id de la frame `requestAnimationFrame` de la boucle d'auto-scroll en
+   * cours, ou `null` si elle est arrêtée. */
+  const autoScrollRafRef = useRef<number | null>(null);
+
   /** Boîte englobante brute (non transformée) de la sélection actuelle, à
    * partir des éléments réels — recalculée à chaque rendu, coût
    * négligeable (la sélection ne contient jamais des milliers d'éléments). */
@@ -707,6 +810,172 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       images: imagesRef.current.filter((img) => sel.images.has(img.id)).map((img) => ({ ...img })),
       textBoxes: textBoxesRef.current.filter((tb) => sel.textBoxes.has(tb.id)).map((tb) => ({ ...tb })),
     };
+  }
+
+  // -------------------------------------------------------------------
+  // Drag cross-page du Lasso — voir CrossPageDragBridge/le plan validé.
+  // Restreint au déplacement (mode "move") : redimensionner par-dessus une
+  // frontière de page n'a pas de sens demandé, non traité ici.
+  // -------------------------------------------------------------------
+
+  /** Équivalent de `getPos` mais à partir d'un point écran brut plutôt que
+   * d'un `PointerEvent` — nécessaire pour la boucle d'auto-scroll, qui
+   * recalcule la position logique sans nouvel événement pointeur (le
+   * document défile sous un pointeur qui, lui, ne bouge pas). Même formule
+   * que `getPos`, volontairement dupliquée plutôt que d'y toucher. */
+  function logicalFromClient(clientX: number, clientY: number): Point {
+    const canvas = canvasRef.current!;
+    const rect = canvas.getBoundingClientRect();
+    return { x: (clientX - rect.left) * (PAGE_WIDTH / rect.width), y: (clientY - rect.top) * (PAGE_HEIGHT / rect.height) };
+  }
+
+  function stopAutoScroll() {
+    autoScrollDirRef.current = 0;
+    if (autoScrollRafRef.current !== null) {
+      cancelAnimationFrame(autoScrollRafRef.current);
+      autoScrollRafRef.current = null;
+    }
+  }
+
+  /** Nettoie tout état de drag cross-page (auto-scroll + aperçu fantôme
+   * éventuellement posé sur une autre page) — appelée à l'annulation du
+   * geste et après un transfert réel (voir handlePointerCancel/endStroke). */
+  function clearCrossPageDragState() {
+    stopAutoScroll();
+    if (crossPageTargetRef.current) {
+      crossPageDrag.setPreview(crossPageTargetRef.current.pageId, null);
+      crossPageTargetRef.current = null;
+    }
+    dragLastClientPosRef.current = null;
+  }
+
+  /** Recalcule tout ce qui dépend de la position du pointeur pendant un
+   * déplacement de sélection : la transformation "en direct" elle-même
+   * (comme le ferait un pointermove), puis la détection de la page sous le
+   * centre de la sélection et l'aperçu fantôme à y pousser. Appelée à la
+   * fois par le vrai pointermove et par la boucle d'auto-scroll. */
+  function updateCrossPageSelectionDrag(clientX: number, clientY: number) {
+    const drag = selectionDragMode.current;
+    if (!drag || drag.mode !== "move" || !selection) return;
+    const pos = logicalFromClient(clientX, clientY);
+    const dx = pos.x - drag.startPos.x;
+    const dy = pos.y - drag.startPos.y;
+    selectionTransform.current = { dx, dy };
+
+    const raw = rawSelectionBounds(selection);
+    if (!raw) return;
+    const b = displayBounds(raw);
+    const centerClientY = (() => {
+      const rect = canvasRef.current!.getBoundingClientRect();
+      const scaleY = rect.height / PAGE_HEIGHT;
+      return rect.top + ((b.y0 + b.y1) / 2) * scaleY;
+    })();
+
+    let targetId: string | null = null;
+    for (const id of crossPageDrag.pageIds) {
+      const r = crossPageDrag.getPageRect(id);
+      if (r && centerClientY >= r.top && centerClientY < r.bottom) {
+        targetId = id;
+        break;
+      }
+    }
+
+    const prevTarget = crossPageTargetRef.current;
+    if (targetId === null || targetId === pageId) {
+      if (prevTarget) {
+        crossPageDrag.setPreview(prevTarget.pageId, null);
+        crossPageTargetRef.current = null;
+      }
+      return;
+    }
+
+    const sourceRect = crossPageDrag.getPageRect(pageId);
+    const targetRect = crossPageDrag.getPageRect(targetId);
+    if (!sourceRect || !targetRect) return;
+    const scaleXTarget = targetRect.width / PAGE_WIDTH;
+    const scaleYTarget = targetRect.height / PAGE_HEIGHT;
+    const dxToTarget = (sourceRect.left - targetRect.left) / scaleXTarget;
+    const dyToTarget = (sourceRect.top - targetRect.top) / scaleYTarget;
+
+    if (prevTarget && prevTarget.pageId !== targetId) {
+      crossPageDrag.setPreview(prevTarget.pageId, null);
+    }
+    const totalDx = dx + dxToTarget;
+    const totalDy = dy + dyToTarget;
+    crossPageTargetRef.current = { pageId: targetId, dx: totalDx, dy: totalDy };
+    crossPageDrag.setPreview(targetId, translateAll(cloneSelected(selection), totalDx, totalDy));
+  }
+
+  /** Démarre/arrête l'auto-scroll doux selon la position écran du pointeur
+   * par rapport aux bords haut/bas du conteneur de défilement partagé — la
+   * boucle s'arrête net dès que le pointeur s'éloigne du bord (ou au
+   * relâchement/annulation, voir clearCrossPageDragState). Chaque frame
+   * active recalcule aussi la position de la sélection et la page cible,
+   * puisque le document défile sous un pointeur qui, lui, reste immobile. */
+  function updateAutoScrollForSelectionDrag(clientY: number) {
+    const container = containerRef.current;
+    if (!container || !selectionDragMode.current || selectionDragMode.current.mode !== "move") {
+      stopAutoScroll();
+      return;
+    }
+    const rect = container.getBoundingClientRect();
+    let dir: -1 | 0 | 1 = 0;
+    if (clientY < rect.top + AUTO_SCROLL_EDGE_PX) dir = -1;
+    else if (clientY > rect.bottom - AUTO_SCROLL_EDGE_PX) dir = 1;
+    autoScrollDirRef.current = dir;
+    if (dir === 0) {
+      stopAutoScroll();
+      return;
+    }
+    if (autoScrollRafRef.current !== null) return;
+    const tick = () => {
+      if (autoScrollDirRef.current === 0 || !selectionDragMode.current) {
+        autoScrollRafRef.current = null;
+        return;
+      }
+      const c = containerRef.current;
+      if (c) c.scrollTop += AUTO_SCROLL_SPEED_PX * autoScrollDirRef.current;
+      const last = dragLastClientPosRef.current;
+      if (last) updateCrossPageSelectionDrag(last.x, last.y);
+      scheduleRender();
+      autoScrollRafRef.current = requestAnimationFrame(tick);
+    };
+    autoScrollRafRef.current = requestAnimationFrame(tick);
+  }
+
+  /** Voir NotesCanvasHandle. Purement un aperçu (ref), jamais le
+   * Document/historique de cette page. Omise des dépendances de
+   * useImperativeHandle ci-dessous (comme `getOrLoadImage`) : ne ferme que
+   * sur des refs/setState stables, jamais une prop qui change — son
+   * identité entre deux rendus n'a donc aucune incidence sur son comportement. */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  function setIncomingSelectionPreview(data: LassoClipboardData | null) {
+    incomingPreviewRef.current = data;
+    setIncomingPreviewTextBoxes(data?.textBoxes ?? []);
+    scheduleRender();
+  }
+
+  /** Voir NotesCanvasHandle. `data` est déjà en coordonnées exactes pour
+   * cette page et garde les mêmes ids que l'original (déplacement, pas
+   * copie) — un seul commitDoc, et devient la nouvelle sélection de cette
+   * page, comme pour un Coller cross-page déjà validé. Omise des
+   * dépendances de useImperativeHandle pour la même raison que
+   * `setIncomingSelectionPreview` ci-dessus. */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  function receiveTransferredSelection(data: LassoClipboardData) {
+    incomingPreviewRef.current = null;
+    commitDoc({
+      strokes: [...strokesRef.current, ...data.strokes],
+      shapes: [...shapesRef.current, ...data.shapes],
+      images: [...imagesRef.current, ...data.images],
+      textBoxes: [...textBoxesRef.current, ...data.textBoxes],
+    });
+    setSelection({
+      strokes: new Set(data.strokes.map((s) => s.id)),
+      shapes: new Set(data.shapes.map((s) => s.id)),
+      images: new Set(data.images.map((s) => s.id)),
+      textBoxes: new Set(data.textBoxes.map((s) => s.id)),
+    });
   }
 
   /** Insère une copie de `data` dans le document courant avec de nouveaux
@@ -1038,30 +1307,32 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         ctx.restore();
       } else if (selection) {
         const raw = rawSelectionBounds(selection);
-        if (raw) {
-          const b = displayBounds(raw);
-          ctx.save();
-          ctx.strokeStyle = "rgba(31, 92, 74, 0.85)";
-          ctx.lineWidth = 1.5;
-          ctx.setLineDash([6, 4]);
-          ctx.strokeRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0);
-          ctx.setLineDash([]);
-          ctx.fillStyle = "#ffffff";
-          const corners: Point[] = [
-            { x: b.x0, y: b.y0 },
-            { x: b.x1, y: b.y0 },
-            { x: b.x1, y: b.y1 },
-            { x: b.x0, y: b.y1 },
-          ];
-          for (const c of corners) {
-            ctx.beginPath();
-            ctx.arc(c.x, c.y, SELECTION_HANDLE_RADIUS / 2, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-          }
-          ctx.restore();
-        }
+        if (raw) drawSelectionBoxAndHandles(ctx, displayBounds(raw));
       }
+    }
+
+    // Aperçu "fantôme" d'une sélection en cours de glisser DEPUIS une autre
+    // page (drag cross-page du Lasso, voir CrossPageDragBridge) — déjà en
+    // coordonnées locales à cette page, jamais dans strokesRef/shapesRef/
+    // imagesRef ni dans Document. Les blocs de texte de l'aperçu sont gérés
+    // à part (rendu DOM, voir incomingPreviewTextBoxes plus bas dans le JSX).
+    if (incomingPreviewRef.current) {
+      const preview = incomingPreviewRef.current;
+      for (const imageEl of preview.images) {
+        const img = getOrLoadImage(imageEl.src);
+        if (img) drawImageElement(ctx, imageEl, img);
+      }
+      for (const stroke of preview.strokes) drawStroke(ctx, stroke, isDarkBg);
+      for (const shape of preview.shapes) drawShape(ctx, shape);
+      let bounds: Bounds | null = null;
+      for (const s of preview.strokes) bounds = bounds ? unionBounds(bounds, strokeBounds(s)) : strokeBounds(s);
+      for (const s of preview.shapes) bounds = bounds ? unionBounds(bounds, boxBounds(s)) : boxBounds(s);
+      for (const img of preview.images) bounds = bounds ? unionBounds(bounds, boxBounds(img)) : boxBounds(img);
+      for (const tb of preview.textBoxes) {
+        const b = textBoxBounds(tb, MIN_TEXTBOX_HIT_HEIGHT);
+        bounds = bounds ? unionBounds(bounds, b) : b;
+      }
+      if (bounds) drawSelectionBoxAndHandles(ctx, bounds);
     }
 
     if (tool === "eraser" && hoverEraserPos.current) {
@@ -1343,8 +1614,15 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   // dépendances ne change (voir aussi le commentaire sur sa définition).
   useImperativeHandle(
     ref,
-    () => ({ undo, redo, importPhotos, paste: handleSelectionPaste }),
-    [undo, redo, importPhotos, handleSelectionPaste],
+    () => ({
+      undo,
+      redo,
+      importPhotos,
+      paste: handleSelectionPaste,
+      setIncomingSelectionPreview,
+      receiveTransferredSelection,
+    }),
+    [undo, redo, importPhotos, handleSelectionPaste, setIncomingSelectionPreview, receiveTransferredSelection],
   );
 
   function getPos(e: React.PointerEvent<HTMLCanvasElement>): StrokePoint {
@@ -2107,7 +2385,9 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       const drag = selectionDragMode.current;
       if (drag) {
         if (drag.mode === "move") {
-          selectionTransform.current = { dx: pos.x - drag.startPos.x, dy: pos.y - drag.startPos.y };
+          dragLastClientPosRef.current = { x: e.clientX, y: e.clientY };
+          updateCrossPageSelectionDrag(e.clientX, e.clientY);
+          updateAutoScrollForSelectionDrag(e.clientY);
         } else {
           // Redimensionnement : échelle uniforme (ratio de distance depuis
           // le coin opposé, qui reste fixe) — préserve les proportions et
@@ -2294,9 +2574,40 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
 
     if (tool === "lasso") {
       if (selectionDragMode.current) {
-        // Déplacement/redimensionnement d'une sélection existante : un seul
-        // commitDoc (voir commitSelectionDrag), donc une seule action Undo.
+        const target = crossPageTargetRef.current;
+        if (target && selection) {
+          // Transfert réel cross-page (Option A validée) : deux commitDoc
+          // séparés, un par page — voir le plan, aucun historique partagé
+          // entre pages aujourd'hui. La cible reçoit les éléments déjà
+          // repositionnés (mêmes ids, pas une copie) et en fait sa nouvelle
+          // sélection ; la source les retire des siens. Chacun un seul
+          // commitDoc, donc chacun une seule action Undo (deux au total).
+          const data = translateAll(cloneSelected(selection), target.dx, target.dy);
+          crossPageDrag.transfer(target.pageId, data);
+          commitDoc({
+            strokes: strokesRef.current.filter((s) => !selection.strokes.has(s.id)),
+            shapes: shapesRef.current.filter((s) => !selection.shapes.has(s.id)),
+            images: imagesRef.current.filter((img) => !selection.images.has(img.id)),
+            textBoxes: textBoxesRef.current.filter((tb) => !selection.textBoxes.has(tb.id)),
+          });
+          setSelection(null);
+          selectionDragMode.current = null;
+          selectionTransform.current = null;
+          setSelectionDragging(false);
+          crossPageTargetRef.current = null;
+          stopAutoScroll();
+          dragLastClientPosRef.current = null;
+          activePointerId.current = null;
+          scheduleRender();
+          onActionComplete?.();
+          return;
+        }
+        // Déplacement/redimensionnement resté sur cette page (cas le plus
+        // fréquent) : un seul commitDoc (voir commitSelectionDrag), donc une
+        // seule action Undo — comportement strictement inchangé.
         commitSelectionDrag();
+        stopAutoScroll();
+        dragLastClientPosRef.current = null;
         activePointerId.current = null;
         scheduleRender();
         onActionComplete?.();
@@ -2506,6 +2817,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     selectionDragMode.current = null;
     selectionTransform.current = null;
     setSelectionDragging(false);
+    clearCrossPageDragState();
     lassoPath.current = [];
     panState.current = null;
     setIsPanning(false);
@@ -2513,6 +2825,23 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     tapStartInfo.current = null;
     tapIsCandidate.current = false;
     scheduleRender();
+  }
+
+  /** `onPointerLeave` du canvas — casse normalement le geste en cours
+   * (`handlePointerCancel`), sauf dans un cas précis : un déplacement/
+   * redimensionnement de sélection Lasso actif avec ce même pointeur. Ce
+   * geste doit pouvoir continuer une fois le pointeur visuellement passé
+   * sur une page voisine (drag cross-page) — `setPointerCapture` (posé au
+   * pointerdown) continue de livrer les pointermove/pointerup suivants à
+   * ce canvas avec des coordonnées correctes, mais certains navigateurs
+   * (Safari/iPadOS confirmé) déclenchent quand même `pointerleave` dès que
+   * le pointeur quitte les limites DOM du canvas, capture ou non — sans ce
+   * garde-fou, ça annulait le geste à tort. Pour tout le reste (dessin,
+   * gomme, règle, image, nouveau tracé de lasso...), comportement
+   * strictement inchangé. */
+  function handlePointerLeaveCanvas(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (selectionDragMode.current && activePointerId.current === e.pointerId) return;
+    handlePointerCancel(e);
   }
 
   return (
@@ -2557,7 +2886,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
-        onPointerLeave={handlePointerCancel}
+        onPointerLeave={handlePointerLeaveCanvas}
         onContextMenu={(e) => e.preventDefault()}
       />
 
@@ -2594,6 +2923,33 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
           );
         })}
       </div>
+
+      {/* Blocs de texte de l'aperçu fantôme d'un drag cross-page du Lasso
+          (voir CrossPageDragBridge) — coordonnées déjà exactes pour cette
+          page, purement un aperçu non interactif (jamais TextBoxOverlay ni
+          son éditeur riche ici : juste un rendu HTML statique, léger, pour
+          rester fluide pendant le geste). Retiré dès que le fantôme part ou
+          que le transfert réel arrive (voir setIncomingSelectionPreview/
+          receiveTransferredSelection). */}
+      {incomingPreviewTextBoxes.length > 0 && (
+        <div className="absolute inset-0" style={{ pointerEvents: "none" }}>
+          {incomingPreviewTextBoxes.map((tb) => (
+            <div
+              key={tb.id}
+              className="absolute overflow-hidden rounded-sm border border-dashed"
+              style={{
+                left: `${(tb.x / PAGE_WIDTH) * 100}%`,
+                top: `${(tb.y / PAGE_HEIGHT) * 100}%`,
+                width: `${(tb.width / PAGE_WIDTH) * 100}%`,
+                borderColor: "rgba(31, 92, 74, 0.85)",
+                background: "rgba(31, 92, 74, 0.06)",
+                opacity: 0.85,
+              }}
+              dangerouslySetInnerHTML={{ __html: tb.html || "" }}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Règle : instrument temporaire d'interface, jamais du contenu — voir
           `ruler` (état local, jamais lu par commitDoc/Document). Purement

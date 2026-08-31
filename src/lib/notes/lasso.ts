@@ -49,6 +49,16 @@ export const LASSO_ELEMENT_SELECT_SAMPLES_REQUIRED = 3;
  * pour que la copie reste visuellement distincte de l'original. */
 export const DUPLICATE_OFFSET = 16;
 
+/** Marge (pixels écran) depuis le bord haut/bas du conteneur de défilement
+ * partagé en dessous de laquelle l'auto-scroll du drag cross-page du Lasso
+ * se déclenche — assez large pour rester confortable au doigt sur iPad. */
+export const AUTO_SCROLL_EDGE_PX = 56;
+
+/** Vitesse de défilement (pixels/frame) pendant l'auto-scroll — volontairement
+ * douce (voir demande : "auto-scroll doux"), constante quelle que soit la
+ * distance au bord plutôt que proportionnelle, pour rester prévisible. */
+export const AUTO_SCROLL_SPEED_PX = 10;
+
 /** Échelle minimale autorisée pendant un redimensionnement — évite qu'un
  * geste de poignée trop rapide ne fasse s'effondrer/inverser la sélection. */
 export const MIN_SELECTION_SCALE = 0.05;
@@ -181,6 +191,21 @@ export function translateImage(image: ImageElement, dx: number, dy: number): Ima
 
 export function translateTextBox(box: TextBoxElement, dx: number, dy: number): TextBoxElement {
   return { ...box, x: box.x + dx, y: box.y + dy };
+}
+
+/** Translate les 4 tableaux d'un `LassoClipboardData` d'un même (dx, dy) —
+ * même ids, aucune copie/nouvel id (contrairement à `insertClipboardData`
+ * côté NotesCanvas) : sert au drag cross-page du Lasso, qui déplace
+ * réellement des éléments d'une page vers une autre plutôt que d'en copier
+ * le contenu. Repère logique déjà commun à toutes les pages (voir
+ * LassoClipboardData), donc un simple (dx, dy) suffit ici aussi. */
+export function translateAll(data: LassoClipboardData, dx: number, dy: number): LassoClipboardData {
+  return {
+    strokes: data.strokes.map((s) => translateStroke(s, dx, dy)),
+    shapes: data.shapes.map((s) => translateShape(s, dx, dy)),
+    images: data.images.map((img) => translateImage(img, dx, dy)),
+    textBoxes: data.textBoxes.map((tb) => translateTextBox(tb, dx, dy)),
+  };
 }
 
 function scalePoint(p: Point, anchor: Point, scale: number): Point {

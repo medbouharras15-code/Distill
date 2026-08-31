@@ -6,6 +6,7 @@ import {
   MAX_ZOOM,
   MIN_ZOOM,
   NotesCanvas,
+  type CrossPageDragBridge,
   type Document,
   type NotesCanvasHandle,
   type NotesTool,
@@ -460,6 +461,26 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
     return currentPageId ? pageRefs.current.get(currentPageId) : undefined;
   }
 
+  /** Pont partagé par toutes les pages pour le drag cross-page du Lasso
+   * (voir CrossPageDragBridge) — recréé à chaque rendu (coût négligeable,
+   * ce n'est jamais lu pendant un pointermove qui déclencherait lui-même un
+   * rendu React) mais lit toujours `pageRefs`/`pageSlotEls` au moment de
+   * l'appel, jamais une valeur figée : reste correct même si des pages sont
+   * ajoutées après sa création. */
+  const crossPageDragBridge: CrossPageDragBridge = {
+    pageIds: pages.map((p) => p.id),
+    getPageRect(pageId) {
+      return pageSlotEls.current.get(pageId)?.getBoundingClientRect() ?? null;
+    },
+    setPreview(pageId, data) {
+      pageRefs.current.get(pageId)?.setIncomingSelectionPreview(data);
+    },
+    transfer(pageId, data) {
+      pageRefs.current.get(pageId)?.receiveTransferredSelection(data);
+      setCurrentPageId(pageId);
+    },
+  };
+
   const sheetLabel = SHEET_TYPES.find((s) => s.value === sheetType)?.label ?? sheetType;
   const paperLabel = PAPER_SIZES.find((p) => p.value === paperSize)?.label ?? paperSize;
 
@@ -561,6 +582,8 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
                       if (handle) pageRefs.current.set(page.id, handle);
                       else pageRefs.current.delete(page.id);
                     }}
+                    pageId={page.id}
+                    crossPageDrag={crossPageDragBridge}
                     tool={tool}
                     penColor={penColor}
                     penSize={penSize}
