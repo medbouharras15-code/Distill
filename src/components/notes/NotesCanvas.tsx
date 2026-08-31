@@ -1461,12 +1461,16 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     activePointerId.current = e.pointerId;
     const pos = getPos(e);
 
-    // Règle : si le Pencil se pose assez près d'un de ses deux bords, tout
-    // ce trait (jusqu'au relâchement) s'y accroche — décidé une seule fois
-    // ici, jamais réévalué en cours de geste (voir RULER_SNAP_THRESHOLD).
-    // Le point de départ est lui-même déjà projeté, pour que le tout
-    // premier point du trait soit déjà exactement sur le bord.
-    if (rulerActive && ruler && e.pointerType === "pen" && (tool === "pen" || tool === "highlighter")) {
+    // Règle : si le Pencil (ou la souris, utilisée comme repli de test tant
+    // qu'aucun Apple Pencil n'est disponible — même logique d'accroche,
+    // jamais le doigt qui reste réservé à manipuler la règle/naviguer) se
+    // pose assez près d'un de ses deux bords, tout ce trait (jusqu'au
+    // relâchement) s'y accroche — décidé une seule fois ici, jamais
+    // réévalué en cours de geste (voir RULER_SNAP_THRESHOLD). Le point de
+    // départ est lui-même déjà projeté, pour que le tout premier point du
+    // trait soit déjà exactement sur le bord.
+    const isRulerDrawingPointer = e.pointerType === "pen" || e.pointerType === "mouse";
+    if (rulerActive && ruler && isRulerDrawingPointer && (tool === "pen" || tool === "highlighter")) {
       const { edge, distance } = closestEdge(ruler, pos.x, pos.y);
       rulerStrokeEdge.current = distance <= RULER_SNAP_THRESHOLD ? edge : null;
       if (rulerStrokeEdge.current) {
