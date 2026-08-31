@@ -1857,7 +1857,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       </div>
 
       {debugHoldDetection && (
-        <div className="pointer-events-none absolute bottom-16 left-2 z-40 max-h-[65vh] overflow-y-auto rounded-lg bg-black/80 px-3 py-2 font-mono text-[11px] leading-relaxed text-white">
+        <div className="pointer-events-none fixed right-2 top-2 z-50 max-h-[65vh] overflow-y-auto rounded-lg bg-black/80 px-3 py-2 font-mono text-[11px] leading-relaxed text-white">
           <div>pointerType: {debugInfo.current.pointerType}</div>
           <div>outil : {debugInfo.current.tool}</div>
           <div>seuil de maintien : {holdToSnapMs}ms</div>
