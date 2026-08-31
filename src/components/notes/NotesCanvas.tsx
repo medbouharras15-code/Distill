@@ -374,6 +374,10 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     containerH: 0,
     canvasW: 0,
     canvasH: 0,
+    wrapperW: 0,
+    wrapperH: 0,
+    scrollW: 0,
+    scrollH: 0,
     lastAnchor: "—",
   });
 
@@ -762,6 +766,16 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       const rect = canvas.getBoundingClientRect();
       zoomDebug.current.canvasW = Math.round(rect.width);
       zoomDebug.current.canvasH = Math.round(rect.height);
+    }
+    const wrapper = wrapperRef.current;
+    if (wrapper) {
+      const rect = wrapper.getBoundingClientRect();
+      zoomDebug.current.wrapperW = Math.round(rect.width);
+      zoomDebug.current.wrapperH = Math.round(rect.height);
+    }
+    if (container) {
+      zoomDebug.current.scrollW = container.scrollWidth;
+      zoomDebug.current.scrollH = container.scrollHeight;
     }
   });
 
@@ -1875,6 +1889,12 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
           </div>
           <div>
             canvas affiché : {zoomDebug.current.canvasW}×{zoomDebug.current.canvasH}px
+          </div>
+          <div>
+            wrapper (aspect-ratio) : {zoomDebug.current.wrapperW}×{zoomDebug.current.wrapperH}px
+          </div>
+          <div>
+            scrollWidth/Height conteneur : {zoomDebug.current.scrollW}×{zoomDebug.current.scrollH}px
           </div>
           <div>dernier ancrage : {zoomDebug.current.lastAnchor}</div>
           <div className="mt-2 border-t border-white/20 pt-2">— Déplacement —</div>
