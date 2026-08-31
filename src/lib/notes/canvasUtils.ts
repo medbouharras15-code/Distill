@@ -10,13 +10,87 @@ const HIGHLIGHTER_ALPHA = 0.38;
  * changer sa géométrie (même lissage, même épaisseur constante). */
 const CRAYON_ALPHA = 0.82;
 
-/** Épaisseur effective d'un point de trait : les feutres fins, stylos bille,
- * crayons et le surligneur gardent une épaisseur constante, seul le feutre
- * pinceau réagit à la pression (comme un vrai pinceau). */
+/** Opacité du Stylo (fine liner) : proche de 100% mais pas totalement plate,
+ * pour une encre qui reste franche sans paraître dessinée en aplat pur. */
+const FINELINER_ALPHA = 0.97;
+
+/** Épaisseur effective d'un point de trait :
+ * - le feutre pinceau ("brush") varie fortement avec la pression (large
+ *   amplitude, comme un vrai pinceau) ;
+ * - le Stylo ("fineliner") varie aussi avec la pression, mais avec une
+ *   amplitude nettement plus subtile — un stylo plume premium s'épaissit
+ *   légèrement sous la pression, il ne se transforme pas en pinceau ;
+ * - stylo bille, crayon et surligneur gardent une épaisseur constante,
+ *   inchangée par cette pression. */
 export function effectiveWidth(stroke: Pick<Stroke, "tool" | "penType" | "size">, pressure: number): number {
-  if (stroke.tool !== "pen" || stroke.penType !== "brush") return stroke.size;
-  const factor = 0.5 + pressure * 1.1;
-  return stroke.size * factor;
+  if (stroke.tool !== "pen") return stroke.size;
+  if (stroke.penType === "brush") {
+    const factor = 0.5 + pressure * 1.1;
+    return stroke.size * factor;
+  }
+  if (stroke.penType === "fineliner") {
+    const factor = 0.75 + pressure * 0.6;
+    return stroke.size * factor;
+  }
+  return stroke.size;
+}
+
+/** Distance (unités logiques de page) sur laquelle le Stylo se réaffine en
+ * début et fin de trait, comme un vrai stylo qui se pose/se lève sur le
+ * papier — proportionnelle à l'épaisseur de base pour rester discrète aussi
+ * bien sur un trait fin que large. */
+function penTaperLength(size: number): number {
+  return Math.max(3, Math.min(14, size * 2.2));
+}
+
+/** Épaisseur minimale (fraction de l'épaisseur pleine) à l'extrémité même du
+ * trait — un vrai zéro donnerait une pointe en aiguille ; on garde une
+ * pointe douce plutôt qu'un pic agressif. */
+const PEN_TAPER_MIN_FACTOR = 0.55;
+
+/** Écart maximal (unités logiques de page) entre deux points rééchantillonnés
+ * du Stylo avant son rendu — purement un détail de rendu (jamais persisté
+ * dans `stroke.points`, qui garde les points bruts pour la gomme/l'historique),
+ * pour que la largeur varie en douceur d'un segment au suivant plutôt que par
+ * à-coups visibles entre les points bruts du geste. */
+const PEN_RESAMPLE_STEP = 2.5;
+
+/** Stylo (fine liner) premium : rééchantillonné pour une transition de
+ * largeur fluide (voir `densifyPoints`/`PEN_RESAMPLE_STEP`), chaque segment
+ * tracé avec sa propre épaisseur dérivée de la pression (`effectiveWidth`)
+ * puis affinée en début/fin de trait selon la distance parcourue depuis
+ * chaque extrémité (pas l'index du point : un geste rapide échantillonne
+ * moins de points bruts qu'un geste lent, la distance réelle reste, elle,
+ * un repère fiable). */
+function drawFinelinerStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
+  const dense = densifyPoints(stroke.points, PEN_RESAMPLE_STEP);
+  if (dense.length < 2) return;
+
+  const cumulative: number[] = [0];
+  for (let i = 1; i < dense.length; i++) {
+    cumulative.push(cumulative[i - 1] + distance(dense[i - 1], dense[i]));
+  }
+  const totalLength = cumulative[cumulative.length - 1];
+  const taperLength = penTaperLength(stroke.size);
+
+  function taperFactorAt(d: number): number {
+    if (totalLength <= 0 || taperLength <= 0) return 1;
+    const nearestEdge = Math.min(d, totalLength - d, taperLength);
+    const t = nearestEdge / taperLength;
+    return PEN_TAPER_MIN_FACTOR + (1 - PEN_TAPER_MIN_FACTOR) * t;
+  }
+
+  for (let i = 1; i < dense.length; i++) {
+    const a = dense[i - 1];
+    const b = dense[i];
+    const pressure = (a.pressure + b.pressure) / 2;
+    const midDistance = (cumulative[i - 1] + cumulative[i]) / 2;
+    ctx.lineWidth = effectiveWidth(stroke, pressure) * taperFactorAt(midDistance);
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+  }
 }
 
 /** Dessine un trait lissé (courbes quadratiques entre points médians), avec
@@ -29,6 +103,7 @@ export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   const isHighlighter = stroke.tool === "highlighter";
   const isBrush = stroke.tool === "pen" && stroke.penType === "brush";
   const isCrayon = stroke.tool === "pen" && stroke.penType === "crayon";
+  const isFineliner = stroke.tool === "pen" && stroke.penType === "fineliner";
 
   ctx.save();
   if (isHighlighter) {
@@ -36,6 +111,8 @@ export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
     ctx.globalCompositeOperation = "multiply";
   } else if (isCrayon) {
     ctx.globalAlpha = CRAYON_ALPHA;
+  } else if (isFineliner) {
+    ctx.globalAlpha = FINELINER_ALPHA;
   }
   ctx.strokeStyle = stroke.color;
   ctx.fillStyle = stroke.color;
@@ -47,6 +124,12 @@ export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
     ctx.beginPath();
     ctx.arc(p.x, p.y, effectiveWidth(stroke, p.pressure) / 2, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
+    return;
+  }
+
+  if (isFineliner) {
+    drawFinelinerStroke(ctx, stroke);
     ctx.restore();
     return;
   }
