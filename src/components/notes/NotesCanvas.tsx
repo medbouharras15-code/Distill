@@ -230,6 +230,10 @@ interface NotesCanvasProps {
    * maintien en direct) — pour diagnostiquer sur un appareil réel où la
    * console n'est pas facilement accessible. */
   debugHoldDetection?: boolean;
+  /** Valeur React `slotHeight` telle que calculée par NotesPageClient, pour
+   * comparer directement à la hauteur DOM mesurée dans le panneau de debug
+   * (diagnostic temporaire, voir `?debug=1`). */
+  debugSlotHeight?: number;
   /** Appelé après chaque trait terminé (dessiné ou effacé). */
   onActionComplete?: () => void;
   /** Appelé quand un double-tap de la pointe du stylet est détecté sur la
@@ -256,6 +260,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     backgroundColor = "#ffffff",
     holdToSnapMs = DEFAULT_HOLD_TO_SNAP_MS,
     debugHoldDetection = false,
+    debugSlotHeight,
     onActionComplete,
     onPenDoubleTap,
     onHistoryChange,
@@ -1905,7 +1910,8 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
             scrollWidth/Height conteneur : {zoomDebug.current.scrollW}×{zoomDebug.current.scrollH}px
           </div>
           <div>hauteur root (parent conteneur) : {zoomDebug.current.rootH}px</div>
-          <div>hauteur slot (grand-parent) : {zoomDebug.current.slotH}px</div>
+          <div>hauteur slot (grand-parent, mesurée DOM) : {zoomDebug.current.slotH}px</div>
+          <div>slotHeight (état React, NotesPageClient) : {String(debugSlotHeight)}px</div>
           <div>overflow-y conteneur (calculé) : {zoomDebug.current.containerOverflowY}</div>
           <div>dernier ancrage : {zoomDebug.current.lastAnchor}</div>
           <div className="mt-2 border-t border-white/20 pt-2">— Déplacement —</div>

@@ -334,6 +334,7 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
                   paperSize={paperSize}
                   backgroundColor={backgroundColor}
                   debugHoldDetection={debugHoldDetection}
+                  debugSlotHeight={slotHeight}
                   onActionComplete={() => handlePageActionComplete(page.id)}
                   onPenDoubleTap={activateTempEraser}
                   onHistoryChange={(undo, redo) => {
