@@ -59,6 +59,10 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
   const pagesScrollRef = useRef<HTMLDivElement | null>(null);
   const [currentPageId, setCurrentPageId] = useState<string | null>(null);
   const [historyByPage, setHistoryByPage] = useState<Record<string, { canUndo: boolean; canRedo: boolean }>>({});
+  /** Zoom partagé par toutes les pages (1 = 100%) — voir la prop `zoom` de
+   * NotesCanvas : zoomer sur une page zoome tout le carnet en même temps,
+   * comme un long document continu plutôt que des pages indépendantes. */
+  const [zoom, setZoom] = useState(1);
 
   const [sheetChosen, setSheetChosen] = useState(false);
   const [sheetPanelOpen, setSheetPanelOpen] = useState(false);
@@ -330,6 +334,8 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
                   sheetType={sheetType}
                   paperSize={paperSize}
                   backgroundColor={backgroundColor}
+                  zoom={zoom}
+                  onZoomChange={setZoom}
                   debugHoldDetection={debugHoldDetection}
                   onActionComplete={() => handlePageActionComplete(page.id)}
                   onPanBoundary={(deltaY) => {

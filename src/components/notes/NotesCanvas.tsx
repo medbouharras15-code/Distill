@@ -223,6 +223,15 @@ interface NotesCanvasProps {
   sheetType: SheetType;
   paperSize: PaperSize;
   backgroundColor?: string;
+  /** Niveau de zoom partagé par toutes les pages du carnet (1 = 100%),
+   * contrôlé par NotesPageClient plutôt que gardé en état local à chaque
+   * page — zoomer sur une page zoome donc tout le carnet en même temps,
+   * comme un long document continu plutôt que des pages indépendantes. */
+  zoom: number;
+  /** Appelé à chaque changement de zoom (pincement, molette, boutons +/-,
+   * réinitialisation) pour que NotesPageClient répercute la nouvelle
+   * valeur à toutes les pages. */
+  onZoomChange: (zoom: number) => void;
   /** Durée d'immobilité (ms, stylet toujours appuyé) avant la détection de
    * forme automatique. Défaut 600ms. */
   holdToSnapMs?: number;
@@ -260,6 +269,8 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     sheetType,
     paperSize,
     backgroundColor = "#ffffff",
+    zoom,
+    onZoomChange,
     holdToSnapMs = DEFAULT_HOLD_TO_SNAP_MS,
     debugHoldDetection = false,
     onActionComplete,
@@ -356,21 +367,31 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
    * initial plus petit pour éviter tout défilement vertical, mais cela
    * laissait de larges bandes vides à gauche/droite dès que le conteneur
    * était plus large que haut (écran en paysage, iPad compris). */
-  const [zoom, setZoom] = useState(1);
-  /** Miroir synchrone de `zoom`, lu par les gestes haute fréquence (pincement,
-   * molette) pour calculer le point d'ancrage du zoom suivant. Un simple
-   * `useEffect` qui recopie `zoom` dans une ref serait décalé d'un cycle de
-   * rendu : de vrais événements tactiles peuvent arriver plus vite que React
-   * ne s'exécute (contrairement aux tests automatisés, où chaque événement a
-   * le temps d'être traité avant le suivant), donc `applyZoom` met à jour
-   * cette ref *en même temps* que l'état, jamais après — sans quoi le calcul
-   * du point suivant se base sur un zoom périmé et le zoom part loin du
-   * point visé, un décalage d'autant plus visible que le geste est rapide. */
+  /** Miroir synchrone de `zoom` (désormais partagé par toutes les pages via
+   * la prop, voir NotesPageClient), lu par les gestes haute fréquence
+   * (pincement, molette) pour calculer le point d'ancrage du zoom suivant.
+   * Un simple `useEffect` qui recopie la prop dans une ref serait décalé
+   * d'un cycle de rendu : de vrais événements tactiles peuvent arriver plus
+   * vite que React ne s'exécute (contrairement aux tests automatisés, où
+   * chaque événement a le temps d'être traité avant le suivant), donc
+   * `applyZoom` met à jour cette ref *en même temps* qu'il notifie le
+   * parent, jamais après — sans quoi le calcul du point suivant se base sur
+   * un zoom périmé et le zoom part loin du point visé, un décalage d'autant
+   * plus visible que le geste est rapide. Un effet séparé la garde aussi à
+   * jour quand le zoom change depuis une AUTRE page (pincement fait
+   * ailleurs) : pas de contrainte de latence dans ce cas, la page n'étant
+   * pas au milieu de son propre geste. */
   const zoomRef = useRef(zoom);
-  function applyZoom(newZoom: number) {
-    zoomRef.current = newZoom;
-    setZoom(newZoom);
-  }
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
+  const applyZoom = useCallback(
+    (newZoom: number) => {
+      zoomRef.current = newZoom;
+      onZoomChange(newZoom);
+    },
+    [onZoomChange],
+  );
   const touchPoints = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinchState = useRef<{ initialDistance: number; initialZoom: number } | null>(null);
   /** Instantané des dernières mesures de zoom, affiché dans le panneau de
@@ -750,7 +771,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       }
       applyZoom(clamped);
     },
-    [PAGE_WIDTH, PAGE_HEIGHT, debugHoldDetection],
+    [PAGE_WIDTH, PAGE_HEIGHT, debugHoldDetection, applyZoom],
   );
 
   /** Revient instantanément au zoom 100% plein écran, sans marge — bouton
@@ -764,7 +785,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       container.scrollLeft = 0;
       container.scrollTop = 0;
     }
-  }, []);
+  }, [applyZoom]);
 
   // Mesures affichées dans le panneau de debug — mises à jour à chaque
   // rendu (le tick périodique du panneau, voir plus haut, force ces
