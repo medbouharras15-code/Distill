@@ -325,7 +325,12 @@ interface NotesToolbarProps {
   onSelectPhoto: () => void;
   onSelectPan: () => void;
   onSelectText: () => void;
+  onSelectLasso: () => void;
   onPenDoubleClick: () => void;
+  /** Vrai si le presse-papiers interne du Lasso contient quelque chose —
+   * pilote l'affichage du bouton "Coller" (voir NotesPageClient). */
+  hasClipboard: boolean;
+  onPaste: () => void;
   onImportPhotos: (files: FileList) => void;
 
   penColor: string;
@@ -381,8 +386,11 @@ export function NotesToolbar({
   onSelectPhoto,
   onSelectPan,
   onSelectText,
+  onSelectLasso,
   onPenDoubleClick,
   onImportPhotos,
+  hasClipboard,
+  onPaste,
   penColor,
   onPenColorChange,
   penSize,
@@ -511,7 +519,13 @@ export function NotesToolbar({
               onClick={onToggleRuler}
               title="Règle (reste active avec l'outil de dessin choisi)"
             />
-            <ToolButton disabled active={false} label="Lasso" iconKey="lasso" fallback={<LassoIcon className="h-5 w-5" />} />
+            <ToolButton
+              active={tool === "lasso"}
+              label="Lasso"
+              iconKey="lasso"
+              fallback={<LassoIcon className="h-5 w-5" />}
+              onClick={onSelectLasso}
+            />
             <ToolButton
               active={tool === "text"}
               label="Texte"
@@ -731,6 +745,21 @@ export function NotesToolbar({
         >
           <PhotoIcon className="h-4 w-4" />
           Ajouter une photo
+        </button>
+      )}
+
+      {/* Coller n'a pas besoin d'une sélection active (voir
+          NotesCanvas/SelectionContextMenu pour Copier/Couper/Dupliquer/
+          Supprimer, qui eux exigent une sélection) — seulement que le
+          presse-papiers contienne quelque chose, potentiellement copié
+          depuis une autre page du même carnet. */}
+      {tool === "lasso" && hasClipboard && (
+        <button
+          type="button"
+          onClick={onPaste}
+          className="pointer-events-auto flex shrink-0 animate-fade items-center gap-2 rounded-full border border-border/60 bg-card/95 px-4 py-2.5 text-xs font-medium text-foreground shadow-[var(--shadow-lg)] backdrop-blur-sm transition-all duration-200 hover:border-accent/40 active:scale-95"
+        >
+          Coller
         </button>
       )}
     </div>

@@ -26,6 +26,7 @@ import { SheetSelector } from "@/components/notes/SheetSelector";
 import { AiPanel } from "@/components/notes/AiPanel";
 import type { SubscriptionProvider } from "@/lib/billing";
 import { BACKGROUND_COLORS, PAPER_SIZES, SHEET_TYPES, getPageDimensions } from "@/lib/notes/sheets";
+import type { LassoClipboardData } from "@/lib/notes/lasso";
 import type {
   EraserMode,
   EraserTarget,
@@ -138,6 +139,13 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
   function toggleRuler() {
     setRulerActive((v) => !v);
   }
+
+  /** Presse-papiers interne du Lasso — partagé par toutes les pages
+   * (pas local à un NotesCanvas) pour permettre Copier sur une page puis
+   * Coller sur une autre du même carnet ; jamais l'API Clipboard système
+   * (peu fiable pour des objets structurés dans Safari). La sélection
+   * elle-même reste strictement mono-page (voir NotesCanvas.tsx). */
+  const [clipboard, setClipboard] = useState<LassoClipboardData | null>(null);
 
   // Panneau IA (résumé/flashcards à partir de texte/photo/PDF) — repris de
   // l'ancien écran DistillApp, voir @/components/notes/AiPanel. Ouvert par
@@ -273,6 +281,11 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
 
   function selectText() {
     setTool("text");
+    setTempEraser(false);
+  }
+
+  function selectLasso() {
+    setTool("lasso");
     setTempEraser(false);
   }
 
@@ -577,6 +590,8 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
                     initialDocument={initialDocumentsById.get(page.id)}
                     onDocChange={(doc) => handlePageDocChange(page.id, index, doc)}
                     rulerActive={rulerActive && page.id === currentPageId}
+                    clipboard={clipboard}
+                    onClipboardChange={setClipboard}
                   />
                 </div>
               </div>
@@ -650,6 +665,9 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
               onSelectPhoto={selectPhoto}
               onSelectPan={selectPan}
               onSelectText={selectText}
+              onSelectLasso={selectLasso}
+              hasClipboard={clipboard !== null}
+              onPaste={() => getActivePageHandle()?.paste()}
               onPenDoubleClick={activateTempEraser}
               onImportPhotos={(files) => getActivePageHandle()?.importPhotos(files)}
               penColor={penColor}

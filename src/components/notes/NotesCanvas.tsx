@@ -52,8 +52,34 @@ import {
   type RulerEdge,
   type RulerState,
 } from "@/lib/notes/ruler";
+import {
+  DUPLICATE_OFFSET,
+  LASSO_MIN_POINT_SPACING,
+  MIN_SELECTION_SCALE,
+  SELECTION_HANDLE_RADIUS,
+  boundsIntersect,
+  boundsMostlyInPolygon,
+  boundsOfPoints,
+  boxBounds,
+  scaleImage,
+  scaleShape,
+  scaleStroke,
+  scaleTextBox,
+  strokeBounds,
+  strokeMostlyInPolygon,
+  textBoxBounds,
+  translateImage,
+  translateShape,
+  translateStroke,
+  translateTextBox,
+  unionBounds,
+  type Bounds,
+  type LassoClipboardData,
+  type Point,
+} from "@/lib/notes/lasso";
 import { TextBoxOverlay } from "./TextBoxOverlay";
 import { RulerOverlay } from "./RulerOverlay";
+import { SelectionContextMenu } from "./SelectionContextMenu";
 
 function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
@@ -230,12 +256,15 @@ function snapStraightEndpoint(anchor: StrokePoint, current: StrokePoint): Stroke
   return { ...current, x: anchor.x + Math.cos(rad) * length, y: anchor.y + Math.sin(rad) * length };
 }
 
-export type NotesTool = "pen" | "highlighter" | "eraser" | "shapes" | "photo" | "pan" | "text";
+export type NotesTool = "pen" | "highlighter" | "eraser" | "shapes" | "photo" | "pan" | "text" | "lasso";
 
 export interface NotesCanvasHandle {
   undo(): void;
   redo(): void;
   importPhotos(files: FileList | File[]): void;
+  /** Colle le contenu du presse-papiers partagé (voir NotesPageClient) sur
+   * cette page — no-op si le presse-papiers est vide. */
+  paste(): void;
 }
 
 export interface Document {
@@ -243,6 +272,34 @@ export interface Document {
   shapes: ShapeElement[];
   images: ImageElement[];
   textBoxes: TextBoxElement[];
+}
+
+/** Ids des éléments actuellement sélectionnés par le Lasso — jamais lu par
+ * `commitDoc`/`Document`, purement de l'état UI local à cette page. */
+interface SelectionIds {
+  strokes: Set<string>;
+  shapes: Set<string>;
+  images: Set<string>;
+  textBoxes: Set<string>;
+}
+
+type SelectionHandle = "nw" | "ne" | "se" | "sw";
+
+type SelectionTransform = { dx: number; dy: number } | { anchor: Point; scale: number };
+
+/** Applique la transformation "en direct" d'un geste de sélection Lasso à
+ * un seul élément — utilisée à la fois par le rendu canvas (renderAll,
+ * traits/formes/photos) et par le calcul des blocs de texte affichés
+ * (displayTextBoxes), avec les mêmes fonctions `translate*`/`scale*` que
+ * celles utilisées au commit final (lib/notes/lasso.ts) : jamais deux
+ * implémentations différentes pour l'aperçu et le résultat réel. */
+function applySelectionTransform<T>(
+  el: T,
+  t: SelectionTransform,
+  translateFn: (el: T, dx: number, dy: number) => T,
+  scaleFn: (el: T, anchor: Point, scale: number) => T,
+): T {
+  return "dx" in t ? translateFn(el, t.dx, t.dy) : scaleFn(el, t.anchor, t.scale);
 }
 
 /** Taille par défaut (unités logiques de page) d'un nouveau bloc de texte
@@ -317,6 +374,12 @@ interface NotesCanvasProps {
    * interactive. Un simple toggle indépendant de `tool` : Stylo/Crayon/etc.
    * restent sélectionnés pendant que la Règle est active. */
   rulerActive?: boolean;
+  /** Presse-papiers interne du Lasso — partagé au niveau de
+   * NotesPageClient (pas local à cette page) pour permettre de copier sur
+   * une page et coller sur une autre du même carnet. `null` = vide. */
+  clipboard?: LassoClipboardData | null;
+  /** Appelé quand Copier/Couper remplace le contenu du presse-papiers. */
+  onClipboardChange?: (data: LassoClipboardData) => void;
 }
 
 export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(function NotesCanvas(
@@ -349,6 +412,8 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     initialDocument,
     onDocChange,
     rulerActive = false,
+    clipboard = null,
+    onClipboardChange,
   },
   ref,
 ) {
@@ -488,6 +553,238 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rulerActive]);
 
+  // ---------------------------------------------------------------------
+  // Lasso — sélection libre multi-éléments. `selection` ne vit jamais dans
+  // Document/commitDoc : ce n'est jamais un Stroke, jamais sauvegardé,
+  // jamais dans undo/redo — seuls les éléments réellement déplacés/
+  // redimensionnés/dupliqués/supprimés/collés le sont, via commitDoc comme
+  // n'importe quel autre outil.
+  // ---------------------------------------------------------------------
+
+  const [selection, setSelection] = useState<SelectionIds | null>(null);
+  /** Points du tracé du lasso en cours (espace document), simplifiés au fil
+   * de l'eau (voir simplifyLassoPath) — jamais sauvegardé, purement visuel
+   * pendant le geste (voir renderAll). */
+  const lassoPath = useRef<Point[]>([]);
+
+  /** Geste de manipulation d'une sélection existante (déplacer ou
+   * redimensionner) — même schéma que `imageDragMode` : rien n'est muté
+   * dans les refs de contenu tant que le geste continue, seul
+   * `selectionTransform` (ci-dessous) porte l'état "en direct". */
+  const selectionDragMode = useRef<{
+    mode: "move" | SelectionHandle;
+    startPos: Point;
+    startBounds: Bounds;
+  } | null>(null);
+  /** Transformation "en direct" appliquée uniquement à l'affichage (voir
+   * renderAll et displayTextBoxes) — jamais aux tableaux réels avant le
+   * commit final au relâchement (une seule action Undo par geste). */
+  const selectionTransform = useRef<SelectionTransform | null>(null);
+  /** Force un rendu pendant un déplacement/redimensionnement de sélection
+   * (les refs ci-dessus ne déclenchent pas de rendu par elles-mêmes). */
+  const [, setSelectionTick] = useState(0);
+  /** Vrai pendant un déplacement/redimensionnement de sélection — sert
+   * uniquement à masquer le menu contextuel pendant le geste (voir JSX). */
+  const [selectionDragging, setSelectionDragging] = useState(false);
+
+  /** Boîte englobante brute (non transformée) de la sélection actuelle, à
+   * partir des éléments réels — recalculée à chaque rendu, coût
+   * négligeable (la sélection ne contient jamais des milliers d'éléments). */
+  function rawSelectionBounds(sel: SelectionIds): Bounds | null {
+    let bounds: Bounds | null = null;
+    for (const s of strokesRef.current) {
+      if (!sel.strokes.has(s.id)) continue;
+      bounds = bounds ? unionBounds(bounds, strokeBounds(s)) : strokeBounds(s);
+    }
+    for (const s of shapesRef.current) {
+      if (!sel.shapes.has(s.id)) continue;
+      bounds = bounds ? unionBounds(bounds, boxBounds(s)) : boxBounds(s);
+    }
+    for (const img of imagesRef.current) {
+      if (!sel.images.has(img.id)) continue;
+      bounds = bounds ? unionBounds(bounds, boxBounds(img)) : boxBounds(img);
+    }
+    for (const t of textBoxesRef.current) {
+      if (!sel.textBoxes.has(t.id)) continue;
+      const h = textBoxHeights.current.get(t.id) ?? MIN_TEXTBOX_HIT_HEIGHT;
+      const b = textBoxBounds(t, h);
+      bounds = bounds ? unionBounds(bounds, b) : b;
+    }
+    return bounds;
+  }
+
+  /** Applique la transformation "en direct" (voir `selectionTransform`) à
+   * une boîte englobante — une translation/mise à l'échelle de bbox est
+   * juste la même transformation appliquée à ses deux coins. */
+  function displayBounds(bounds: Bounds): Bounds {
+    const t = selectionTransform.current;
+    if (!t) return bounds;
+    if ("dx" in t) {
+      return { x0: bounds.x0 + t.dx, y0: bounds.y0 + t.dy, x1: bounds.x1 + t.dx, y1: bounds.y1 + t.dy };
+    }
+    const scalePt = (x: number, y: number) => ({
+      x: t.anchor.x + (x - t.anchor.x) * t.scale,
+      y: t.anchor.y + (y - t.anchor.y) * t.scale,
+    });
+    const p0 = scalePt(bounds.x0, bounds.y0);
+    const p1 = scalePt(bounds.x1, bounds.y1);
+    return { x0: Math.min(p0.x, p1.x), y0: Math.min(p0.y, p1.y), x1: Math.max(p0.x, p1.x), y1: Math.max(p0.y, p1.y) };
+  }
+
+  /** Poignée de coin (ou `null`) sous (x, y) pour la sélection actuelle. */
+  function selectionHandleHitTest(bounds: Bounds, x: number, y: number): SelectionHandle | null {
+    const corners: Record<SelectionHandle, Point> = {
+      nw: { x: bounds.x0, y: bounds.y0 },
+      ne: { x: bounds.x1, y: bounds.y0 },
+      se: { x: bounds.x1, y: bounds.y1 },
+      sw: { x: bounds.x0, y: bounds.y1 },
+    };
+    for (const handle of Object.keys(corners) as SelectionHandle[]) {
+      const c = corners[handle];
+      if (Math.hypot(c.x - x, c.y - y) <= SELECTION_HANDLE_RADIUS + 6) return handle;
+    }
+    return null;
+  }
+
+  function isPointInBounds(bounds: Bounds, x: number, y: number): boolean {
+    return x >= bounds.x0 && x <= bounds.x1 && y >= bounds.y0 && y <= bounds.y1;
+  }
+
+  /** Démarre un déplacement/redimensionnement de la sélection actuelle. */
+  function beginSelectionDrag(mode: "move" | SelectionHandle, pos: Point, bounds: Bounds) {
+    selectionDragMode.current = { mode, startPos: { x: pos.x, y: pos.y }, startBounds: bounds };
+    selectionTransform.current = mode === "move" ? { dx: 0, dy: 0 } : { anchor: pos, scale: 1 };
+    // État React (pas juste la ref) uniquement pour masquer le menu
+    // contextuel pendant le geste — la boîte/les traits eux-mêmes se
+    // redessinent via scheduleRender()/renderAll, pas via ce state.
+    setSelectionDragging(true);
+  }
+
+  /** Construit les 4 tableaux du document avec la transformation "en
+   * direct" réellement appliquée aux éléments sélectionnés — utilisé une
+   * seule fois, au relâchement (voir commitSelectionDrag), jamais pendant
+   * le geste (l'aperçu pendant le geste est calculé au vol dans renderAll/
+   * displayTextBoxes, sans jamais toucher ces tableaux). */
+  function transformedDocument(sel: SelectionIds, t: SelectionTransform) {
+    const isTranslate = "dx" in t;
+    return {
+      strokes: strokesRef.current.map((s) =>
+        !sel.strokes.has(s.id) ? s : isTranslate ? translateStroke(s, t.dx, t.dy) : scaleStroke(s, t.anchor, t.scale),
+      ),
+      shapes: shapesRef.current.map((s) =>
+        !sel.shapes.has(s.id) ? s : isTranslate ? translateShape(s, t.dx, t.dy) : scaleShape(s, t.anchor, t.scale),
+      ),
+      images: imagesRef.current.map((img) =>
+        !sel.images.has(img.id) ? img : isTranslate ? translateImage(img, t.dx, t.dy) : scaleImage(img, t.anchor, t.scale),
+      ),
+      textBoxes: textBoxesRef.current.map((tb) =>
+        !sel.textBoxes.has(tb.id) ? tb : isTranslate ? translateTextBox(tb, t.dx, t.dy) : scaleTextBox(tb, t.anchor, t.scale),
+      ),
+    };
+  }
+
+  /** Termine un déplacement/redimensionnement de sélection et committe le
+   * résultat en une seule action Undo — comme `commitImageInteraction`. */
+  function commitSelectionDrag() {
+    const drag = selectionDragMode.current;
+    const t = selectionTransform.current;
+    selectionDragMode.current = null;
+    selectionTransform.current = null;
+    setSelectionDragging(false);
+    if (!drag || !t || !selection) return;
+    const hasMoved = "dx" in t ? t.dx !== 0 || t.dy !== 0 : t.scale !== 1;
+    if (!hasMoved) return;
+    commitDoc(transformedDocument(selection, t));
+  }
+
+  /** Copie profonde des éléments sélectionnés — utilisée par Copier/
+   * Couper/Dupliquer. Ne touche jamais `commitDoc` elle-même : Copier ne
+   * doit rien committer, seul Dupliquer/Coller/Supprimer le font. */
+  function cloneSelected(sel: SelectionIds): LassoClipboardData {
+    return {
+      strokes: strokesRef.current.filter((s) => sel.strokes.has(s.id)).map((s) => ({ ...s, points: s.points.map((p) => ({ ...p })) })),
+      shapes: shapesRef.current.filter((s) => sel.shapes.has(s.id)).map((s) => ({ ...s })),
+      images: imagesRef.current.filter((img) => sel.images.has(img.id)).map((img) => ({ ...img })),
+      textBoxes: textBoxesRef.current.filter((tb) => sel.textBoxes.has(tb.id)).map((tb) => ({ ...tb })),
+    };
+  }
+
+  /** Insère une copie de `data` dans le document courant avec de nouveaux
+   * ids et un léger décalage visuel, committe en une seule action Undo, et
+   * en fait la nouvelle sélection — partagé par Dupliquer et Coller. */
+  function insertClipboardData(data: LassoClipboardData) {
+    const strokes = data.strokes.map((s) => ({
+      ...s,
+      id: crypto.randomUUID(),
+      points: s.points.map((p) => ({ ...p, x: p.x + DUPLICATE_OFFSET, y: p.y + DUPLICATE_OFFSET })),
+    }));
+    const shapes = data.shapes.map((s) => ({ ...s, id: crypto.randomUUID(), x: s.x + DUPLICATE_OFFSET, y: s.y + DUPLICATE_OFFSET }));
+    const images = data.images.map((img) => ({
+      ...img,
+      id: crypto.randomUUID(),
+      x: img.x + DUPLICATE_OFFSET,
+      y: img.y + DUPLICATE_OFFSET,
+    }));
+    const textBoxes = data.textBoxes.map((tb) => ({
+      ...tb,
+      id: crypto.randomUUID(),
+      x: tb.x + DUPLICATE_OFFSET,
+      y: tb.y + DUPLICATE_OFFSET,
+    }));
+    commitDoc({
+      strokes: [...strokesRef.current, ...strokes],
+      shapes: [...shapesRef.current, ...shapes],
+      images: [...imagesRef.current, ...images],
+      textBoxes: [...textBoxesRef.current, ...textBoxes],
+    });
+    setSelection({
+      strokes: new Set(strokes.map((s) => s.id)),
+      shapes: new Set(shapes.map((s) => s.id)),
+      images: new Set(images.map((s) => s.id)),
+      textBoxes: new Set(textBoxes.map((s) => s.id)),
+    });
+  }
+
+  function handleSelectionCopy() {
+    if (!selection) return;
+    onClipboardChange?.(cloneSelected(selection));
+  }
+
+  function handleSelectionCut() {
+    if (!selection) return;
+    onClipboardChange?.(cloneSelected(selection));
+    handleSelectionDelete();
+  }
+
+  function handleSelectionDuplicate() {
+    if (!selection) return;
+    insertClipboardData(cloneSelected(selection));
+  }
+
+  // Exposée telle quelle (pas de useCallback) via useImperativeHandle
+  // (voir plus bas, qui la liste explicitement dans ses dépendances) :
+  // n'est déclenchée que par un clic explicite sur "Coller", jamais un
+  // chemin de rendu chaud — mémoïser toute la chaîne
+  // (cloneSelected/insertClipboardData) pour ce seul appel n'apporterait
+  // rien.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  function handleSelectionPaste() {
+    if (!clipboard) return;
+    insertClipboardData(clipboard);
+  }
+
+  /** Supprime tous les éléments sélectionnés en une seule action Undo. */
+  function handleSelectionDelete() {
+    if (!selection) return;
+    commitDoc({
+      strokes: strokesRef.current.filter((s) => !selection.strokes.has(s.id)),
+      shapes: shapesRef.current.filter((s) => !selection.shapes.has(s.id)),
+      images: imagesRef.current.filter((img) => !selection.images.has(img.id)),
+      textBoxes: textBoxesRef.current.filter((tb) => !selection.textBoxes.has(tb.id)),
+    });
+    setSelection(null);
+  }
+
   /** Outil "Déplacement" (main) : fait défiler la feuille au glisser, sans
    * jamais dessiner ni modifier le contenu — équivalent de l'outil main de
    * Photoshop / du mode scroll de Notability. */
@@ -594,20 +891,32 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     drawSheetPattern(ctx, sheetType, PAGE_WIDTH, PAGE_HEIGHT, backgroundColor);
     const isDarkBg = isColorDark(backgroundColor);
 
+    const selTransform = selectionTransform.current;
     for (const imageEl of imagesRef.current) {
       if (erasedImageIds.current?.has(imageEl.id)) continue;
-      const preview = dragPreview.current?.id === imageEl.id ? dragPreview.current : imageEl;
+      let preview = dragPreview.current?.id === imageEl.id ? dragPreview.current : imageEl;
+      if (selTransform && selection?.images.has(imageEl.id)) {
+        preview = applySelectionTransform(imageEl, selTransform, translateImage, scaleImage);
+      }
       const img = getOrLoadImage(preview.src);
       if (img) drawImageElement(ctx, preview, img);
     }
     const strokesToRender = partialErasePreview.current ?? strokesRef.current;
     for (const stroke of strokesToRender) {
       if (erasedStrokeIds.current?.has(stroke.id)) continue;
-      drawStroke(ctx, stroke, isDarkBg);
+      const display =
+        selTransform && selection?.strokes.has(stroke.id)
+          ? applySelectionTransform(stroke, selTransform, translateStroke, scaleStroke)
+          : stroke;
+      drawStroke(ctx, display, isDarkBg);
     }
     for (const shape of shapesRef.current) {
       if (erasedShapeIds.current?.has(shape.id)) continue;
-      drawShape(ctx, shape);
+      const display =
+        selTransform && selection?.shapes.has(shape.id)
+          ? applySelectionTransform(shape, selTransform, translateShape, scaleShape)
+          : shape;
+      drawShape(ctx, display);
     }
 
     if (snapAnimation.current) {
@@ -709,6 +1018,52 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       if (previewSelected) drawImageSelection(ctx, previewSelected);
     }
 
+    if (tool === "lasso") {
+      if (lassoPath.current.length > 1) {
+        // Tracé temporaire du lasso — fin, semi-transparent, jamais dans
+        // Document : purement un aperçu du geste en cours.
+        ctx.save();
+        ctx.strokeStyle = "rgba(31, 92, 74, 0.55)";
+        ctx.fillStyle = "rgba(31, 92, 74, 0.08)";
+        ctx.lineWidth = 1.25;
+        ctx.setLineDash([5, 4]);
+        ctx.beginPath();
+        ctx.moveTo(lassoPath.current[0].x, lassoPath.current[0].y);
+        for (let i = 1; i < lassoPath.current.length; i++) {
+          ctx.lineTo(lassoPath.current[i].x, lassoPath.current[i].y);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      } else if (selection) {
+        const raw = rawSelectionBounds(selection);
+        if (raw) {
+          const b = displayBounds(raw);
+          ctx.save();
+          ctx.strokeStyle = "rgba(31, 92, 74, 0.85)";
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([6, 4]);
+          ctx.strokeRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0);
+          ctx.setLineDash([]);
+          ctx.fillStyle = "#ffffff";
+          const corners: Point[] = [
+            { x: b.x0, y: b.y0 },
+            { x: b.x1, y: b.y0 },
+            { x: b.x1, y: b.y1 },
+            { x: b.x0, y: b.y1 },
+          ];
+          for (const c of corners) {
+            ctx.beginPath();
+            ctx.arc(c.x, c.y, SELECTION_HANDLE_RADIUS / 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+      }
+    }
+
     if (tool === "eraser" && hoverEraserPos.current) {
       // Le contour de la zone d'effacement reste visible dans tous les
       // modes (Précise/Trait entier/Surlignage) — pas seulement en mode
@@ -739,6 +1094,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     selectedImageId,
     eraserMode,
     eraserRadius,
+    selection,
   ]);
 
   const scheduleRender = useCallback(() => {
@@ -980,7 +1336,16 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     [PAGE_WIDTH, PAGE_HEIGHT, commitDoc],
   );
 
-  useImperativeHandle(ref, () => ({ undo, redo, importPhotos }), [undo, redo, importPhotos]);
+  // handleSelectionPaste n'est pas mémoïsée (useCallback) : elle ferme sur
+  // `clipboard`, qui change au fil des Copier/Couper sur n'importe quelle
+  // page (voir NotesPageClient) — l'omettre des dépendances laisserait
+  // `paste` capturer un presse-papiers périmé tant qu'aucune des autres
+  // dépendances ne change (voir aussi le commentaire sur sa définition).
+  useImperativeHandle(
+    ref,
+    () => ({ undo, redo, importPhotos, paste: handleSelectionPaste }),
+    [undo, redo, importPhotos, handleSelectionPaste],
+  );
 
   function getPos(e: React.PointerEvent<HTMLCanvasElement>): StrokePoint {
     const canvas = canvasRef.current!;
@@ -1426,6 +1791,8 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         rulerStrokeEdge.current = null;
         imageDragMode.current = null;
         dragPreview.current = null;
+        selectionDragMode.current = null;
+        selectionTransform.current = null;
         panState.current = null;
         setIsPanning(false);
         if (holdTimer.current) {
@@ -1591,6 +1958,31 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         scheduleHoldCheck(pos, "highlighter");
       }
       scheduleRender();
+    } else if (tool === "lasso") {
+      const raw = selection ? rawSelectionBounds(selection) : null;
+      if (raw) {
+        const handle = selectionHandleHitTest(raw, pos.x, pos.y);
+        if (handle) {
+          beginSelectionDrag(handle, pos, raw);
+          scheduleRender();
+        } else if (isPointInBounds(raw, pos.x, pos.y)) {
+          beginSelectionDrag("move", pos, raw);
+          scheduleRender();
+        } else {
+          // Clic/tap hors sélection : désélectionne, doigt inclus (§15 du
+          // plan validé). Seuls le Pencil/la souris enchaînent aussitôt sur
+          // un nouveau lasso à cet endroit — le doigt ne dessine jamais de
+          // lasso, seulement le Pencil/la souris.
+          setSelection(null);
+          if (e.pointerType !== "touch") {
+            lassoPath.current = [{ x: pos.x, y: pos.y }];
+          }
+          scheduleRender();
+        }
+      } else if (e.pointerType !== "touch") {
+        lassoPath.current = [{ x: pos.x, y: pos.y }];
+        scheduleRender();
+      }
     } else {
       currentStroke.current = {
         id: crypto.randomUUID(),
@@ -1708,6 +2100,48 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
 
     if (tool === "photo") {
       updateImageInteractionPreview(pos);
+      return;
+    }
+
+    if (tool === "lasso") {
+      const drag = selectionDragMode.current;
+      if (drag) {
+        if (drag.mode === "move") {
+          selectionTransform.current = { dx: pos.x - drag.startPos.x, dy: pos.y - drag.startPos.y };
+        } else {
+          // Redimensionnement : échelle uniforme (ratio de distance depuis
+          // le coin opposé, qui reste fixe) — préserve les proportions et
+          // ancre au coin opposé, quel que soit l'angle du glisser.
+          const opposite: Record<SelectionHandle, SelectionHandle> = { nw: "se", ne: "sw", se: "nw", sw: "ne" };
+          const b = drag.startBounds;
+          const cornerOf = (h: SelectionHandle): Point => ({
+            x: h === "nw" || h === "sw" ? b.x0 : b.x1,
+            y: h === "nw" || h === "ne" ? b.y0 : b.y1,
+          });
+          const anchor = cornerOf(opposite[drag.mode]);
+          const startCorner = cornerOf(drag.mode);
+          const startDist = Math.hypot(startCorner.x - anchor.x, startCorner.y - anchor.y) || 1;
+          const nowDist = Math.hypot(pos.x - anchor.x, pos.y - anchor.y);
+          selectionTransform.current = { anchor, scale: Math.max(MIN_SELECTION_SCALE, nowDist / startDist) };
+        }
+        // Les traits/formes/photos se redessinent via renderAll (canvas,
+        // scheduleRender suffit) ; les blocs de texte sélectionnés sont du
+        // DOM (voir displayTextBoxes) et ont besoin d'un rendu React pour
+        // suivre — seulement quand la sélection en contient, pour ne pas
+        // déclencher de rendu React inutile sur un déplacement de traits.
+        if (selection && selection.textBoxes.size > 0) {
+          setSelectionTick((t) => t + 1);
+        }
+        scheduleRender();
+        return;
+      }
+      if (lassoPath.current.length > 0 && e.pointerType !== "touch") {
+        const last = lassoPath.current[lassoPath.current.length - 1];
+        if (Math.hypot(pos.x - last.x, pos.y - last.y) >= LASSO_MIN_POINT_SPACING) {
+          lassoPath.current = [...lassoPath.current, { x: pos.x, y: pos.y }];
+          scheduleRender();
+        }
+      }
       return;
     }
 
@@ -1852,6 +2286,53 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
 
     if (tool === "photo") {
       commitImageInteraction();
+      activePointerId.current = null;
+      scheduleRender();
+      onActionComplete?.();
+      return;
+    }
+
+    if (tool === "lasso") {
+      if (selectionDragMode.current) {
+        // Déplacement/redimensionnement d'une sélection existante : un seul
+        // commitDoc (voir commitSelectionDrag), donc une seule action Undo.
+        commitSelectionDrag();
+        activePointerId.current = null;
+        scheduleRender();
+        onActionComplete?.();
+        return;
+      }
+      const path = lassoPath.current;
+      lassoPath.current = [];
+      if (path.length > 2) {
+        // Sélection calculée une seule fois, ici, jamais pendant le tracé
+        // (voir plan validé) — préfiltrage par bounding box avant le test
+        // précis, pour rester rapide même avec des milliers de traits.
+        const lassoBounds = boundsOfPoints(path);
+        const next: SelectionIds = { strokes: new Set(), shapes: new Set(), images: new Set(), textBoxes: new Set() };
+        for (const s of strokesRef.current) {
+          if (!boundsIntersect(strokeBounds(s), lassoBounds)) continue;
+          if (strokeMostlyInPolygon(s, path)) next.strokes.add(s.id);
+        }
+        for (const s of shapesRef.current) {
+          const b = boxBounds(s);
+          if (!boundsIntersect(b, lassoBounds)) continue;
+          if (boundsMostlyInPolygon(b, path)) next.shapes.add(s.id);
+        }
+        for (const img of imagesRef.current) {
+          const b = boxBounds(img);
+          if (!boundsIntersect(b, lassoBounds)) continue;
+          if (boundsMostlyInPolygon(b, path)) next.images.add(img.id);
+        }
+        for (const tb of textBoxesRef.current) {
+          const h = textBoxHeights.current.get(tb.id) ?? MIN_TEXTBOX_HIT_HEIGHT;
+          const b = textBoxBounds(tb, h);
+          if (!boundsIntersect(b, lassoBounds)) continue;
+          if (boundsMostlyInPolygon(b, path)) next.textBoxes.add(tb.id);
+        }
+        const hasAny = next.strokes.size > 0 || next.shapes.size > 0 || next.images.size > 0 || next.textBoxes.size > 0;
+        setSelection(hasAny ? next : null);
+      }
       activePointerId.current = null;
       scheduleRender();
       onActionComplete?.();
@@ -2022,6 +2503,10 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     lastEraserPos.current = null;
     imageDragMode.current = null;
     dragPreview.current = null;
+    selectionDragMode.current = null;
+    selectionTransform.current = null;
+    setSelectionDragging(false);
+    lassoPath.current = [];
     panState.current = null;
     setIsPanning(false);
     activePointerId.current = null;
@@ -2086,22 +2571,28 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
           et seulement avec l'outil "T" actif (voir la prop `interactive`
           de TextBoxOverlay). */}
       <div className="absolute inset-0" style={{ pointerEvents: "none" }}>
-        {[...textBoxes, ...draftTextBoxes].map((tb) => (
-          <TextBoxOverlay
-            key={tb.id}
-            element={tb}
-            pageWidth={PAGE_WIDTH}
-            pageHeight={PAGE_HEIGHT}
-            selected={selectedTextBoxId === tb.id}
-            interactive={tool === "text"}
-            autoFocus={autoFocusTextBoxId === tb.id}
-            onSelect={() => handleTextBoxSelect(tb.id)}
-            onCommit={(html, isEmpty) => handleTextBoxCommit(tb.id, html, isEmpty)}
-            onMoveEnd={(x, y) => handleTextBoxMoveEnd(tb.id, x, y)}
-            onResizeEnd={(width) => handleTextBoxResizeEnd(tb.id, width)}
-            onHeightChange={(height) => handleTextBoxHeightChange(tb.id, height)}
-          />
-        ))}
+        {[...textBoxes, ...draftTextBoxes].map((tb) => {
+          const displayTb =
+            selection?.textBoxes.has(tb.id) && selectionTransform.current
+              ? applySelectionTransform(tb, selectionTransform.current, translateTextBox, scaleTextBox)
+              : tb;
+          return (
+            <TextBoxOverlay
+              key={tb.id}
+              element={displayTb}
+              pageWidth={PAGE_WIDTH}
+              pageHeight={PAGE_HEIGHT}
+              selected={selectedTextBoxId === tb.id}
+              interactive={tool === "text"}
+              autoFocus={autoFocusTextBoxId === tb.id}
+              onSelect={() => handleTextBoxSelect(tb.id)}
+              onCommit={(html, isEmpty) => handleTextBoxCommit(tb.id, html, isEmpty)}
+              onMoveEnd={(x, y) => handleTextBoxMoveEnd(tb.id, x, y)}
+              onResizeEnd={(width) => handleTextBoxResizeEnd(tb.id, width)}
+              onHeightChange={(height) => handleTextBoxHeightChange(tb.id, height)}
+            />
+          );
+        })}
       </div>
 
       {/* Règle : instrument temporaire d'interface, jamais du contenu — voir
@@ -2112,6 +2603,33 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       {rulerActive && ruler && (
         <RulerOverlay ruler={ruler} pageWidth={PAGE_WIDTH} pageHeight={PAGE_HEIGHT} rotating={rulerRotating} />
       )}
+
+      {/* Menu contextuel du Lasso : masqué pendant le geste de déplacement/
+          redimensionnement (voir `selectionDragging`) pour ne pas se figer
+          dans son ancienne position pendant que la boîte bouge (le menu
+          n'a pas besoin de suivre en direct, seulement une fois le geste
+          terminé). Jamais du contenu — comme la Règle, purement de l'UI. */}
+      {tool === "lasso" &&
+        selection &&
+        !selectionDragging &&
+        (() => {
+          const bounds = rawSelectionBounds(selection);
+          if (!bounds) return null;
+          const leftPct = ((bounds.x0 + bounds.x1) / 2 / PAGE_WIDTH) * 100;
+          const topPagePct = (bounds.y0 / PAGE_HEIGHT) * 100;
+          const below = topPagePct < 8;
+          return (
+            <SelectionContextMenu
+              leftPct={leftPct}
+              topPct={below ? (bounds.y1 / PAGE_HEIGHT) * 100 : topPagePct}
+              below={below}
+              onCopy={handleSelectionCopy}
+              onCut={handleSelectionCut}
+              onDuplicate={handleSelectionDuplicate}
+              onDelete={handleSelectionDelete}
+            />
+          );
+        })()}
 
       {debugHoldDetection && (
         <div className="pointer-events-none fixed right-2 top-2 z-50 max-h-[65vh] overflow-y-auto rounded-lg bg-black/80 px-3 py-2 font-mono text-[11px] leading-relaxed text-white">
