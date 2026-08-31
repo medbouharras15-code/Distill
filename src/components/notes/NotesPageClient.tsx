@@ -126,6 +126,19 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
   const [shapeColor, setShapeColor] = useState(SHAPE_COLORS[0].value);
   const [shapeStrokeWidth, setShapeStrokeWidth] = useState(SHAPE_STROKE_WIDTHS[2]);
 
+  /** Instrument auxiliaire, pas un outil de dessin : indépendant de `tool`
+   * (comme `aiOpen`), Crayon/Stylo/etc. restent sélectionnés pendant que la
+   * Règle est active. Une seule page à la fois "possède" une règle visible
+   * — celle qui a reçu le dernier `pointerdown` (`currentPageId`, déjà
+   * suivi plus bas) ; passer sur une autre page et y interagir en fait
+   * naturellement la nouvelle propriétaire (voir la prop rulerActive de
+   * chaque NotesCanvas ci-dessous). */
+  const [rulerActive, setRulerActive] = useState(false);
+
+  function toggleRuler() {
+    setRulerActive((v) => !v);
+  }
+
   // Panneau IA (résumé/flashcards à partir de texte/photo/PDF) — repris de
   // l'ancien écran DistillApp, voir @/components/notes/AiPanel. Ouvert par
   // défaut via ?ai=1 (lien "IA Distill" de la sidebar / carte IA du
@@ -563,6 +576,7 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
                     }}
                     initialDocument={initialDocumentsById.get(page.id)}
                     onDocChange={(doc) => handlePageDocChange(page.id, index, doc)}
+                    rulerActive={rulerActive && page.id === currentPageId}
                   />
                 </div>
               </div>
@@ -671,6 +685,8 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
               onFitToScreen={resetZoom}
               aiOpen={aiOpen}
               onToggleAi={toggleAi}
+              rulerActive={rulerActive}
+              onToggleRuler={toggleRuler}
             />
           </div>
         </div>

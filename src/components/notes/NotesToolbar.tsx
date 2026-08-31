@@ -366,6 +366,10 @@ interface NotesToolbarProps {
 
   aiOpen: boolean;
   onToggleAi: () => void;
+
+  /** Instrument auxiliaire, indépendant de `tool` — voir NotesPageClient. */
+  rulerActive: boolean;
+  onToggleRuler: () => void;
 }
 
 export function NotesToolbar({
@@ -412,6 +416,8 @@ export function NotesToolbar({
   onFitToScreen,
   aiOpen,
   onToggleAi,
+  rulerActive,
+  onToggleRuler,
 }: NotesToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [moreHighlighterOptionsOpen, setMoreHighlighterOptionsOpen] = useState(false);
@@ -497,7 +503,14 @@ export function NotesToolbar({
               fallback={<EraserIcon className="h-5 w-5" />}
               onClick={onSelectEraser}
             />
-            <ToolButton disabled active={false} label="Règle" iconKey="ruler" fallback={<RulerIcon className="h-5 w-5" />} />
+            <ToolButton
+              active={rulerActive}
+              label="Règle"
+              iconKey="ruler"
+              fallback={<RulerIcon className="h-5 w-5" />}
+              onClick={onToggleRuler}
+              title="Règle (reste active avec l'outil de dessin choisi)"
+            />
             <ToolButton disabled active={false} label="Lasso" iconKey="lasso" fallback={<LassoIcon className="h-5 w-5" />} />
             <ToolButton
               active={tool === "text"}

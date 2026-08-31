@@ -42,7 +42,18 @@ import {
 } from "@/lib/notes/canvasUtils";
 import { getPageDimensions } from "@/lib/notes/sheets";
 import { computeSnapTargets, detectFreehandShape, type ShapeDetectionResult } from "@/lib/notes/shapeDetection";
+import {
+  RULER_SNAP_THRESHOLD,
+  RULER_THICKNESS,
+  closestEdge,
+  isPointOnRuler,
+  projectOntoEdge,
+  snapAngle,
+  type RulerEdge,
+  type RulerState,
+} from "@/lib/notes/ruler";
 import { TextBoxOverlay } from "./TextBoxOverlay";
+import { RulerOverlay } from "./RulerOverlay";
 
 function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
@@ -300,6 +311,12 @@ interface NotesCanvasProps {
    * l'autosauvegarde, voir NotesPageClient — absent pour un visiteur non
    * connecté (aucun appel réseau dans ce cas). */
   onDocChange?: (doc: Document) => void;
+  /** Vrai seulement pour la page qui "possède" actuellement la Règle (la
+   * dernière touchée pendant que l'instrument est actif, voir
+   * NotesPageClient) — une seule page à la fois a une règle visible/
+   * interactive. Un simple toggle indépendant de `tool` : Stylo/Crayon/etc.
+   * restent sélectionnés pendant que la Règle est active. */
+  rulerActive?: boolean;
 }
 
 export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(function NotesCanvas(
@@ -331,6 +348,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     onHistoryChange,
     initialDocument,
     onDocChange,
+    rulerActive = false,
   },
   ref,
 ) {
@@ -338,6 +356,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
 
   const [strokes, setStrokes] = useState<Stroke[]>(() => initialDocument?.strokes ?? []);
   const [shapes, setShapes] = useState<ShapeElement[]>(() => initialDocument?.shapes ?? []);
@@ -413,6 +432,61 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
    * geste (pincement, molette) et déléguer le calcul au parent. */
   const touchPoints = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinchState = useRef<{ initialDistance: number; initialZoom: number } | null>(null);
+
+  /** Géométrie de la Règle pour cette page — `null` tant qu'elle n'a jamais
+   * été activée ici (voir positionnement initial dans l'effet ci-dessous).
+   * Volontairement un `useState` LOCAL à ce composant, jamais lu par
+   * `commitDoc`/`Document` : la Règle n'est jamais un `Stroke`, jamais
+   * sauvegardée, jamais dans undo/redo — seuls les traits qu'elle contraint
+   * (voir applyRulerConstraint) deviennent de vraies données. */
+  const [ruler, setRuler] = useState<RulerState | null>(null);
+  /** pointerId des doigts actuellement posés sur le corps de la règle (0,
+   * 1 ou 2) — distinct de `touchPoints`/`pinchState` du pincement-zoom : un
+   * doigt sur la règle ne doit jamais déclencher le zoom (voir
+   * handlePointerDown). */
+  const rulerTouchIds = useRef<number[]>([]);
+  const rulerLiveClientPos = useRef<Map<number, { x: number; y: number }>>(new Map());
+  /** Instantané pris à chaque changement du nombre de doigts sur la règle
+   * (0→1, 1→2, 2→1) : position de la règle + positions écran des doigts
+   * *à cet instant*, pour calculer un delta de translation/rotation sans
+   * jamais faire "sauter" la règle au changement de doigt. */
+  const rulerGestureStart = useRef<{ ruler: RulerState; touches: Map<number, { x: number; y: number }> } | null>(
+    null,
+  );
+  const [rulerRotating, setRulerRotating] = useState(false);
+  /** Bord de la règle auquel le trait en cours est accroché (voir
+   * `RULER_SNAP_THRESHOLD`) — décidé une seule fois au posé du Pencil, pour
+   * toute la durée du trait ; `null` = trait libre, la Règle est présente
+   * mais ne le contraint pas. */
+  const rulerStrokeEdge = useRef<RulerEdge | null>(null);
+
+  /** Position/angle initiaux de la Règle à sa toute première activation
+   * pour cette page : centrée horizontalement, verticalement au milieu de
+   * la portion actuellement visible dans le conteneur de défilement
+   * partagé — pas toujours au centre de la page entière (l'utilisateur
+   * peut être scrollé n'importe où dans une longue page). Ne se déclenche
+   * qu'une fois par page (garde `ruler === null`) ; les activations
+   * suivantes gardent la position/l'angle où l'utilisateur les a laissés. */
+  useEffect(() => {
+    if (!rulerActive || ruler !== null) return;
+    const root = rootRef.current;
+    const container = containerRef.current;
+    let initY = PAGE_HEIGHT / 2;
+    if (root && container) {
+      const rootRect = root.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      const visibleTop = Math.max(rootRect.top, containerRect.top);
+      const visibleBottom = Math.min(rootRect.bottom, containerRect.bottom);
+      if (visibleBottom > visibleTop && rootRect.height > 0) {
+        const visibleCenterClientY = (visibleTop + visibleBottom) / 2;
+        const scaleY = PAGE_HEIGHT / rootRect.height;
+        initY = (visibleCenterClientY - rootRect.top) * scaleY;
+        initY = Math.max(RULER_THICKNESS, Math.min(PAGE_HEIGHT - RULER_THICKNESS, initY));
+      }
+    }
+    setRuler({ x: PAGE_WIDTH / 2, y: initY, angleDeg: 0 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rulerActive]);
 
   /** Outil "Déplacement" (main) : fait défiler la feuille au glisser, sans
    * jamais dessiner ni modifier le contenu — équivalent de l'outil main de
@@ -925,6 +999,67 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     };
   }
 
+  /** Recalcule `ruler` à partir de `rulerGestureStart` et des positions
+   * écran actuelles des doigts qui la manipulent — 1 doigt = translation
+   * directe, 2 doigts = rotation autour du centre actuel (position figée
+   * pendant la phase à 2 doigts, voir `endRulerTouch` pour la reprise en
+   * douceur au retour à 1 doigt). L'angle utilise directement les
+   * coordonnées écran (clientX/clientY) : un delta d'angle entre deux
+   * vecteurs est déjà invariant à l'échelle, pas besoin de conversion
+   * écran→document ici (contrairement à la translation, qui doit l'être). */
+  function updateRulerFromGesture() {
+    const start = rulerGestureStart.current;
+    const canvas = canvasRef.current;
+    if (!start || !canvas) return;
+    const ids = rulerTouchIds.current;
+
+    if (ids.length === 1) {
+      const id = ids[0];
+      const startClient = start.touches.get(id);
+      const nowClient = rulerLiveClientPos.current.get(id);
+      if (!startClient || !nowClient) return;
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = PAGE_WIDTH / rect.width;
+      const scaleY = PAGE_HEIGHT / rect.height;
+      const dx = (nowClient.x - startClient.x) * scaleX;
+      const dy = (nowClient.y - startClient.y) * scaleY;
+      setRuler({ ...start.ruler, x: start.ruler.x + dx, y: start.ruler.y + dy });
+    } else if (ids.length === 2) {
+      const [id1, id2] = ids;
+      const s1 = start.touches.get(id1);
+      const s2 = start.touches.get(id2);
+      const n1 = rulerLiveClientPos.current.get(id1);
+      const n2 = rulerLiveClientPos.current.get(id2);
+      if (!s1 || !s2 || !n1 || !n2) return;
+      const startAngle = Math.atan2(s2.y - s1.y, s2.x - s1.x);
+      const nowAngle = Math.atan2(n2.y - n1.y, n2.x - n1.x);
+      const deltaDeg = ((nowAngle - startAngle) * 180) / Math.PI;
+      setRuler({ ...start.ruler, angleDeg: snapAngle(start.ruler.angleDeg + deltaDeg) });
+    }
+  }
+
+  /** Retire `pointerId` du geste de manipulation de la règle en cours, s'il
+   * y participait — renvoie faux sinon (rien à faire, geste normal). Passer
+   * de 2 à 1 doigt reprend une translation depuis une base fraîche (pas de
+   * saut) plutôt que de simplement arrêter le geste. */
+  function endRulerTouch(pointerId: number): boolean {
+    if (!rulerTouchIds.current.includes(pointerId)) return false;
+    rulerTouchIds.current = rulerTouchIds.current.filter((id) => id !== pointerId);
+    rulerLiveClientPos.current.delete(pointerId);
+    if (rulerTouchIds.current.length === 0) {
+      rulerGestureStart.current = null;
+      setRulerRotating(false);
+    } else if (ruler) {
+      const remainingId = rulerTouchIds.current[0];
+      const remainingClient = rulerLiveClientPos.current.get(remainingId);
+      rulerGestureStart.current = remainingClient
+        ? { ruler: { ...ruler }, touches: new Map([[remainingId, remainingClient]]) }
+        : null;
+      setRulerRotating(false);
+    }
+    return true;
+  }
+
   /** Tente de sélectionner une image existante (ou une de ses poignées de
    * redimensionnement) à la position donnée, et amorce son déplacement ou
    * redimensionnement le cas échéant. Factorisée pour être appelée aussi
@@ -1254,6 +1389,22 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
 
   function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
     if (e.pointerType === "touch") {
+      // Doigt sur le corps de la règle : démarre/rejoint son geste de
+      // déplacement (1 doigt) ou de rotation (2e doigt) — jamais le
+      // pincement-zoom, même si un 2e doigt touche par ailleurs (voir plus
+      // bas, la vérification classique de `touchPoints`/`pinchState` n'est
+      // atteinte que pour un contact qui n'est PAS sur la règle).
+      if (rulerActive && ruler && rulerTouchIds.current.length < 2) {
+        const docPos = getPos(e);
+        if (isPointOnRuler(ruler, docPos.x, docPos.y)) {
+          rulerTouchIds.current = [...rulerTouchIds.current, e.pointerId];
+          rulerLiveClientPos.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          rulerGestureStart.current = { ruler: { ...ruler }, touches: new Map(rulerLiveClientPos.current) };
+          setRulerRotating(rulerTouchIds.current.length === 2);
+          scheduleRender();
+          return;
+        }
+      }
       touchPoints.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (touchPoints.current.size >= 2) {
         // Geste de pincement à deux doigts : on interrompt tout tracé en
@@ -1272,6 +1423,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         lockedSnap.current = null;
         snapAnimation.current = null;
         holdAnchorPos.current = null;
+        rulerStrokeEdge.current = null;
         imageDragMode.current = null;
         dragPreview.current = null;
         panState.current = null;
@@ -1308,6 +1460,23 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     }
     activePointerId.current = e.pointerId;
     const pos = getPos(e);
+
+    // Règle : si le Pencil se pose assez près d'un de ses deux bords, tout
+    // ce trait (jusqu'au relâchement) s'y accroche — décidé une seule fois
+    // ici, jamais réévalué en cours de geste (voir RULER_SNAP_THRESHOLD).
+    // Le point de départ est lui-même déjà projeté, pour que le tout
+    // premier point du trait soit déjà exactement sur le bord.
+    if (rulerActive && ruler && e.pointerType === "pen" && (tool === "pen" || tool === "highlighter")) {
+      const { edge, distance } = closestEdge(ruler, pos.x, pos.y);
+      rulerStrokeEdge.current = distance <= RULER_SNAP_THRESHOLD ? edge : null;
+      if (rulerStrokeEdge.current) {
+        const projected = projectOntoEdge(rulerStrokeEdge.current, pos.x, pos.y);
+        pos.x = projected.x;
+        pos.y = projected.y;
+      }
+    } else {
+      rulerStrokeEdge.current = null;
+    }
 
     if (e.pointerType === "pen" && (tool === "pen" || tool === "highlighter")) {
       tapStartInfo.current = { x: pos.x, y: pos.y, time: Date.now() };
@@ -1411,9 +1580,10 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         // jamais accumulé comme en mode Libre.
         points: highlighterMode === "straight" ? [pos, pos] : [pos],
       };
-      if (highlighterMode === "freehand") {
-        // Redressement automatique par maintien — seulement en Libre : en
-        // Droit, le tracé est déjà une ligne droite dès le départ.
+      if (highlighterMode === "freehand" && !rulerStrokeEdge.current) {
+        // Redressement automatique par maintien — seulement en Libre et
+        // hors accroche à la Règle : en Droit ou déjà accroché à un bord,
+        // le tracé est déjà une ligne droite, inutile de le redresser.
         scheduleHoldCheck(pos, "highlighter");
       }
       scheduleRender();
@@ -1426,12 +1596,20 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         size: penSize,
         points: [pos],
       };
-      scheduleHoldCheck(pos, "pen");
+      if (!rulerStrokeEdge.current) {
+        scheduleHoldCheck(pos, "pen");
+      }
       scheduleRender();
     }
   }
 
   function handlePointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (e.pointerType === "touch" && rulerTouchIds.current.includes(e.pointerId)) {
+      rulerLiveClientPos.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      updateRulerFromGesture();
+      scheduleRender();
+      return;
+    }
     if (e.pointerType === "touch" && touchPoints.current.has(e.pointerId)) {
       touchPoints.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pinchState.current && touchPoints.current.size >= 2) {
@@ -1469,6 +1647,14 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       lastPenTime.current = Date.now();
     }
     const pos = getPos(e);
+    if (rulerStrokeEdge.current) {
+      // Trait déjà accroché à un bord de la règle (décidé au posé, voir
+      // handlePointerDown) : chaque point suivant est aussi projeté sur ce
+      // même bord, quel que soit le tremblement réel du geste.
+      const projected = projectOntoEdge(rulerStrokeEdge.current, pos.x, pos.y);
+      pos.x = projected.x;
+      pos.y = projected.y;
+    }
 
     if (tapIsCandidate.current && tapStartInfo.current) {
       const start = tapStartInfo.current;
@@ -1546,7 +1732,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
 
     currentStroke.current.points.push(pos);
 
-    if (tool === "pen" || (tool === "highlighter" && highlighterMode === "freehand")) {
+    if (!rulerStrokeEdge.current && (tool === "pen" || (tool === "highlighter" && highlighterMode === "freehand"))) {
       const anchor = holdAnchorPos.current;
       const distanceFromAnchor = anchor ? Math.hypot(pos.x - anchor.x, pos.y - anchor.y) : Infinity;
 
@@ -1578,6 +1764,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       holdTimer.current = null;
     }
     holdAnchorPos.current = null;
+    rulerStrokeEdge.current = null;
 
     if (tool === "pan") {
       if (commitImageInteraction()) {
@@ -1782,13 +1969,25 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   }
 
   function handlePointerUp(e: React.PointerEvent<HTMLCanvasElement>) {
-    if (e.pointerType === "touch") endPinchIfDone(e.pointerId);
+    if (e.pointerType === "touch") {
+      endPinchIfDone(e.pointerId);
+      if (endRulerTouch(e.pointerId)) {
+        scheduleRender();
+        return;
+      }
+    }
     if (activePointerId.current !== e.pointerId) return;
     endStroke();
   }
 
   function handlePointerCancel(e: React.PointerEvent<HTMLCanvasElement>) {
-    if (e.pointerType === "touch") endPinchIfDone(e.pointerId);
+    if (e.pointerType === "touch") {
+      endPinchIfDone(e.pointerId);
+      if (endRulerTouch(e.pointerId)) {
+        scheduleRender();
+        return;
+      }
+    }
     // Coupe l'aperçu au survol de la Gomme dès que le pointeur quitte le
     // canvas (onPointerLeave est câblé sur ce même handler), y compris hors
     // geste actif — sinon il resterait figé après la sortie du curseur.
@@ -1808,6 +2007,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     lockedSnap.current = null;
     snapAnimation.current = null;
     holdAnchorPos.current = null;
+    rulerStrokeEdge.current = null;
     erasedStrokeIds.current = null;
     erasedShapeIds.current = null;
     erasedImageIds.current = null;
@@ -1828,6 +2028,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
 
   return (
     <div
+      ref={rootRef}
       className="relative h-full w-full"
       style={{
         WebkitTouchCallout: "none",
@@ -1898,6 +2099,15 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
           />
         ))}
       </div>
+
+      {/* Règle : instrument temporaire d'interface, jamais du contenu — voir
+          `ruler` (état local, jamais lu par commitDoc/Document). Purement
+          visuel : toute l'interaction (déplacer/tourner/accrocher un tracé)
+          passe par les gestionnaires de pointeur du canvas ci-dessus, pas
+          par cet overlay (`pointer-events: none`). */}
+      {rulerActive && ruler && (
+        <RulerOverlay ruler={ruler} pageWidth={PAGE_WIDTH} pageHeight={PAGE_HEIGHT} rotating={rulerRotating} />
+      )}
 
       {debugHoldDetection && (
         <div className="pointer-events-none fixed right-2 top-2 z-50 max-h-[65vh] overflow-y-auto rounded-lg bg-black/80 px-3 py-2 font-mono text-[11px] leading-relaxed text-white">
