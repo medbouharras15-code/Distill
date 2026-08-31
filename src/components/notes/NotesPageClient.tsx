@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { NotesCanvas, type NotesCanvasHandle, type NotesTool } from "@/components/notes/NotesCanvas";
 import { BackLink } from "@/components/ui";
@@ -59,7 +59,6 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
   const pagesScrollRef = useRef<HTMLDivElement | null>(null);
   const [currentPageId, setCurrentPageId] = useState<string | null>(null);
   const [historyByPage, setHistoryByPage] = useState<Record<string, { canUndo: boolean; canRedo: boolean }>>({});
-  const [slotHeight, setSlotHeight] = useState(0);
 
   const [sheetChosen, setSheetChosen] = useState(false);
   const [sheetPanelOpen, setSheetPanelOpen] = useState(false);
@@ -176,22 +175,17 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
     });
   }
 
-  // Hauteur d'une page dans la liste défilante : la largeur disponible du
-  // conteneur, convertie via le ratio du format papier choisi — pas de
-  // hauteur fixe arbitraire, pour que chaque page ait exactement la même
-  // proportion que la feuille elle-même (comme un affichage à 100 % dans
-  // NotesCanvas, mais borné à sa propre tranche plutôt qu'à tout l'écran).
-  useLayoutEffect(() => {
-    const el = pagesScrollRef.current;
-    if (!el) return;
-    const { width: pageW, height: pageH } = getPageDimensions(paperSize);
-    const ratio = pageH / pageW;
-    const update = () => setSlotHeight(el.clientWidth * ratio);
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [paperSize]);
+  // Hauteur d'une page dans la liste défilante : dérivée en pur CSS
+  // (aspect-ratio, sur la largeur disponible du slot) plutôt que mesurée en
+  // JS et stockée en state — un ancien calcul via ResizeObserver restait
+  // bloqué à 0 sur certains appareils (largeur mesurée avant que le layout
+  // ne se stabilise, sans nouvelle notification ensuite), ce qui laissait
+  // chaque slot sans hauteur fixe : le zoom/déplacement à l'intérieur d'une
+  // page n'avait alors plus aucune marge de défilement verticale. Même
+  // ratio pageH/pageW que l'affichage à 100 % dans NotesCanvas, mais borné
+  // à sa propre tranche plutôt qu'à tout l'écran.
+  const pageDimensions = getPageDimensions(paperSize);
+  const slotAspectRatio = `${pageDimensions.width} / ${pageDimensions.height}`;
 
   // Détermine quelle page est actuellement à l'écran, pour l'indicateur
   // "Page N" et pour cibler Annuler/Rétablir/Ajuster à l'écran/Ajouter une
@@ -295,11 +289,11 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
 
       <div className="relative mt-3 min-h-0 w-full flex-1">
         {/* Liste défilante des pages : chaque page occupe une tranche de
-            hauteur fixe (slotHeight, calculée depuis la largeur disponible
-            et le format papier — voir l'effet plus haut), séparées par une
-            fine ligne. C'est ce conteneur qui défile pour passer d'une page
-            à l'autre ; le défilement interne de chaque NotesCanvas (pan/zoom
-            à l'intérieur d'une page) reste indépendant et inchangé. */}
+            hauteur fixe (aspect-ratio du format papier appliqué au slot,
+            voir slotAspectRatio plus haut), séparées par une fine ligne.
+            C'est ce conteneur qui défile pour passer d'une page à l'autre ;
+            le défilement interne de chaque NotesCanvas (pan/zoom à
+            l'intérieur d'une page) reste indépendant et inchangé. */}
         <div ref={pagesScrollRef} className="h-full w-full overflow-y-auto overflow-x-hidden">
           {pages.map((page, index) => (
             <div key={page.id}>
@@ -311,7 +305,7 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
                   else pageSlotEls.current.delete(page.id);
                 }}
                 onPointerDownCapture={() => setCurrentPageId(page.id)}
-                style={{ height: slotHeight || undefined }}
+                style={{ aspectRatio: slotAspectRatio }}
                 className="w-full"
               >
                 <NotesCanvas
@@ -334,7 +328,6 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
                   paperSize={paperSize}
                   backgroundColor={backgroundColor}
                   debugHoldDetection={debugHoldDetection}
-                  debugSlotHeight={slotHeight}
                   onActionComplete={() => handlePageActionComplete(page.id)}
                   onPenDoubleTap={activateTempEraser}
                   onHistoryChange={(undo, redo) => {
