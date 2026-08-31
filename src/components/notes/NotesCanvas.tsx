@@ -778,10 +778,15 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     const rect = canvas.getBoundingClientRect();
     const scaleX = PAGE_WIDTH / rect.width;
     const scaleY = PAGE_HEIGHT / rect.height;
+    // tiltX/tiltY (degrés, -90 à 90) ne sont fournis que par un stylet
+    // (Apple Pencil) ; 0 pour souris/doigt, d'où la magnitude à 0 dans ce cas
+    // — le Crayon (seul outil qui la lit) affiche alors un trait vertical.
+    const tiltMagnitude = Math.min(1, Math.hypot(e.tiltX || 0, e.tiltY || 0) / 90);
     return {
       x: (e.clientX - rect.left) * scaleX,
       y: (e.clientY - rect.top) * scaleY,
       pressure: e.pressure > 0 ? e.pressure : 0.5,
+      tilt: tiltMagnitude,
     };
   }
 

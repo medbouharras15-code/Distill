@@ -2,6 +2,11 @@ export interface StrokePoint {
   x: number;
   y: number;
   pressure: number;
+  /** Inclinaison du stylet (0 = parfaitement vertical, 1 = couché au
+   * maximum), normalisée depuis tiltX/tiltY de l'Apple Pencil. Absente pour
+   * la souris/le doigt (aucun capteur d'inclinaison) — traitée comme 0 par
+   * le rendu du Crayon, seul outil qui l'utilise. */
+  tilt?: number;
 }
 
 export type PenType = "fineliner" | "ballpoint" | "crayon" | "brush";

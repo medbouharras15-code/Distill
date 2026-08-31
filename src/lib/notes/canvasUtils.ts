@@ -5,11 +5,6 @@ import type { ImageElement, ShapeElement, SheetType, Stroke, StrokePoint } from 
  * s'accumule là où les traits se croisent (comme un vrai surligneur). */
 const HIGHLIGHTER_ALPHA = 0.38;
 
-/** Opacité du crayon : légèrement réduite par rapport à l'encre pleine
- * (fine liner/stylo bille) pour évoquer un trait graphite plus mat, sans
- * changer sa géométrie (même lissage, même épaisseur constante). */
-const CRAYON_ALPHA = 0.82;
-
 /** Opacité du Stylo (fine liner) : proche de 100% mais pas totalement plate,
  * pour une encre qui reste franche sans paraître dessinée en aplat pur. */
 const FINELINER_ALPHA = 0.97;
@@ -125,6 +120,144 @@ function drawSmoothConstantWidthStroke(ctx: CanvasRenderingContext2D, points: St
   ctx.stroke();
 }
 
+/** Hash déterministe (FNV-1a) d'une chaîne vers un entier 32 bits non signé —
+ * sert de graine stable pour le grain du Crayon (voir `mulberry32`). Le
+ * rendu du canvas est en mode "tout redessiner" (`renderAll` efface et
+ * retrace la page entière à chaque changement, y compris pendant qu'un
+ * trait est en train d'être tracé) : un grain tiré via `Math.random()`
+ * scintillerait à chaque redessin. En dérivant la graine de `stroke.id`
+ * (stable, unique par trait) plutôt que de l'horloge, la même séquence de
+ * nombres "aléatoires" est régénérée à l'identique à chaque appel. */
+function hashStringToSeed(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/** Générateur pseudo-aléatoire déterministe (mulberry32) : mêmes graine et
+ * séquence d'appels → mêmes valeurs, à chaque redessin. */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Écart entre points rééchantillonnés du Crayon avant son rendu — plus fin
+ * que `PEN_RESAMPLE_STEP` du Stylo car c'est aussi la granularité à laquelle
+ * le grain est semé (voir `drawCrayonStroke`). */
+const CRAYON_RESAMPLE_STEP = 2;
+
+/** Épaisseur du Crayon en fonction de la pression seule (avant inclinaison) :
+ * amplitude modérée — plus marquée qu'un stylo bille, mais sans aller
+ * jusqu'à l'amplitude du feutre pinceau. */
+const CRAYON_WIDTH_MIN_FACTOR = 0.55;
+const CRAYON_WIDTH_MAX_FACTOR = 1.3;
+
+/** Bonus d'épaisseur à inclinaison maximale (mine couchée = trait plus
+ * large, comme un vrai crayon utilisé pour ombrer). */
+const CRAYON_TILT_WIDTH_BONUS = 0.55;
+
+/** Opacité du Crayon en fonction de la pression : un appui faible laisse un
+ * trait clair et à peine marqué, un appui fort un trait sombre — jamais
+ * totalement opaque comme une encre. */
+const CRAYON_ALPHA_MIN = 0.32;
+const CRAYON_ALPHA_MAX = 0.88;
+
+/** Une inclinaison forte étale la mine sur une zone plus large : le dépôt
+ * est alors moins dense par endroit (plus "doux"), même si le trait est
+ * visuellement plus large. */
+const CRAYON_TILT_SOFTEN = 0.3;
+
+/** Nombre de passes de grain déposées par segment, en plus du coup de base
+ * qui donne la forme générale du trait — c'est ce qui distingue une vraie
+ * texture graphite d'un simple trait à opacité réduite : chaque passe est
+ * fine, décalée perpendiculairement au trait par une valeur pseudo-aléatoire
+ * (mais stable, voir `mulberry32`) et à opacité elle-même variable, pour
+ * simuler des particules de graphite qui n'adhèrent pas uniformément au
+ * papier. */
+const CRAYON_GRAIN_PASSES = 3;
+
+/** Crayon graphite : rééchantillonné (comme le Stylo) pour une variation
+ * fluide de largeur/opacité selon la pression ET l'inclinaison du stylet
+ * (voir `StrokePoint.tilt`), puis chaque segment reçoit un coup de base
+ * (forme générale du trait) et plusieurs passes de grain fines, décalées et
+ * semi-transparentes (voir `CRAYON_GRAIN_PASSES`) — une vraie texture, pas
+ * seulement `opacity` + `lineWidth`. */
+function drawCrayonStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
+  const dense = densifyPoints(stroke.points, CRAYON_RESAMPLE_STEP);
+  if (dense.length < 2) return;
+
+  const rng = mulberry32(hashStringToSeed(stroke.id));
+
+  for (let i = 1; i < dense.length; i++) {
+    const a = dense[i - 1];
+    const b = dense[i];
+    const pressure = (a.pressure + b.pressure) / 2;
+    const tilt = ((a.tilt ?? 0) + (b.tilt ?? 0)) / 2;
+
+    const widthFactor = CRAYON_WIDTH_MIN_FACTOR + pressure * (CRAYON_WIDTH_MAX_FACTOR - CRAYON_WIDTH_MIN_FACTOR);
+    const segmentWidth = stroke.size * widthFactor * (1 + tilt * CRAYON_TILT_WIDTH_BONUS);
+    const baseAlpha = CRAYON_ALPHA_MIN + pressure * (CRAYON_ALPHA_MAX - CRAYON_ALPHA_MIN);
+    const softness = 1 - tilt * CRAYON_TILT_SOFTEN;
+
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len;
+    const ny = dx / len;
+
+    ctx.globalAlpha = baseAlpha * softness;
+    ctx.lineWidth = segmentWidth;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+
+    for (let g = 0; g < CRAYON_GRAIN_PASSES; g++) {
+      const jitter = (rng() - 0.5) * segmentWidth * (0.7 + tilt * 0.6);
+      ctx.globalAlpha = baseAlpha * (0.15 + rng() * 0.3);
+      ctx.lineWidth = segmentWidth * (0.2 + rng() * 0.35);
+      ctx.beginPath();
+      ctx.moveTo(a.x + nx * jitter, a.y + ny * jitter);
+      ctx.lineTo(b.x + nx * jitter, b.y + ny * jitter);
+      ctx.stroke();
+    }
+  }
+}
+
+/** Point isolé (tap) au Crayon : même logique pression→largeur/opacité que
+ * `drawCrayonStroke`, plus quelques particules de grain semées autour du
+ * point pour rester cohérent avec le reste du trait plutôt qu'un disque
+ * parfaitement net. */
+function drawCrayonDot(ctx: CanvasRenderingContext2D, stroke: Stroke, p: StrokePoint) {
+  const widthFactor = CRAYON_WIDTH_MIN_FACTOR + p.pressure * (CRAYON_WIDTH_MAX_FACTOR - CRAYON_WIDTH_MIN_FACTOR);
+  const tilt = p.tilt ?? 0;
+  const width = stroke.size * widthFactor * (1 + tilt * CRAYON_TILT_WIDTH_BONUS);
+  const baseAlpha = CRAYON_ALPHA_MIN + p.pressure * (CRAYON_ALPHA_MAX - CRAYON_ALPHA_MIN);
+
+  const rng = mulberry32(hashStringToSeed(stroke.id));
+  ctx.globalAlpha = baseAlpha * (1 - tilt * CRAYON_TILT_SOFTEN);
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, width / 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  for (let g = 0; g < CRAYON_GRAIN_PASSES; g++) {
+    const angle = rng() * Math.PI * 2;
+    const radius = rng() * width * 0.5;
+    ctx.globalAlpha = baseAlpha * (0.15 + rng() * 0.3);
+    ctx.beginPath();
+    ctx.arc(p.x + Math.cos(angle) * radius, p.y + Math.sin(angle) * radius, width * (0.1 + rng() * 0.15), 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
 /** Dessine un trait lissé (courbes quadratiques entre points médians), avec
  * épaisseur variable point à point pour le feutre pinceau, et un rendu
  * semi-transparent en mode "multiply" pour le surligneur. */
@@ -142,8 +275,6 @@ export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   if (isHighlighter) {
     ctx.globalAlpha = HIGHLIGHTER_ALPHA;
     ctx.globalCompositeOperation = "multiply";
-  } else if (isCrayon) {
-    ctx.globalAlpha = CRAYON_ALPHA;
   } else if (isFineliner) {
     ctx.globalAlpha = FINELINER_ALPHA;
   }
@@ -154,6 +285,11 @@ export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
 
   if (points.length === 1) {
     const p = points[0];
+    if (isCrayon) {
+      drawCrayonDot(ctx, stroke, p);
+      ctx.restore();
+      return;
+    }
     ctx.beginPath();
     ctx.arc(p.x, p.y, effectiveWidth(stroke, p.pressure) / 2, 0, Math.PI * 2);
     ctx.fill();
@@ -169,6 +305,12 @@ export function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
 
   if (isBallpoint) {
     drawSmoothConstantWidthStroke(ctx, points, ballpointWidth(stroke));
+    ctx.restore();
+    return;
+  }
+
+  if (isCrayon) {
+    drawCrayonStroke(ctx, stroke);
     ctx.restore();
     return;
   }
@@ -288,12 +430,15 @@ function densifyPoints(points: StrokePoint[], maxSegmentLength: number): StrokeP
     const a = points[i - 1];
     const b = points[i];
     const steps = Math.max(1, Math.ceil(distance(a, b) / maxSegmentLength));
+    const aTilt = a.tilt ?? 0;
+    const bTilt = b.tilt ?? 0;
     for (let s = 1; s <= steps; s++) {
       const t = s / steps;
       result.push({
         x: a.x + (b.x - a.x) * t,
         y: a.y + (b.y - a.y) * t,
         pressure: a.pressure + (b.pressure - a.pressure) * t,
+        tilt: aTilt + (bTilt - aTilt) * t,
       });
     }
   }
