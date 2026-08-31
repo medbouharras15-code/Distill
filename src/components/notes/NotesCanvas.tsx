@@ -367,6 +367,11 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   /** Id du trait sous le curseur en mode Gomme totale, pour le surligner
    * avant le clic — non utilisé en mode partielle. */
   const hoveredStrokeId = useRef<string | null>(null);
+  /** Dernière position effacée pendant le geste de Gomme actif (espace
+   * document) — sert à interpoler entre deux `pointermove` (voir
+   * eraseAlongPath) pour qu'un swipe rapide n'enjambe pas un petit trait
+   * situé entre deux positions échantillonnées. Null hors geste actif. */
+  const lastEraserPos = useRef<{ x: number; y: number } | null>(null);
   const lastPenTime = useRef(0);
   const renderScheduled = useRef(false);
 
@@ -631,13 +636,16 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     }
 
     if (tool === "eraser" && hoverEraserPos.current) {
+      // Le contour de la zone d'effacement reste visible dans tous les
+      // modes (Précise/Trait entier/Surlignage) — pas seulement en mode
+      // Partielle : sans lui, survoler une zone vide en mode Totale
+      // n'affichait auparavant aucun indice visuel du tout.
+      drawEraserCirclePreview(ctx, hoverEraserPos.current, eraserRadius);
       if (eraserMode === "whole") {
         const hovered = hoveredStrokeId.current
           ? strokesToRender.find((s) => s.id === hoveredStrokeId.current)
           : undefined;
         if (hovered) drawStrokeEraseHighlight(ctx, hovered);
-      } else {
-        drawEraserCirclePreview(ctx, hoverEraserPos.current, eraserRadius);
       }
     }
     // getOrLoadImage volontairement omis des dépendances : il appelle
@@ -1129,6 +1137,31 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     }
   }
 
+  /** Efface le long du segment `from`→`to` plutôt qu'au seul point `to` — un
+   * `pointermove` isolé ne teste que la position courante ; entre deux
+   * événements consécutifs d'un geste rapide, le pointeur peut avoir
+   * parcouru une distance supérieure au rayon de la gomme, laissant un petit
+   * trait entièrement "enjambé" sans qu'aucun point ne tombe dedans. Pas
+   * pour le tout premier point d'un geste (`from` null) : rien à interpoler. */
+  function eraseAlongPath(from: { x: number; y: number } | null, to: StrokePoint) {
+    if (!from) {
+      eraseAt(to);
+      return;
+    }
+    const dist = Math.hypot(to.x - from.x, to.y - from.y);
+    const step = Math.max(2, eraserRadius * 0.5);
+    const steps = Math.min(40, Math.max(1, Math.ceil(dist / step)));
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      eraseAt({
+        x: from.x + (to.x - from.x) * t,
+        y: from.y + (to.y - from.y) * t,
+        pressure: to.pressure,
+        tilt: to.tilt,
+      });
+    }
+  }
+
   function handleTextBoxSelect(id: string) {
     setSelectedTextBoxId(id);
   }
@@ -1314,6 +1347,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         hoveredStrokeId.current = null;
       }
       eraseAt(pos);
+      lastEraserPos.current = { x: pos.x, y: pos.y };
     } else if (tool === "shapes") {
       shapeStartPos.current = { x: pos.x, y: pos.y };
       currentShape.current = {
@@ -1468,7 +1502,8 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     }
 
     if (tool === "eraser") {
-      eraseAt(pos);
+      eraseAlongPath(lastEraserPos.current, pos);
+      lastEraserPos.current = { x: pos.x, y: pos.y };
       return;
     }
 
@@ -1599,6 +1634,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       partialErasePreview.current = null;
       hoverEraserPos.current = null;
       hoveredStrokeId.current = null;
+      lastEraserPos.current = null;
       activePointerId.current = null;
       scheduleRender();
       onActionComplete?.();
@@ -1779,6 +1815,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     partialErasePreview.current = null;
     hoverEraserPos.current = null;
     hoveredStrokeId.current = null;
+    lastEraserPos.current = null;
     imageDragMode.current = null;
     dragPreview.current = null;
     panState.current = null;

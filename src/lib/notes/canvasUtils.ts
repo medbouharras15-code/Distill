@@ -474,10 +474,53 @@ export function drawEraserCirclePreview(ctx: CanvasRenderingContext2D, pos: Stro
   ctx.restore();
 }
 
+interface StrokeBounds {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+/** Cache des boîtes englobantes par trait, indexé par référence d'objet —
+ * un `Stroke` n'est jamais muté en place dans cette appli (undo/redo,
+ * édition, chargement produisent toujours de nouveaux objets), donc une
+ * WeakMap reste valide sans invalidation manuelle : un trait remplacé
+ * devient inaccessible et son entrée est naturellement récupérée par le GC. */
+const strokeBoundsCache = new WeakMap<Stroke, StrokeBounds>();
+
+function getStrokeBounds(stroke: Stroke): StrokeBounds {
+  const cached = strokeBoundsCache.get(stroke);
+  if (cached) return cached;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const p of stroke.points) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  const bounds = { minX, minY, maxX, maxY };
+  strokeBoundsCache.set(stroke, bounds);
+  return bounds;
+}
+
+/** Préfiltrage O(1) avant tout test de collision précis (voir
+ * `strokeHitTest`/`partialEraseStroke`) : une page peut compter des
+ * milliers de traits, dont l'immense majorité n'est jamais proche du cercle
+ * de la gomme à un instant donné — ce test élimine ces traits sans jamais
+ * parcourir leurs points. */
+function strokeBoundsMightIntersect(stroke: Stroke, cx: number, cy: number, pad: number): boolean {
+  const b = getStrokeBounds(stroke);
+  return cx + pad >= b.minX && cx - pad <= b.maxX && cy + pad >= b.minY && cy - pad <= b.maxY;
+}
+
 /** Vrai si le point (x, y) passe à moins de `radius` d'au moins un segment du trait. */
 export function strokeHitTest(stroke: Stroke, x: number, y: number, radius: number): boolean {
   const { points } = stroke;
   const pad = radius + stroke.size / 2;
+  if (!strokeBoundsMightIntersect(stroke, x, y, pad)) return false;
   if (points.length === 1) {
     return distance(points[0], { x, y }) <= pad;
   }
@@ -530,6 +573,8 @@ function densifyPoints(points: StrokePoint[], maxSegmentLength: number): StrokeP
 export function partialEraseStroke(stroke: Stroke, cx: number, cy: number, radius: number): Stroke[] {
   const pad = radius + stroke.size / 2;
   const center = { x: cx, y: cy };
+
+  if (!strokeBoundsMightIntersect(stroke, cx, cy, pad)) return [stroke];
 
   if (stroke.points.length === 1) {
     return distance(stroke.points[0], center) <= pad ? [] : [stroke];

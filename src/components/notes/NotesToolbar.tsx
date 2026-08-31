@@ -69,11 +69,6 @@ const HIGHLIGHTER_MODES: { value: HighlighterMode; label: string }[] = [
   { value: "straight", label: "Droit" },
 ];
 
-const ERASER_TARGETS: { value: EraserTarget; label: string }[] = [
-  { value: "all", label: "Tout" },
-  { value: "highlighter", label: "Surlignage" },
-];
-
 /** Les trois variantes de stylo, promues en boutons visibles de la barre
  * principale (auparavant un menu déroulant caché) — chacune sélectionne
  * l'outil "pen" et fixe `penType`, la couleur/taille restant partagées. */
@@ -88,9 +83,15 @@ const PEN_TYPE_TOOLS: {
   { value: "crayon", label: "Crayon", iconKey: "pen-crayon", Icon: PencilIcon },
 ];
 
-const ERASER_MODES: { value: EraserMode; label: string }[] = [
-  { value: "whole", label: "Totale" },
-  { value: "partial", label: "Partielle" },
+/** La Gomme expose un seul sélecteur à 3 choix dans la barre — pas les deux
+ * réglages `EraserMode`/`EraserTarget` séparément (qui restent le modèle de
+ * données interne, utilisé tel quel par NotesCanvas) : chaque bouton fixe
+ * les deux à la fois, pour rester "simple" comme demandé plutôt que
+ * d'exposer les 4 combinaisons théoriquement possibles. */
+const ERASER_UI_MODES: { label: string; mode: EraserMode; target: EraserTarget }[] = [
+  { label: "Précise", mode: "partial", target: "all" },
+  { label: "Trait entier", mode: "whole", target: "all" },
+  { label: "Surlignage", mode: "whole", target: "highlighter" },
 ];
 
 const SHAPE_TYPES: { value: ShapeType; label: string; Icon: ComponentType<{ className?: string }> }[] = [
@@ -413,7 +414,6 @@ export function NotesToolbar({
   onToggleAi,
 }: NotesToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [moreOptionsOpen, setMoreOptionsOpen] = useState(false);
   const [moreHighlighterOptionsOpen, setMoreHighlighterOptionsOpen] = useState(false);
 
   const selectPenType = (type: PenType) => {
@@ -648,71 +648,34 @@ export function NotesToolbar({
       )}
 
       {tool === "eraser" && (
-        <div className="pointer-events-auto flex max-w-full flex-col items-stretch gap-2 rounded-2xl border border-border/60 bg-card/95 px-4 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
-          <div className="flex flex-nowrap animate-fade items-center gap-3 overflow-x-auto">
-            <SizeDotPicker sizes={ERASER_SIZES} value={eraserRadius} onChange={onEraserRadiusChange} />
-            <div className="h-8 w-px shrink-0 bg-border/70" />
-            <button
-              type="button"
-              onClick={() => setMoreOptionsOpen((v) => !v)}
-              aria-expanded={moreOptionsOpen}
-              className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition-all duration-200 active:scale-95 ${
-                moreOptionsOpen
-                  ? "bg-accent-light text-accent-dark"
-                  : "border border-border/70 text-foreground/80 hover:border-accent/40 hover:bg-background-alt hover:text-foreground"
-              }`}
-            >
-              Plus d&apos;options
-            </button>
+        <div className="pointer-events-auto flex max-w-full flex-nowrap animate-fade items-center gap-3 overflow-x-auto rounded-full border border-border/60 bg-card/95 px-4 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
+          <SizeDotPicker sizes={ERASER_SIZES} value={eraserRadius} onChange={onEraserRadiusChange} />
+          <div className="h-8 w-px shrink-0 bg-border/70" />
+          <div className="flex shrink-0 items-center gap-1 rounded-full border border-border/70 bg-background-alt/70 p-1">
+            {ERASER_UI_MODES.map(({ label, mode, target }) => {
+              const active = eraserTarget === target && (target === "highlighter" || eraserMode === mode);
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => {
+                    onEraserModeChange(mode);
+                    onEraserTargetChange(target);
+                  }}
+                  aria-pressed={active}
+                  title={label}
+                  className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-200 active:scale-95 ${
+                    active
+                      ? "bg-card text-accent-dark shadow-[var(--shadow-sm)] ring-1 ring-accent/60"
+                      : "text-muted hover:text-foreground"
+                  }`}
+                  style={EASE_SIGNATURE_STYLE}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
-          {moreOptionsOpen && (
-            <div className="flex flex-col flex-nowrap animate-fade items-stretch gap-2 overflow-x-auto">
-              <div className="flex shrink-0 items-center gap-1 self-start rounded-full border border-border/70 bg-background-alt/70 p-1">
-                {ERASER_MODES.map(({ value, label }) => {
-                  const active = eraserMode === value;
-                  return (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => onEraserModeChange(value)}
-                      aria-pressed={active}
-                      title={label}
-                      className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-200 active:scale-95 ${
-                        active
-                          ? "bg-card text-accent-dark shadow-[var(--shadow-sm)] ring-1 ring-accent/60"
-                          : "text-muted hover:text-foreground"
-                      }`}
-                      style={EASE_SIGNATURE_STYLE}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="flex shrink-0 items-center gap-1 self-start rounded-full border border-border/70 bg-background-alt/70 p-1">
-                {ERASER_TARGETS.map(({ value, label }) => {
-                  const active = eraserTarget === value;
-                  return (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => onEraserTargetChange(value)}
-                      aria-pressed={active}
-                      title={label === "Surlignage" ? "Effacer uniquement le surlignage" : "Effacer tout"}
-                      className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-200 active:scale-95 ${
-                        active
-                          ? "bg-card text-accent-dark shadow-[var(--shadow-sm)] ring-1 ring-accent/60"
-                          : "text-muted hover:text-foreground"
-                      }`}
-                      style={EASE_SIGNATURE_STYLE}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
         </div>
       )}
 
