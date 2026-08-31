@@ -378,6 +378,9 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     wrapperH: 0,
     scrollW: 0,
     scrollH: 0,
+    rootH: 0,
+    slotH: 0,
+    containerOverflowY: "—",
     lastAnchor: "—",
   });
 
@@ -776,6 +779,11 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     if (container) {
       zoomDebug.current.scrollW = container.scrollWidth;
       zoomDebug.current.scrollH = container.scrollHeight;
+      const root = container.parentElement;
+      const slot = root?.parentElement;
+      zoomDebug.current.rootH = root ? Math.round(root.getBoundingClientRect().height) : 0;
+      zoomDebug.current.slotH = slot ? Math.round(slot.getBoundingClientRect().height) : 0;
+      zoomDebug.current.containerOverflowY = window.getComputedStyle(container).overflowY;
     }
   });
 
@@ -1896,6 +1904,9 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
           <div>
             scrollWidth/Height conteneur : {zoomDebug.current.scrollW}×{zoomDebug.current.scrollH}px
           </div>
+          <div>hauteur root (parent conteneur) : {zoomDebug.current.rootH}px</div>
+          <div>hauteur slot (grand-parent) : {zoomDebug.current.slotH}px</div>
+          <div>overflow-y conteneur (calculé) : {zoomDebug.current.containerOverflowY}</div>
           <div>dernier ancrage : {zoomDebug.current.lastAnchor}</div>
           <div className="mt-2 border-t border-white/20 pt-2">— Déplacement —</div>
           <div>activePointerId : {String(activePointerId.current)}</div>
