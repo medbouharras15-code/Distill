@@ -24,7 +24,9 @@ import {
   SHAPE_STROKE_WIDTHS,
 } from "@/components/notes/NotesToolbar";
 import { SheetSelector } from "@/components/notes/SheetSelector";
+import { RichTextToolbar } from "@/components/notes/RichTextToolbar";
 import { AiPanel } from "@/components/notes/AiPanel";
+import type { Editor } from "@tiptap/react";
 import type { SubscriptionProvider } from "@/lib/billing";
 import { BACKGROUND_COLORS, PAPER_SIZES, SHEET_TYPES, getPageDimensions } from "@/lib/notes/sheets";
 import type { LassoClipboardData } from "@/lib/notes/lasso";
@@ -147,6 +149,22 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
    * (peu fiable pour des objets structurés dans Safari). La sélection
    * elle-même reste strictement mono-page (voir NotesCanvas.tsx). */
   const [clipboard, setClipboard] = useState<LassoClipboardData | null>(null);
+
+  /** Instance TipTap actuellement active (la dernière TextBox à avoir reçu
+   * le focus, sur n'importe quelle page) — un seul point de vérité pour
+   * tout le carnet, lu par la barre riche fixe rendue plus bas dans
+   * l'en-tête (voir JSX) : celle-ci ne dépend plus de la position de la
+   * TextBox, seulement de quelle instance TipTap est active. Ne crée ni ne
+   * duplique aucun éditeur : c'est la même instance que celle créée par
+   * `useEditor` dans TextBoxOverlay.tsx, juste rendue accessible ici. */
+  const [activeTextEditor, setActiveTextEditor] = useState<Editor | null>(null);
+  /** `active` distingue focus/blur — le garde `current === editor ? null :
+   * current` évite qu'un blur différé (voir TextBoxOverlay.tsx) n'efface
+   * par erreur un éditeur devenu actif entre-temps sur une autre TextBox
+   * (ex. cliquer directement d'un bloc à un autre). */
+  function handleActiveTextEditorChange(editor: Editor, active: boolean) {
+    setActiveTextEditor((current) => (active ? editor : current === editor ? null : current));
+  }
 
   // Panneau IA (résumé/flashcards à partir de texte/photo/PDF) — repris de
   // l'ancien écran DistillApp, voir @/components/notes/AiPanel. Ouvert par
@@ -522,20 +540,80 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
       className="notes-no-callout flex h-dvh w-full select-none flex-col overflow-hidden"
       onContextMenu={(e) => e.preventDefault()}
     >
-      {/* Barre supérieure (en-tête, sélecteur de feuille) : garde la mise en
-          page centrée/aérée du reste du site. La barre d'outils, elle, flotte
-          directement au-dessus du canvas ci-dessous (voir plus bas) plutôt
-          que de vivre ici, pour un rendu "palette posée sur la feuille"
-          plutôt qu'une simple rangée de boutons dans l'en-tête. La zone du
-          canvas sort volontairement de ce conteneur pour toucher les bords de
-          l'écran sans aucune marge — c'est elle que l'utilisateur perçoit
-          comme "la feuille" et qui doit remplir tout l'espace disponible,
-          sans bande de couleur de fond visible autour. */}
+      {/* Barre supérieure (en-tête) : Titre → barre d'outils principale →
+          sélecteur de feuille → barre de texte contextuelle (seulement
+          quand une TextBox est en édition, voir plus bas) → feuille.
+          Empilement en flex-col simple : aucune ligne n'est jamais
+          "réservée" quand elle ne s'affiche pas, la colonne se recalcule
+          naturellement (voir `activeTextEditor`). La zone du canvas sort
+          volontairement de ce conteneur pour toucher les bords de l'écran
+          sans aucune marge — c'est elle que l'utilisateur perçoit comme
+          "la feuille" et qui doit remplir tout l'espace disponible, sans
+          bande de couleur de fond visible autour. */}
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-4 pt-6 sm:px-6">
         <div className="flex items-center justify-between">
           <BackLink href="/dashboard">Retour à Distill</BackLink>
           <h1 className="font-display text-lg font-medium text-foreground">Notes à main levée</h1>
           <div className="w-24" />
+        </div>
+
+        {/* Barre d'outils principale — déménagée ici depuis son ancienne
+            position flottante au-dessus du canvas : même composant, mêmes
+            boutons, même comportement (NotesToolbar.tsx n'a pas changé),
+            seul l'emplacement change. */}
+        <div className="flex w-full justify-center">
+          <div className="w-fit max-w-full">
+            <NotesToolbar
+              tool={tool}
+              onSelectPen={selectPen}
+              onSelectHighlighter={selectHighlighter}
+              onSelectEraser={selectEraser}
+              onSelectShapes={selectShapes}
+              onSelectPhoto={selectPhoto}
+              onSelectPan={selectPan}
+              onSelectText={selectText}
+              onSelectLasso={selectLasso}
+              hasClipboard={clipboard !== null}
+              onPaste={() => getActivePageHandle()?.paste()}
+              onPenDoubleClick={activateTempEraser}
+              onImportPhotos={(files) => getActivePageHandle()?.importPhotos(files)}
+              penColor={penColor}
+              onPenColorChange={setPenColor}
+              penSize={penSize}
+              onPenSizeChange={setPenSize}
+              penType={penType}
+              onPenTypeChange={setPenType}
+              highlighterColor={highlighterColor}
+              onHighlighterColorChange={setHighlighterColor}
+              highlighterSize={highlighterSize}
+              onHighlighterSizeChange={setHighlighterSize}
+              highlighterMode={highlighterMode}
+              onHighlighterModeChange={setHighlighterMode}
+              highlighterOpacity={highlighterOpacity}
+              onHighlighterOpacityChange={setHighlighterOpacity}
+              eraserRadius={eraserRadius}
+              onEraserRadiusChange={setEraserRadius}
+              eraserMode={eraserMode}
+              onEraserModeChange={setEraserMode}
+              eraserTarget={eraserTarget}
+              onEraserTargetChange={setEraserTarget}
+              shapeType={shapeType}
+              onShapeTypeChange={setShapeType}
+              shapeColor={shapeColor}
+              onShapeColorChange={setShapeColor}
+              shapeStrokeWidth={shapeStrokeWidth}
+              onShapeStrokeWidthChange={setShapeStrokeWidth}
+              canUndo={activeHistory?.canUndo ?? false}
+              canRedo={activeHistory?.canRedo ?? false}
+              onUndo={() => getActivePageHandle()?.undo()}
+              onRedo={() => getActivePageHandle()?.redo()}
+              onFitToScreen={resetZoom}
+              aiOpen={aiOpen}
+              onToggleAi={toggleAi}
+              rulerActive={rulerActive}
+              onToggleRuler={toggleRuler}
+            />
+          </div>
         </div>
 
         <button
@@ -550,6 +628,25 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
           />
           {sheetLabel} · {paperLabel}
         </button>
+
+        {/* Barre de texte contextuelle — visible uniquement quand l'outil
+            Texte est actif ET qu'une TextBox est réellement en édition
+            (`activeTextEditor`, voir plus haut). Ne suit JAMAIS la
+            position de la TextBox : elle reste ici, sous la barre
+            principale, quel que soit l'endroit de la page où l'on
+            écrit — c'est `activeTextEditor` qui change, pas la position de
+            cette barre. `data-text-toolbar-root` : repère utilisé par
+            TextBoxOverlay.tsx pour ne pas confondre un clic ici avec un
+            abandon réel du bloc en édition (voir son `onBlur`). Rendu
+            conditionnel pur : aucune hauteur réservée quand elle est
+            absente, la colonne se recalcule d'elle-même. */}
+        {tool === "text" && activeTextEditor && (
+          <div data-text-toolbar-root className="flex w-full justify-center">
+            <div className="w-fit max-w-full">
+              <RichTextToolbar editor={activeTextEditor} />
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="relative mt-3 min-h-0 w-full flex-1">
@@ -615,6 +712,7 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
                     rulerActive={rulerActive && page.id === currentPageId}
                     clipboard={clipboard}
                     onClipboardChange={setClipboard}
+                    onActiveTextEditorChange={handleActiveTextEditorChange}
                   />
                 </div>
               </div>
@@ -666,70 +764,6 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
           <span key={currentPageLabel} className="animate-fade tabular-nums">
             {currentPageLabel}
           </span>
-        </div>
-
-        {/* Barre d'outils flottante, posée au-dessus de la feuille plutôt que
-            dans l'en-tête (voir plus haut) — pointer-events-none sur toute la
-            colonne (ce wrapper et la racine de NotesToolbar) pour ne jamais
-            intercepter le dessin/pincer-zoomer autour des barres, réactivé
-            uniquement sur chaque barre flottante elle-même (voir
-            NotesToolbar.tsx). z-20 comme l'assombrissement ci-dessous, rendu
-            avant lui pour qu'il s'assombrisse aussi avec le canvas à
-            l'ouverture du panneau IA plutôt que de rester au premier plan,
-            détaché du reste. */}
-        <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center px-4">
-          <div className="pointer-events-none w-fit max-w-full">
-            <NotesToolbar
-              tool={tool}
-              onSelectPen={selectPen}
-              onSelectHighlighter={selectHighlighter}
-              onSelectEraser={selectEraser}
-              onSelectShapes={selectShapes}
-              onSelectPhoto={selectPhoto}
-              onSelectPan={selectPan}
-              onSelectText={selectText}
-              onSelectLasso={selectLasso}
-              hasClipboard={clipboard !== null}
-              onPaste={() => getActivePageHandle()?.paste()}
-              onPenDoubleClick={activateTempEraser}
-              onImportPhotos={(files) => getActivePageHandle()?.importPhotos(files)}
-              penColor={penColor}
-              onPenColorChange={setPenColor}
-              penSize={penSize}
-              onPenSizeChange={setPenSize}
-              penType={penType}
-              onPenTypeChange={setPenType}
-              highlighterColor={highlighterColor}
-              onHighlighterColorChange={setHighlighterColor}
-              highlighterSize={highlighterSize}
-              onHighlighterSizeChange={setHighlighterSize}
-              highlighterMode={highlighterMode}
-              onHighlighterModeChange={setHighlighterMode}
-              highlighterOpacity={highlighterOpacity}
-              onHighlighterOpacityChange={setHighlighterOpacity}
-              eraserRadius={eraserRadius}
-              onEraserRadiusChange={setEraserRadius}
-              eraserMode={eraserMode}
-              onEraserModeChange={setEraserMode}
-              eraserTarget={eraserTarget}
-              onEraserTargetChange={setEraserTarget}
-              shapeType={shapeType}
-              onShapeTypeChange={setShapeType}
-              shapeColor={shapeColor}
-              onShapeColorChange={setShapeColor}
-              shapeStrokeWidth={shapeStrokeWidth}
-              onShapeStrokeWidthChange={setShapeStrokeWidth}
-              canUndo={activeHistory?.canUndo ?? false}
-              canRedo={activeHistory?.canRedo ?? false}
-              onUndo={() => getActivePageHandle()?.undo()}
-              onRedo={() => getActivePageHandle()?.redo()}
-              onFitToScreen={resetZoom}
-              aiOpen={aiOpen}
-              onToggleAi={toggleAi}
-              rulerActive={rulerActive}
-              onToggleRuler={toggleRuler}
-            />
-          </div>
         </div>
 
         {/* Assombrissement léger du canvas quand le panneau IA est ouvert —

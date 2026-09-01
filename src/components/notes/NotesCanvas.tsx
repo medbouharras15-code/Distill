@@ -82,6 +82,7 @@ import {
   type Point,
 } from "@/lib/notes/lasso";
 import { TextBoxOverlay } from "./TextBoxOverlay";
+import type { Editor } from "@tiptap/react";
 import { RulerOverlay } from "./RulerOverlay";
 import { SelectionContextMenu } from "./SelectionContextMenu";
 
@@ -454,6 +455,11 @@ interface NotesCanvasProps {
   clipboard?: LassoClipboardData | null;
   /** Appelé quand Copier/Couper remplace le contenu du presse-papiers. */
   onClipboardChange?: (data: LassoClipboardData) => void;
+  /** Relais pur vers chaque TextBoxOverlay (voir TextBoxOverlay.tsx) —
+   * NotesCanvas ne fait qu'y transmettre ce prop, la barre riche du
+   * carnet (rendue par NotesPageClient, plus liée à la position d'une
+   * TextBox) en a besoin pour savoir quelle instance TipTap contrôler. */
+  onActiveTextEditorChange?: (editor: Editor, active: boolean) => void;
 }
 
 export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(function NotesCanvas(
@@ -490,6 +496,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     rulerActive = false,
     clipboard = null,
     onClipboardChange,
+    onActiveTextEditorChange,
   },
   ref,
 ) {
@@ -2966,7 +2973,6 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
               element={displayTb}
               pageWidth={PAGE_WIDTH}
               pageHeight={PAGE_HEIGHT}
-              containerRef={containerRef}
               selected={selectedTextBoxId === tb.id}
               interactive={tool === "text"}
               autoFocus={autoFocusTextBoxId === tb.id}
@@ -2976,6 +2982,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
               onResizeEnd={(width) => handleTextBoxResizeEnd(tb.id, width)}
               onHeightChange={(height) => handleTextBoxHeightChange(tb.id, height)}
               onDelete={() => handleTextBoxDelete(tb.id)}
+              onActiveTextEditorChange={onActiveTextEditorChange}
             />
           );
         })}

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
-import { EditorContent, useEditor } from "@tiptap/react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 import TextAlign from "@tiptap/extension-text-align";
@@ -14,7 +14,6 @@ import Superscript from "@tiptap/extension-superscript";
 import Subscript from "@tiptap/extension-subscript";
 import Placeholder from "@tiptap/extension-placeholder";
 import { FontSize } from "@/lib/notes/fontSizeExtension";
-import { RichTextToolbar } from "./RichTextToolbar";
 import { TrashIcon } from "./icons";
 import type { TextBoxElement } from "@/lib/notes/types";
 
@@ -35,19 +34,10 @@ const TEXT_EXTENSIONS = [
 
 const MIN_TEXTBOX_WIDTH = 80;
 
-/** Marge (pixels écran) entre le bloc et la barre riche flottante — même
- * valeur visuelle que l'ancien `mb-2`/`mt-2` Tailwind qu'elle remplace. */
-const TOOLBAR_MARGIN_PX = 8;
-
 interface TextBoxOverlayProps {
   element: TextBoxElement;
   pageWidth: number;
   pageHeight: number;
-  /** Conteneur de défilement réel partagé par tout le carnet (même prop que
-   * `containerRef` de NotesCanvas, simplement transmise) — sert uniquement
-   * à positionner la barre riche flottante pour qu'elle reste dans la zone
-   * réellement visible (pas juste dans les limites de la page logique). */
-  containerRef: RefObject<HTMLDivElement | null>;
   selected: boolean;
   /** Faux quand un autre outil que "T" est actif : le bloc reste visible
    * mais ignore les clics (qui doivent atteindre le canvas en dessous, pour
@@ -69,13 +59,19 @@ interface TextBoxOverlayProps {
   /** Supprime ce bloc entier (icône Corbeille, visible seulement quand
    * sélectionné avec l'outil Texte) — distinct d'une simple désélection. */
   onDelete: () => void;
+  /** Signale quel éditeur TipTap est actuellement actif au niveau du
+   * carnet — `active: true` au focus, `false` une fois le blur confirmé
+   * réel (voir le callback différé de `onBlur`). Permet à la barre riche
+   * (rendue plus haut dans l'arbre, voir NotesPageClient.tsx, plus liée à
+   * la position de cette TextBox) de piloter la bonne instance TipTap sans
+   * qu'aucun second éditeur ne soit créé ni qu'aucun état ne soit dupliqué. */
+  onActiveTextEditorChange?: (editor: Editor, active: boolean) => void;
 }
 
 export function TextBoxOverlay({
   element,
   pageWidth,
   pageHeight,
-  containerRef,
   selected,
   interactive,
   autoFocus,
@@ -85,6 +81,7 @@ export function TextBoxOverlay({
   onResizeEnd,
   onHeightChange,
   onDelete,
+  onActiveTextEditorChange,
 }: TextBoxOverlayProps) {
   const boxRef = useRef<HTMLDivElement | null>(null);
   const dragState = useRef<{ startClientX: number; startClientY: number; startX: number; startY: number } | null>(
@@ -101,14 +98,6 @@ export function TextBoxOverlay({
    * la barre riche. */
   const [isEditing, setIsEditing] = useState(false);
 
-  /** Position calculée de la barre riche flottante (voir l'effet plus bas)
-   * — `below` bascule sous le bloc si la place au-dessus est insuffisante,
-   * `offsetX` corrige un débordement horizontal. Recalculée avant peinture
-   * dès que la barre est affichée, donc ces valeurs par défaut ne sont
-   * jamais visibles telles quelles. */
-  const toolbarWrapperRef = useRef<HTMLDivElement | null>(null);
-  const [toolbarPos, setToolbarPos] = useState<{ below: boolean; offsetX: number }>({ below: false, offsetX: 0 });
-
   const editor = useEditor({
     extensions: TEXT_EXTENSIONS,
     content: element.html || "<p></p>",
@@ -116,25 +105,30 @@ export function TextBoxOverlay({
     editorProps: {
       attributes: { class: "notes-textbox-prose" },
     },
-    onFocus: () => {
+    onFocus: ({ editor: ed }) => {
       onSelect();
       setIsEditing(true);
+      onActiveTextEditorChange?.(ed, true);
     },
     onBlur: ({ editor: ed }) => {
       // Un blur peut être causé par un contrôle interne de la barre riche
       // (champ URL du lien, saisie de taille, sélecteur de couleur natif ou
       // rapide) sans que l'utilisateur ait réellement quitté le bloc — on
       // ne committe (et on ne sort du mode édition) que si le focus est
-      // RETOMBÉ EN DEHORS de ce bloc et de sa barre (tous deux sous
-      // `boxRef`), vérifié après le tour de boucle en cours pour laisser le
-      // nouveau focus se poser. Capturer html/isEmpty maintenant (pas dans
-      // le callback différé) : l'éditeur peut avoir changé d'ici là.
+      // RETOMBÉ EN DEHORS de ce bloc ET de la barre riche (celle-ci n'est
+      // plus dans le DOM de ce bloc, voir NotesPageClient.tsx : repérée via
+      // l'attribut `data-text-toolbar-root`), vérifié après le tour de
+      // boucle en cours pour laisser le nouveau focus se poser. Capturer
+      // html/isEmpty maintenant (pas dans le callback différé) : l'éditeur
+      // peut avoir changé d'ici là.
       const html = ed.getHTML();
       const isEmpty = ed.isEmpty;
       requestAnimationFrame(() => {
-        if (boxRef.current?.contains(document.activeElement)) return;
+        const active = document.activeElement;
+        if (boxRef.current?.contains(active) || active?.closest("[data-text-toolbar-root]")) return;
         onCommit(html, isEmpty);
         setIsEditing(false);
+        onActiveTextEditorChange?.(ed, false);
       });
     },
   }, [element.id]);
@@ -183,62 +177,6 @@ export function TextBoxOverlay({
     // des sélections d'autres blocs sans qu'on doive refocaliser celui-ci).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor]);
-
-  /** Repositionne la barre riche flottante pour qu'elle reste dans la zone
-   * réellement VISIBLE (pas seulement dans les limites de la page logique,
-   * qui peut être bien plus grande que ce qui est actuellement affiché à
-   * l'écran dans `containerRef`, conteneur scrollable — voir aussi
-   * `window.visualViewport`, qui rétrécit sans redimensionner le DOM quand
-   * le clavier iPad s'ouvre). Bascule sous le bloc si la place au-dessus
-   * est insuffisante, et corrige un éventuel débordement horizontal —
-   * useLayoutEffect pour mesurer/corriger avant peinture, sans clignotement. */
-  useLayoutEffect(() => {
-    if (!selected) return;
-    const container = containerRef.current;
-    if (!container) return;
-
-    function recompute() {
-      const box = boxRef.current;
-      const wrapper = toolbarWrapperRef.current;
-      if (!box || !wrapper || !container) return;
-      const boxRect = box.getBoundingClientRect();
-      const wrapperRect = wrapper.getBoundingClientRect();
-      const containerRect = container.getBoundingClientRect();
-      const vv = window.visualViewport;
-      const visibleTop = Math.max(containerRect.top, vv ? vv.offsetTop : 0);
-      const visibleBottom = Math.min(containerRect.bottom, vv ? vv.offsetTop + vv.height : window.innerHeight);
-      const visibleLeft = Math.max(containerRect.left, vv ? vv.offsetLeft : 0);
-      const visibleRight = Math.min(containerRect.right, vv ? vv.offsetLeft + vv.width : window.innerWidth);
-
-      const spaceAbove = boxRect.top - visibleTop;
-      const spaceBelow = visibleBottom - boxRect.bottom;
-      const toolbarSpan = wrapperRect.height + TOOLBAR_MARGIN_PX;
-      // Sous le bloc seulement si ça ne rentre vraiment pas au-dessus ET
-      // qu'il y a effectivement plus de place en dessous — évite de
-      // basculer inutilement si les deux côtés sont également serrés.
-      const below = spaceAbove < toolbarSpan && spaceBelow > spaceAbove;
-
-      let offsetX = 0;
-      const wrapperLeft = boxRect.left;
-      const wrapperRight = wrapperLeft + wrapperRect.width;
-      if (wrapperRight > visibleRight) offsetX -= wrapperRight - visibleRight;
-      if (wrapperLeft + offsetX < visibleLeft) offsetX += visibleLeft - (wrapperLeft + offsetX);
-
-      setToolbarPos((prev) => (prev.below === below && prev.offsetX === offsetX ? prev : { below, offsetX }));
-    }
-
-    recompute();
-    container.addEventListener("scroll", recompute, { passive: true });
-    window.addEventListener("resize", recompute);
-    window.visualViewport?.addEventListener("resize", recompute);
-    window.visualViewport?.addEventListener("scroll", recompute);
-    return () => {
-      container.removeEventListener("scroll", recompute);
-      window.removeEventListener("resize", recompute);
-      window.visualViewport?.removeEventListener("resize", recompute);
-      window.visualViewport?.removeEventListener("scroll", recompute);
-    };
-  }, [selected, element.x, element.y, element.width, containerRef]);
 
   useEffect(() => {
     return () => {
@@ -320,12 +258,6 @@ export function TextBoxOverlay({
   const leftPct = (element.x / pageWidth) * 100;
   const topPct = (element.y / pageHeight) * 100;
   const widthPct = (element.width / pageWidth) * 100;
-  // Volontairement PAS conditionné à `editor.isFocused` : plusieurs contrôles
-  // de la barre riche (champ URL du lien, sélecteur de couleur natif, saisie
-  // numérique de taille) font perdre le focus DOM à l'éditeur sans que
-  // l'utilisateur ait quitté le bloc — la barre doit rester visible tant que
-  // le bloc reste sélectionné, exactement comme dans Notion.
-  const showToolbar = selected;
   // Édition vs Manipulation (voir `isEditing` ci-dessus) : les poignées de
   // déplacement/redimensionnement/suppression ne doivent jamais apparaître
   // pendant qu'on tape — seulement une fois le bloc sélectionné pour de
@@ -348,20 +280,6 @@ export function TextBoxOverlay({
         onSelect();
       }}
     >
-      {showToolbar && (
-        <div
-          ref={toolbarWrapperRef}
-          className="absolute left-0 z-20 w-max max-w-[90vw]"
-          style={
-            toolbarPos.below
-              ? { top: "100%", marginTop: TOOLBAR_MARGIN_PX, transform: `translateX(${toolbarPos.offsetX}px)` }
-              : { bottom: "100%", marginBottom: TOOLBAR_MARGIN_PX, transform: `translateX(${toolbarPos.offsetX}px)` }
-          }
-        >
-          <RichTextToolbar editor={editor} />
-        </div>
-      )}
-
       <div className={`relative rounded-md px-2 py-1 ${selected ? "ring-2 ring-accent ring-offset-2 ring-offset-card" : ""}`}>
         {showManipulationHandles && (
           <div
