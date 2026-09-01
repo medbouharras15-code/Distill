@@ -527,3 +527,29 @@ export function AlignJustifyIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+/** Corbeille — utilisée pour la suppression explicite d'un bloc de texte
+ * (voir TextBoxOverlay), distincte visuellement d'un simple bouton de
+ * fermeture/désélection pour que l'intention "supprimer" soit immédiate. */
+export function TrashIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path d="M5 7h14" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+      <path
+        d="M9.5 7V5.2a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1V7"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M6.7 7 7.4 19a1.6 1.6 0 0 0 1.6 1.5h6a1.6 1.6 0 0 0 1.6-1.5L17.3 7"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M10.2 10.5v6.2M13.8 10.5v6.2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}

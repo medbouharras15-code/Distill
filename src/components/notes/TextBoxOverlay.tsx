@@ -15,6 +15,7 @@ import Subscript from "@tiptap/extension-subscript";
 import Placeholder from "@tiptap/extension-placeholder";
 import { FontSize } from "@/lib/notes/fontSizeExtension";
 import { RichTextToolbar } from "./RichTextToolbar";
+import { TrashIcon } from "./icons";
 import type { TextBoxElement } from "@/lib/notes/types";
 
 const TEXT_EXTENSIONS = [
@@ -56,6 +57,9 @@ interface TextBoxOverlayProps {
    * la gomme pour détecter un contact (les blocs de texte n'ont pas de
    * hauteur stockée, elle s'ajuste au contenu). */
   onHeightChange: (height: number) => void;
+  /** Supprime ce bloc entier (icône Corbeille, visible seulement quand
+   * sélectionné avec l'outil Texte) — distinct d'une simple désélection. */
+  onDelete: () => void;
 }
 
 export function TextBoxOverlay({
@@ -70,6 +74,7 @@ export function TextBoxOverlay({
   onMoveEnd,
   onResizeEnd,
   onHeightChange,
+  onDelete,
 }: TextBoxOverlayProps) {
   const boxRef = useRef<HTMLDivElement | null>(null);
   const dragState = useRef<{ startClientX: number; startClientY: number; startX: number; startY: number } | null>(
@@ -134,7 +139,10 @@ export function TextBoxOverlay({
     const pxPerUnit = element.width > 0 ? rect.width / element.width : 1;
     const dx = (e.clientX - dragState.current.startClientX) / pxPerUnit;
     const dy = (e.clientY - dragState.current.startClientY) / pxPerUnit;
-    boxRef.current.style.left = `${((dragState.current.startX + dx) / pageWidth) * 100}%`;
+    // Ne doit jamais dépasser horizontalement les limites de la page (voir
+    // demande) — la hauteur, elle, reste libre comme aujourd'hui.
+    const clampedX = Math.min(Math.max(0, dragState.current.startX + dx), Math.max(0, pageWidth - element.width));
+    boxRef.current.style.left = `${(clampedX / pageWidth) * 100}%`;
     boxRef.current.style.top = `${((dragState.current.startY + dy) / pageHeight) * 100}%`;
   }
 
@@ -161,7 +169,10 @@ export function TextBoxOverlay({
     const rect = boxRef.current.getBoundingClientRect();
     const pxPerUnit = resizeState.current.startWidth > 0 ? rect.width / resizeState.current.startWidth : 1;
     const dx = (e.clientX - resizeState.current.startClientX) / pxPerUnit;
-    const nextWidth = Math.max(MIN_TEXTBOX_WIDTH, resizeState.current.startWidth + dx);
+    // Ne doit jamais dépasser horizontalement les limites de la page : la
+    // largeur maximale est bornée par l'espace restant à droite de `x`.
+    const maxWidth = Math.max(MIN_TEXTBOX_WIDTH, pageWidth - element.x);
+    const nextWidth = Math.min(maxWidth, Math.max(MIN_TEXTBOX_WIDTH, resizeState.current.startWidth + dx));
     boxRef.current.style.width = `${(nextWidth / pageWidth) * 100}%`;
   }
 
@@ -230,6 +241,27 @@ export function TextBoxOverlay({
             aria-label="Redimensionner le bloc de texte"
             role="button"
           />
+        )}
+
+        {/* Suppression — visible seulement sélectionné + outil Texte actif
+            (interactive), jamais en survol Lasso/autre outil : icône
+            Corbeille plutôt qu'un simple "×" pour que l'intention
+            "supprimer le bloc" (pas juste le désélectionner) soit
+            immédiate, discrète tant qu'on ne l'a pas sélectionné. */}
+        {selected && interactive && (
+          <button
+            type="button"
+            className="absolute -top-3 -right-3 z-10 grid h-6 w-6 place-items-center rounded-full border border-border bg-card text-muted shadow-sm transition hover:border-red-300 hover:text-red-600"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            aria-label="Supprimer le bloc de texte"
+            title="Supprimer le bloc de texte"
+          >
+            <TrashIcon className="h-3.5 w-3.5" />
+          </button>
         )}
       </div>
     </div>

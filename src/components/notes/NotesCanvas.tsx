@@ -1997,37 +1997,69 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   function handleTextBoxMoveEnd(id: string, x: number, y: number) {
     const draft = draftTextBoxes.find((t) => t.id === id);
     if (draft) {
-      setDraftTextBoxes((prev) => prev.map((t) => (t.id === id ? { ...t, x, y } : t)));
+      // Filet de sécurité (le glisser en direct dans TextBoxOverlay clampe
+      // déjà) : ne doit jamais dépasser horizontalement les limites de la page.
+      const clampedX = Math.min(Math.max(0, x), Math.max(0, PAGE_WIDTH - draft.width));
+      setDraftTextBoxes((prev) => prev.map((t) => (t.id === id ? { ...t, x: clampedX, y } : t)));
       return;
     }
     const existing = textBoxesRef.current.find((t) => t.id === id);
-    if (!existing || (existing.x === x && existing.y === y)) return;
+    if (!existing) return;
+    const clampedX = Math.min(Math.max(0, x), Math.max(0, PAGE_WIDTH - existing.width));
+    if (existing.x === clampedX && existing.y === y) return;
     commitDoc({
       strokes: strokesRef.current,
       shapes: shapesRef.current,
       images: imagesRef.current,
-      textBoxes: textBoxesRef.current.map((t) => (t.id === id ? { ...t, x, y } : t)),
+      textBoxes: textBoxesRef.current.map((t) => (t.id === id ? { ...t, x: clampedX, y } : t)),
     });
   }
 
   function handleTextBoxResizeEnd(id: string, width: number) {
     const draft = draftTextBoxes.find((t) => t.id === id);
     if (draft) {
-      setDraftTextBoxes((prev) => prev.map((t) => (t.id === id ? { ...t, width } : t)));
+      // Filet de sécurité (le glisser en direct dans TextBoxOverlay clampe
+      // déjà) : la largeur maximale reste bornée par l'espace à droite de x.
+      const clampedWidth = Math.min(width, Math.max(1, PAGE_WIDTH - draft.x));
+      setDraftTextBoxes((prev) => prev.map((t) => (t.id === id ? { ...t, width: clampedWidth } : t)));
       return;
     }
     const existing = textBoxesRef.current.find((t) => t.id === id);
-    if (!existing || existing.width === width) return;
+    if (!existing) return;
+    const clampedWidth = Math.min(width, Math.max(1, PAGE_WIDTH - existing.x));
+    if (existing.width === clampedWidth) return;
     commitDoc({
       strokes: strokesRef.current,
       shapes: shapesRef.current,
       images: imagesRef.current,
-      textBoxes: textBoxesRef.current.map((t) => (t.id === id ? { ...t, width } : t)),
+      textBoxes: textBoxesRef.current.map((t) => (t.id === id ? { ...t, width: clampedWidth } : t)),
     });
   }
 
   function handleTextBoxHeightChange(id: string, height: number) {
     textBoxHeights.current.set(id, height);
+  }
+
+  /** Suppression explicite d'un bloc entier depuis l'outil Texte (icône
+   * Corbeille de TextBoxOverlay) — distinct de la suppression automatique
+   * d'un bloc resté vide (voir handleTextBoxCommit). Même branchement
+   * brouillon/réel que le reste des actions sur un bloc : un brouillon
+   * jamais sauvegardé se retire sans Undo, un bloc réel part par un seul
+   * commitDoc (donc un seul Undo, qui le restaure). */
+  function handleTextBoxDelete(id: string) {
+    if (selectedTextBoxId === id) setSelectedTextBoxId(null);
+    const draft = draftTextBoxes.find((t) => t.id === id);
+    if (draft) {
+      setDraftTextBoxes((prev) => prev.filter((t) => t.id !== id));
+      return;
+    }
+    if (!textBoxesRef.current.some((t) => t.id === id)) return;
+    commitDoc({
+      strokes: strokesRef.current,
+      shapes: shapesRef.current,
+      images: imagesRef.current,
+      textBoxes: textBoxesRef.current.filter((t) => t.id !== id),
+    });
   }
 
   function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
@@ -2189,11 +2221,16 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       // (voir TextBoxOverlay, qui arrête la propagation de son propre
       // pointerdown) et n'arrive donc jamais jusqu'ici.
       const id = crypto.randomUUID();
+      // Ne doit jamais dépasser horizontalement les limites de la page : si
+      // le tap a lieu trop près du bord droit, on décale x vers la gauche
+      // plutôt que de créer un bloc partiellement hors page.
+      const width = Math.min(DEFAULT_TEXTBOX_WIDTH, PAGE_WIDTH);
+      const x = Math.min(Math.max(0, pos.x), PAGE_WIDTH - width);
       const newBox: TextBoxElement = {
         id,
-        x: pos.x,
+        x,
         y: pos.y,
-        width: DEFAULT_TEXTBOX_WIDTH,
+        width,
         html: "",
       };
       setDraftTextBoxes((prev) => [...prev, newBox]);
@@ -2919,6 +2956,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
               onMoveEnd={(x, y) => handleTextBoxMoveEnd(tb.id, x, y)}
               onResizeEnd={(width) => handleTextBoxResizeEnd(tb.id, width)}
               onHeightChange={(height) => handleTextBoxHeightChange(tb.id, height)}
+              onDelete={() => handleTextBoxDelete(tb.id)}
             />
           );
         })}

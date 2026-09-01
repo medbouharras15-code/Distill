@@ -24,17 +24,37 @@ import {
   UnderlineIcon,
 } from "./icons";
 
+/** Sélection volontairement restreinte à 3 familles réellement utiles
+ * (pas 50 polices) : Sans reprend la police de marque déjà par défaut
+ * (`.notes-textbox-prose`, Inter) ; Serif utilise Georgia, une police
+ * système déjà présente sur iPad/Mac (aucune dépendance à charger) ; Mono
+ * réutilise `var(--font-mono)`, la police déjà chargée par l'app
+ * (`src/app/layout.tsx`, Geist Mono) plutôt qu'une police système
+ * générique — aucune nouvelle dépendance de police dans les trois cas. */
 export const TEXT_FONT_FAMILIES: { label: string; value: string }[] = [
-  { label: "Inter", value: "Inter, sans-serif" },
-  { label: "Fraunces", value: "Fraunces, serif" },
-  { label: "Georgia", value: "Georgia, serif" },
-  { label: "Helvetica", value: "Helvetica, Arial, sans-serif" },
-  { label: "Times New Roman", value: "'Times New Roman', serif" },
-  { label: "Courier New", value: "'Courier New', monospace" },
-  { label: "Verdana", value: "Verdana, sans-serif" },
+  { label: "Sans", value: "Inter, sans-serif" },
+  { label: "Serif", value: "Georgia, serif" },
+  { label: "Mono", value: "var(--font-mono), monospace" },
 ];
 
-const TEXT_COLORS = ["#1f1b16", "#a83e35", "#2f6b4f", "#3d6fa8", "#8a6a37", "#7451a8"];
+/** Valeurs rapides proposées en plus de l'ajustement fin (+/-) ci-dessous. */
+const QUICK_FONT_SIZES = [12, 14, 16, 18, 24, 32];
+
+/** "Auto" (premier swatch) retire la couleur inline (`unsetColor`) plutôt
+ * que de fixer un hex : le texte hérite alors de `var(--foreground)`
+ * (voir .notes-textbox-prose, globals.css), donc reste lisible aussi bien
+ * en clair qu'en sombre. Les teintes fixes suivantes sont volontairement à
+ * mi-luminosité (ni proches du noir ni du blanc pur) pour rester lisibles
+ * sur les deux fonds. */
+const TEXT_COLORS: { label: string; value: string | null }[] = [
+  { label: "Auto", value: null },
+  { label: "Gris", value: "#8a8a8a" },
+  { label: "Rouge", value: "#c0524a" },
+  { label: "Bleu", value: "#4a7fc0" },
+  { label: "Vert", value: "#4a9e73" },
+  { label: "Violet", value: "#8a63b8" },
+  { label: "Orange", value: "#c98a3e" },
+];
 
 const ALIGN_OPTIONS: { value: "left" | "center" | "right" | "justify"; label: string; icon: React.ReactNode }[] = [
   { value: "left", label: "Aligner à gauche", icon: <AlignLeftIcon className="h-4 w-4" /> },
@@ -114,7 +134,10 @@ export function RichTextToolbar({ editor }: { editor: Editor }) {
 
   const currentFontFamily = editor.getAttributes("textStyle").fontFamily || TEXT_FONT_FAMILIES[0].value;
   const currentFontSize = Number(editor.getAttributes("textStyle").fontSize) || 14;
-  const currentColor = editor.getAttributes("textStyle").color || "#1f1b16";
+  // `null` = aucune couleur inline (hérite de var(--foreground), voir
+  // TEXT_COLORS "Auto") — le picker natif ci-dessous, lui, a besoin d'une
+  // vraie valeur hex à afficher même dans ce cas.
+  const currentColor: string | null = editor.getAttributes("textStyle").color || null;
 
   const alignValue = editor.isActive({ textAlign: "center" })
     ? "center"
@@ -194,7 +217,29 @@ export function RichTextToolbar({ editor }: { editor: Editor }) {
         ))}
       </select>
 
-      {/* 3. Taille de police */}
+      {/* 3a. Taille de police — valeurs rapides */}
+      <select
+        value={QUICK_FONT_SIZES.includes(currentFontSize) ? currentFontSize : -1}
+        onChange={(e) => {
+          const next = Number(e.target.value);
+          if (next > 0) editor.chain().focus().setFontSize(next).run();
+        }}
+        aria-label="Taille rapide"
+        title="Taille rapide"
+        className="shrink-0 rounded-full border border-border bg-background-alt px-2.5 py-1 text-xs font-medium text-foreground"
+      >
+        {/* Option injectée seulement si la taille courante ne fait pas partie
+            des valeurs rapides — pour ne jamais l'écraser silencieusement
+            (ex. une taille choisie via le +/- ci-dessous). */}
+        {!QUICK_FONT_SIZES.includes(currentFontSize) && <option value={-1}>{currentFontSize}</option>}
+        {QUICK_FONT_SIZES.map((size) => (
+          <option key={size} value={size}>
+            {size}
+          </option>
+        ))}
+      </select>
+
+      {/* 3b. Taille de police — ajustement fin */}
       <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-border bg-background-alt px-1 py-1">
         <button
           type="button"
@@ -229,19 +274,45 @@ export function RichTextToolbar({ editor }: { editor: Editor }) {
         </button>
       </div>
 
-      {/* 4. Couleur de texte */}
-      <span className="relative h-8 w-8 shrink-0" title="Couleur du texte">
+      {/* 4a. Couleur de texte — pastilles rapides (voir TEXT_COLORS : "Auto"
+          hérite du thème, les autres sont des teintes fixes lisibles en
+          clair comme en sombre). */}
+      <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-border bg-background-alt px-1 py-1">
+        {TEXT_COLORS.map((c) => (
+          <button
+            key={c.label}
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => (c.value ? editor.chain().focus().setColor(c.value).run() : editor.chain().focus().unsetColor().run())}
+            aria-label={c.label}
+            aria-pressed={currentColor === c.value}
+            title={c.label}
+            className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border transition ${
+              currentColor === c.value ? "border-accent" : "border-transparent hover:border-border"
+            }`}
+          >
+            <span
+              aria-hidden="true"
+              className="h-4 w-4 rounded-full border border-border/60"
+              style={c.value ? { backgroundColor: c.value } : { background: "var(--foreground)", opacity: 0.6 }}
+            />
+          </button>
+        ))}
+      </div>
+
+      {/* 4b. Couleur de texte — personnalisée */}
+      <span className="relative h-8 w-8 shrink-0" title="Couleur personnalisée">
         <input
           type="color"
-          value={currentColor}
+          value={currentColor || "#8a8a8a"}
           onChange={(e) => editor.chain().focus().setColor(e.target.value).run()}
-          aria-label="Couleur du texte"
+          aria-label="Couleur personnalisée du texte"
           className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
         />
         <span
           aria-hidden="true"
           className="pointer-events-none absolute inset-1.5 rounded-full border border-border"
-          style={{ backgroundColor: currentColor }}
+          style={{ backgroundColor: currentColor || "transparent" }}
         />
       </span>
 
