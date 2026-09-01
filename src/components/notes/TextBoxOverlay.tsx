@@ -121,15 +121,20 @@ export function TextBoxOverlay({
       setIsEditing(true);
     },
     onBlur: ({ editor: ed }) => {
-      onCommit(ed.getHTML(), ed.isEmpty);
       // Un blur peut être causé par un contrôle interne de la barre riche
-      // (champ URL du lien, saisie de taille, sélecteur de couleur natif)
-      // sans que l'utilisateur ait réellement quitté le bloc — on ne sort
-      // du mode édition que si le focus est retombé en dehors de ce bloc
-      // ET de sa barre (tous deux sous `boxRef`), vérifié après le tour de
-      // boucle en cours pour laisser le nouveau focus se poser.
+      // (champ URL du lien, saisie de taille, sélecteur de couleur natif ou
+      // rapide) sans que l'utilisateur ait réellement quitté le bloc — on
+      // ne committe (et on ne sort du mode édition) que si le focus est
+      // RETOMBÉ EN DEHORS de ce bloc et de sa barre (tous deux sous
+      // `boxRef`), vérifié après le tour de boucle en cours pour laisser le
+      // nouveau focus se poser. Capturer html/isEmpty maintenant (pas dans
+      // le callback différé) : l'éditeur peut avoir changé d'ici là.
+      const html = ed.getHTML();
+      const isEmpty = ed.isEmpty;
       requestAnimationFrame(() => {
-        if (!boxRef.current?.contains(document.activeElement)) setIsEditing(false);
+        if (boxRef.current?.contains(document.activeElement)) return;
+        onCommit(html, isEmpty);
+        setIsEditing(false);
       });
     },
   }, [element.id]);
@@ -243,6 +248,13 @@ export function TextBoxOverlay({
 
   function handleDragPointerDown(e: React.PointerEvent) {
     e.stopPropagation();
+    // Cette poignée n'est qu'un <div>, pas un élément focusable — sans
+    // preventDefault, un clic SOURIS dessus laisse le navigateur reprendre
+    // le focus par défaut (cible non focusable), ce qui déclenche un blur
+    // de l'éditeur encore actif et peut supprimer un bloc encore vide (même
+    // cause que la création, voir plus haut). Sans incidence sur le
+    // tactile (déjà touch-none ici).
+    e.preventDefault();
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch {
@@ -274,6 +286,8 @@ export function TextBoxOverlay({
 
   function handleResizePointerDown(e: React.PointerEvent) {
     e.stopPropagation();
+    // Même raison que handleDragPointerDown ci-dessus.
+    e.preventDefault();
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch {

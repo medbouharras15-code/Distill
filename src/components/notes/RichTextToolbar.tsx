@@ -261,10 +261,9 @@ export function RichTextToolbar({ editor }: { editor: Editor }) {
 
       {/* Couleur de texte — pastilles rapides (voir TEXT_COLORS : "Auto"
           hérite du thème, les autres sont des teintes fixes lisibles en
-          clair comme en sombre). La couleur personnalisée (sélecteur natif)
-          est dans "…", pas ici — usage rare, ligne principale réservée à
-          l'essentiel (voir la demande : Police/Taille/B/I/U/Couleur/
-          Alignement/Liste, tout le reste en secondaire). */}
+          clair comme en sombre) + accès à toute couleur via le sélecteur
+          natif du système (roue teinte/saturation, luminosité, hex —
+          aucun composant à construire, déjà tout ce qu'il faut). */}
       <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-border bg-background-alt px-1 py-1">
         {TEXT_COLORS.map((c) => (
           <button
@@ -286,6 +285,22 @@ export function RichTextToolbar({ editor }: { editor: Editor }) {
             />
           </button>
         ))}
+        <span className="relative grid h-6 w-6 shrink-0 place-items-center" title="Couleur personnalisée">
+          <input
+            type="color"
+            value={currentColor || "#8a8a8a"}
+            onChange={(e) => editor.chain().focus().setColor(e.target.value).run()}
+            aria-label="Couleur personnalisée du texte"
+            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+          />
+          <span
+            aria-hidden="true"
+            className="pointer-events-none grid h-4 w-4 place-items-center rounded-full border border-dashed border-border/60 text-[10px] leading-none text-muted"
+            style={currentColor && !TEXT_COLORS.some((c) => c.value === currentColor) ? { backgroundColor: currentColor, border: "none" } : undefined}
+          >
+            {!currentColor || TEXT_COLORS.some((c) => c.value === currentColor) ? "+" : ""}
+          </span>
+        </span>
       </div>
 
       <div className="h-6 w-px shrink-0 bg-border" />
@@ -404,20 +419,6 @@ export function RichTextToolbar({ editor }: { editor: Editor }) {
               <ToolbarButton onClick={openLinkPopover} active={linkOpen || editor.isActive("link")} label="Insérer un lien">
                 <LinkIcon className="h-4 w-4" />
               </ToolbarButton>
-              <span className="relative grid h-8 w-8 shrink-0 place-items-center" title="Couleur personnalisée">
-                <input
-                  type="color"
-                  value={currentColor || "#8a8a8a"}
-                  onChange={(e) => editor.chain().focus().setColor(e.target.value).run()}
-                  aria-label="Couleur personnalisée du texte"
-                  className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-                />
-                <span
-                  aria-hidden="true"
-                  className="pointer-events-none h-4 w-4 rounded-full border border-border"
-                  style={{ backgroundColor: currentColor || "transparent" }}
-                />
-              </span>
             </div>
 
             {linkOpen && (

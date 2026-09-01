@@ -2221,6 +2221,14 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       // un bloc déjà existant, lui, est intercepté par ce bloc lui-même
       // (voir TextBoxOverlay, qui arrête la propagation de son propre
       // pointerdown) et n'arrive donc jamais jusqu'ici.
+      // preventDefault : sans lui, une fois ce handler terminé, le
+      // navigateur applique son action par défaut pour ce pointerdown —
+      // comme sa cible réelle est ce <canvas> (non focusable), un clic
+      // SOURIS reprend alors le focus qu'on vient de poser sur le nouveau
+      // bloc (voir le focus() ci-dessous), le bloc encore vide se
+      // retrouve immédiatement supprimé. Sans incidence sur le tactile
+      // (déjà touch-action: none ici).
+      e.preventDefault();
       const id = crypto.randomUUID();
       // Ne doit jamais dépasser horizontalement les limites de la page : si
       // le tap a lieu trop près du bord droit, on décale x vers la gauche
