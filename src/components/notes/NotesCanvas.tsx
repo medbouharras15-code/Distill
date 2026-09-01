@@ -1103,6 +1103,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   const auditLogRef = useRef<string[]>([]);
   const [auditLogTick, setAuditLogTick] = useState(0);
   const auditLogScrollRef = useRef<HTMLDivElement | null>(null);
+  const auditAttemptsScrollRef = useRef<HTMLDivElement | null>(null);
   function penAuditLog(label: string, extra?: Record<string, unknown>) {
     if (!PEN_AUDIT) return;
     const payload = {
@@ -1136,6 +1137,95 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     };
   }
 
+  /** AUDIT (round 3) : une "tentative" = un contact Pencil physique, suivi
+   * de son pointerdown natif jusqu'à son sort final (committed/discarded/
+   * annulé). Indexé par pointerId côté down/up ; `penAttemptsByStroke` fait
+   * le pont vers les logs de fin de endStroke(), qui eux ne connaissent que
+   * le strokeId (pas l'événement pointeur d'origine). Rien ici ne déclenche
+   * de re-rendu par lui-même : seul `moves` est incrémenté en pure mutation
+   * de ref (jamais de setState par pointermove) ; tous les autres champs
+   * sont modifiés juste à côté d'un penAuditLog déjà existant, qui
+   * déclenche déjà le re-rendu du panneau — aucun setState supplémentaire
+   * n'est ajouté. */
+  type PenAttempt = {
+    num: number;
+    pointerId: number;
+    strokeId: string | null;
+    nativeDownAt: number | null;
+    reactDownAt: number | null;
+    accepted: boolean;
+    started: boolean;
+    moves: number;
+    upAt: number | null;
+    committed: boolean | null;
+    cancelOrLost: boolean;
+    notes: string[];
+  };
+  const penAttempts = useRef<Map<number, PenAttempt>>(new Map());
+  const penAttemptsByStroke = useRef<Map<string, number>>(new Map());
+  const penAttemptCounter = useRef(0);
+
+  function getOrCreatePenAttempt(pointerId: number): PenAttempt {
+    let attempt = penAttempts.current.get(pointerId);
+    if (!attempt) {
+      penAttemptCounter.current += 1;
+      attempt = {
+        num: penAttemptCounter.current,
+        pointerId,
+        strokeId: null,
+        nativeDownAt: null,
+        reactDownAt: null,
+        accepted: false,
+        started: false,
+        moves: 0,
+        upAt: null,
+        committed: null,
+        cancelOrLost: false,
+        notes: [],
+      };
+      penAttempts.current.set(pointerId, attempt);
+    }
+    return attempt;
+  }
+
+  function markPenAttemptStarted(pointerId: number, strokeId: string) {
+    const attempt = penAttempts.current.get(pointerId);
+    if (attempt) {
+      attempt.started = true;
+      attempt.strokeId = strokeId;
+    }
+    penAttemptsByStroke.current.set(strokeId, pointerId);
+  }
+
+  function getPenAttemptByStrokeId(strokeId: string): PenAttempt | undefined {
+    const pointerId = penAttemptsByStroke.current.get(strokeId);
+    return pointerId !== undefined ? penAttempts.current.get(pointerId) : undefined;
+  }
+
+  function formatPenAttemptLine(a: PenAttempt): string {
+    const nativeOk = a.nativeDownAt !== null;
+    const reactOk = a.reactDownAt !== null;
+    const delay = nativeOk && reactOk ? `+${a.reactDownAt! - a.nativeDownAt!}ms` : "—";
+    const upOk = a.upAt !== null;
+    const duration = reactOk && upOk ? `${a.upAt! - a.reactDownAt!}ms` : "—";
+    const committedStr = a.committed === null ? "…" : a.committed ? "✓" : "✗";
+    const parts = [
+      `#${a.num}`,
+      `native ${nativeOk ? "✓" : "✗"}`,
+      `react ${reactOk ? "✓" : "✗"}`,
+      delay,
+      `accepted ${a.accepted ? "✓" : "✗"}`,
+      `started ${a.started ? "✓" : "✗"}`,
+      `moves ${a.moves}`,
+      `up ${upOk ? "✓" : "✗"}`,
+      duration,
+      `committed ${committedStr}`,
+      `cancel ${a.cancelOrLost ? "✓" : "✗"}`,
+    ];
+    if (a.notes.length > 0) parts.push(a.notes.join(", "));
+    return parts.join(" | ");
+  }
+
   /** AUDIT (round 2) : throttle par pointerId — le survol Pencil (pointerId
    * bas et stable, ex. 1) peut émettre des pointermove à haute fréquence ;
    * les logguer un par un floodait la console ET provoquait un re-rendu
@@ -1157,6 +1247,8 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     if (!PEN_AUDIT) return;
     const el = auditLogScrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
+    const attemptsEl = auditAttemptsScrollRef.current;
+    if (attemptsEl) attemptsEl.scrollTop = attemptsEl.scrollHeight;
   }, [auditLogTick, PEN_AUDIT]);
 
   /** AUDIT round 2 — TEMPORAIRE : écoute native `pointerdown` en phase de
@@ -1181,6 +1273,9 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         width: e.width,
         height: e.height,
       });
+      if (e.pointerType === "pen") {
+        getOrCreatePenAttempt(e.pointerId).nativeDownAt = Date.now();
+      }
     }
     document.addEventListener("pointerdown", handleNativePointerDownCapture, { capture: true, passive: true });
     return () => {
@@ -1195,7 +1290,14 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   }, [PEN_AUDIT, tool]);
 
   async function handleCopyAuditLog() {
-    const text = auditLogRef.current.join("\n");
+    const summaryLines = Array.from(penAttempts.current.values()).map(formatPenAttemptLine);
+    const text = [
+      "=== Résumé par tentative ===",
+      ...(summaryLines.length > 0 ? summaryLines : ["(aucune tentative)"]),
+      "",
+      "=== Log brut ===",
+      ...auditLogRef.current,
+    ].join("\n");
     try {
       await navigator.clipboard.writeText(text);
     } catch {
@@ -1208,6 +1310,9 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     auditLogRef.current = [];
     auditLastLoggedStrokeId.current = null;
     auditMoveThrottle.current.clear();
+    penAttempts.current.clear();
+    penAttemptsByStroke.current.clear();
+    penAttemptCounter.current = 0;
     setAuditLogTick((t) => t + 1);
   }
 
@@ -2210,6 +2315,10 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
 
   function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
     penAuditLog(`${e.pointerType.toUpperCase()} DOWN entry`, pointerAuditFields(e));
+    if (PEN_AUDIT && e.pointerType === "pen") {
+      const attempt = getOrCreatePenAttempt(e.pointerId);
+      if (attempt.reactDownAt === null) attempt.reactDownAt = Date.now();
+    }
     if (e.pointerType === "touch") {
       // Doigt sur le corps de la règle : démarre/rejoint son geste de
       // déplacement (1 doigt) ou de rotation (2e doigt) — jamais le
@@ -2300,6 +2409,10 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       prevHasTouchScrollState: !!touchScrollState.current,
       prevHasCurrentStroke: !!currentStroke.current,
     });
+    if (PEN_AUDIT && e.pointerType === "pen") {
+      const attempt = penAttempts.current.get(e.pointerId);
+      if (attempt) attempt.accepted = true;
+    }
     activePointerId.current = e.pointerId;
     const pos = getPos(e);
 
@@ -2464,6 +2577,9 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         pointerId: e.pointerId,
         strokeId: currentStroke.current.id,
       });
+      if (PEN_AUDIT && e.pointerType === "pen") {
+        markPenAttemptStarted(e.pointerId, currentStroke.current.id);
+      }
       if (highlighterMode === "freehand" && !rulerStrokeEdge.current) {
         // Redressement automatique par maintien — seulement en Libre et
         // hors accroche à la Règle : en Droit ou déjà accroché à un bord,
@@ -2509,6 +2625,9 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         pointerId: e.pointerId,
         strokeId: currentStroke.current.id,
       });
+      if (PEN_AUDIT && e.pointerType === "pen") {
+        markPenAttemptStarted(e.pointerId, currentStroke.current.id);
+      }
       if (!rulerStrokeEdge.current) {
         scheduleHoldCheck(pos, "pen");
       }
@@ -2595,6 +2714,14 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         pointerId: e.pointerId,
         strokeId: currentStroke.current.id,
       });
+    }
+    // AUDIT (round 3) : compteur de mouvements par tentative — mutation pure
+    // de l'objet en ref, JAMAIS de setState ici (voir plan validé). Le
+    // panneau affichera la valeur à jour à la prochaine transition qui,
+    // elle, déclenche déjà un re-rendu via un penAuditLog voisin.
+    if (PEN_AUDIT && e.pointerType === "pen" && currentStroke.current) {
+      const attempt = penAttempts.current.get(e.pointerId);
+      if (attempt) attempt.moves += 1;
     }
     if (rulerStrokeEdge.current) {
       // Trait déjà accroché à un bord de la règle (décidé au posé, voir
@@ -3020,6 +3147,9 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       tapMaxDurationMs: TAP_MAX_DURATION_MS,
       isTap,
     });
+    if (PEN_AUDIT) {
+      getPenAttemptByStrokeId(finished.id)?.notes.push(isTap ? "classified: tap" : "classified: normal");
+    }
 
     if (isTap && start) {
       const last = lastTap.current;
@@ -3044,6 +3174,13 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         penAuditLog("endStroke() → stroke discarded (double-tap), onPenDoubleTap() appelé", {
           strokeId: finished.id,
         });
+        if (PEN_AUDIT) {
+          const attempt = getPenAttemptByStrokeId(finished.id);
+          if (attempt) {
+            attempt.committed = false;
+            attempt.notes.push("discarded: double-tap");
+          }
+        }
         lastTap.current = null;
         scheduleRender();
         onPenDoubleTap?.();
@@ -3055,6 +3192,10 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     }
 
     penAuditLog("endStroke() → stroke committed", { strokeId: finished.id, pointCount: finished.points.length });
+    if (PEN_AUDIT) {
+      const attempt = getPenAttemptByStrokeId(finished.id);
+      if (attempt) attempt.committed = true;
+    }
     if (finished.points.length > 0) {
       commitDoc({
         strokes: [...strokesRef.current, finished],
@@ -3086,7 +3227,14 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       penAuditLog(`${e.pointerType.toUpperCase()} UP blocked: activePointerId mismatch`, {
         pointerId: e.pointerId,
       });
+      if (PEN_AUDIT && e.pointerType === "pen") {
+        penAttempts.current.get(e.pointerId)?.notes.push("UP blocked: mismatch");
+      }
       return;
+    }
+    if (PEN_AUDIT && e.pointerType === "pen") {
+      const attempt = penAttempts.current.get(e.pointerId);
+      if (attempt && attempt.upAt === null) attempt.upAt = Date.now();
     }
     endStroke();
   }
@@ -3122,6 +3270,10 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     penAuditLog(`${e.pointerType.toUpperCase()} CANCEL → reset complet (trait abandonné, non committé)`, {
       pointerId: e.pointerId,
     });
+    if (PEN_AUDIT && e.pointerType === "pen") {
+      const attempt = penAttempts.current.get(e.pointerId);
+      if (attempt) attempt.cancelOrLost = true;
+    }
     currentStroke.current = null;
     currentShape.current = null;
     shapeStartPos.current = null;
@@ -3177,6 +3329,10 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
    * (perte de capture inattendue), invisible jusqu'ici. */
   function handleLostPointerCapture(e: React.PointerEvent<HTMLCanvasElement>) {
     penAuditLog(`${e.pointerType.toUpperCase()} LOSTCAPTURE entry`, pointerAuditFields(e));
+    if (PEN_AUDIT && e.pointerType === "pen") {
+      const attempt = penAttempts.current.get(e.pointerId);
+      if (attempt) attempt.cancelOrLost = true;
+    }
   }
 
   return (
@@ -3355,9 +3511,11 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       )}
 
       {PEN_AUDIT && (
-        <div className="pointer-events-auto fixed bottom-2 left-2 z-50 flex max-h-[45vh] w-[280px] flex-col rounded-lg bg-black/85 p-2 font-mono text-[10px] leading-snug text-lime-300 shadow-lg">
+        <div className="pointer-events-auto fixed bottom-2 left-2 z-50 flex max-h-[60vh] w-[340px] flex-col rounded-lg bg-black/85 p-2 font-mono text-[10px] leading-snug text-lime-300 shadow-lg">
           <div className="mb-1 flex items-center justify-between gap-2">
-            <span className="font-semibold text-white">PEN-AUDIT ({auditLogRef.current.length})</span>
+            <span className="font-semibold text-white">
+              PEN-AUDIT — {penAttempts.current.size} tentative(s), {auditLogRef.current.length} événement(s)
+            </span>
             <div className="flex gap-1">
               <button
                 type="button"
@@ -3375,9 +3533,21 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
               </button>
             </div>
           </div>
+          <div className="mb-1 text-white/70">Résumé par tentative</div>
+          <div
+            ref={auditAttemptsScrollRef}
+            className="mb-1 max-h-[22vh] overflow-y-auto whitespace-pre-wrap break-all border-b border-white/20 pb-1"
+          >
+            {penAttempts.current.size === 0 ? (
+              <div className="text-white/50">(aucune tentative — écris avec le Pencil)</div>
+            ) : (
+              Array.from(penAttempts.current.values()).map((a) => <div key={a.pointerId}>{formatPenAttemptLine(a)}</div>)
+            )}
+          </div>
+          <div className="mb-1 text-white/70">Log brut</div>
           <div ref={auditLogScrollRef} className="flex-1 overflow-y-auto whitespace-pre-wrap break-all">
             {auditLogRef.current.length === 0 ? (
-              <div className="text-white/50">(aucun événement pour l&apos;instant — écris avec le Pencil)</div>
+              <div className="text-white/50">(aucun événement pour l&apos;instant)</div>
             ) : (
               auditLogRef.current.map((line, i) => <div key={i}>{line}</div>)
             )}
