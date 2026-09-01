@@ -2142,14 +2142,16 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       }
     }
 
-    if (tool !== "pan" && !touchDrawBlocked && e.pointerType === "touch" && Date.now() - lastPenTime.current < PALM_REJECTION_MS) {
+    if (tool !== "pan" && e.pointerType === "touch" && Date.now() - lastPenTime.current < PALM_REJECTION_MS) {
       // Rejet de paume : on ignore ce contact tactile pendant l'écriture au
-      // stylet — sauf avec l'outil Déplacement (explicitement choisi pour
-      // naviguer, ne dessine jamais rien) et les outils où le doigt ne
-      // dessine déjà plus jamais (`touchDrawBlocked`, voir plus haut) : le
-      // seul risque qu'évitait ce rejet pour eux — un trait accidentel —
-      // n'existe structurellement plus, autant laisser le doigt défiler
-      // immédiatement plutôt que d'attendre la fin de cette fenêtre.
+      // stylet — sauf avec l'outil Déplacement, explicitement choisi pour
+      // naviguer et qui ne dessine jamais rien. Couvre aussi
+      // touchDrawBlocked (Stylo/Surligneur/Formes) : sans cette garde, une
+      // paume posée pendant l'écriture Pencil vole activePointerId/pointer
+      // capture au Pencil en cours de trait (voir handlePointerDown
+      // quelques lignes plus bas, capture commune à tout pointerType qui
+      // franchit cette garde) — ce n'est pas seulement "empêcher un trait
+      // accidentel au doigt", structurellement déjà exclu ailleurs.
       return;
     }
     if (e.pointerType === "pen") {
