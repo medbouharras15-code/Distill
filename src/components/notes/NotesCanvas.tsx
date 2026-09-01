@@ -1089,6 +1089,25 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   } | null>(null);
   const touchDrawBlocked = tool === "pen" || tool === "highlighter" || tool === "shapes";
 
+  /** AUDIT TEMPORAIRE — À RETIRER après diagnostic du trait Pencil perdu.
+   * Trace le cycle pointerdown/pointermove/pointerup/pointercancel pour
+   * confirmer/infirmer deux pistes : (A) touchScrollState/activePointerId
+   * orphelins quand un pointerdown Pencil reprend la main sur un doigt déjà
+   * actif, (B) annulation d'un trait classé "double-tap" (bascule Gomme).
+   * Aucune logique fonctionnelle modifiée : uniquement des console.log. */
+  const PEN_AUDIT = true;
+  const auditLastLoggedStrokeId = useRef<string | null>(null);
+  function penAuditLog(label: string, extra?: Record<string, unknown>) {
+    if (!PEN_AUDIT) return;
+    console.log(`[PEN-AUDIT] ${label}`, {
+      activePointerId: activePointerId.current,
+      hasCurrentStroke: !!currentStroke.current,
+      hasTouchScrollState: !!touchScrollState.current,
+      tool,
+      ...extra,
+    });
+  }
+
   /** Récupère (en la mettant en cache) l'image HTML correspondant à une
    * source donnée — ne retourne l'image que si elle est déjà chargée ;
    * déclenche un nouveau rendu dès que le chargement se termine. */
@@ -2087,6 +2106,11 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   }
 
   function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
+    penAuditLog(`${e.pointerType.toUpperCase()} DOWN entry`, {
+      pointerId: e.pointerId,
+      isPrimary: e.isPrimary,
+      buttons: e.buttons,
+    });
     if (e.pointerType === "touch") {
       // Doigt sur le corps de la règle : démarre/rejoint son geste de
       // déplacement (1 doigt) ou de rotation (2e doigt) — jamais le
@@ -2101,6 +2125,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
           rulerGestureStart.current = { ruler: { ...ruler }, touches: new Map(rulerLiveClientPos.current) };
           setRulerRotating(rulerTouchIds.current.length === 2);
           scheduleRender();
+          penAuditLog("TOUCH DOWN return: ruler-touch-claim", { pointerId: e.pointerId });
           return;
         }
       }
@@ -2138,6 +2163,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
         pinchState.current = { initialDistance: dist || 1, initialZoom: zoom };
         scheduleRender();
+        penAuditLog("TOUCH DOWN return: pinch-start", { pointerId: e.pointerId });
         return;
       }
     }
@@ -2152,6 +2178,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       // quelques lignes plus bas, capture commune à tout pointerType qui
       // franchit cette garde) — ce n'est pas seulement "empêcher un trait
       // accidentel au doigt", structurellement déjà exclu ailleurs.
+      penAuditLog("TOUCH DOWN return: palm-rejection", { pointerId: e.pointerId });
       return;
     }
     if (e.pointerType === "pen") {
@@ -2165,6 +2192,15 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       // n'ont pas de pointeur actif à capturer — le dessin fonctionne quand
       // même sans capture, on continue simplement.
     }
+    // AUDIT (piste A) : capture l'état AVANT écrasement — si un autre
+    // pointeur possédait activePointerId/touchScrollState/currentStroke à
+    // cet instant, ce log révèle l'orphelinage (rien ne le nettoie ici).
+    penAuditLog(`${e.pointerType.toUpperCase()} DOWN accepted (avant écrasement activePointerId)`, {
+      pointerId: e.pointerId,
+      prevActivePointerId: activePointerId.current,
+      prevHasTouchScrollState: !!touchScrollState.current,
+      prevHasCurrentStroke: !!currentStroke.current,
+    });
     activePointerId.current = e.pointerId;
     const pos = getPos(e);
 
@@ -2239,6 +2275,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         startScrollLeft: container ? container.scrollLeft : 0,
         startScrollTop: container ? container.scrollTop : 0,
       };
+      penAuditLog("TOUCH DOWN → touchScrollState started", { pointerId: e.pointerId });
     } else if (tool === "shapes") {
       shapeStartPos.current = { x: pos.x, y: pos.y };
       currentShape.current = {
@@ -2324,6 +2361,10 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         // jamais accumulé comme en mode Libre.
         points: highlighterMode === "straight" ? [pos, pos] : [pos],
       };
+      penAuditLog(`${e.pointerType.toUpperCase()} DOWN → stroke started (highlighter)`, {
+        pointerId: e.pointerId,
+        strokeId: currentStroke.current.id,
+      });
       if (highlighterMode === "freehand" && !rulerStrokeEdge.current) {
         // Redressement automatique par maintien — seulement en Libre et
         // hors accroche à la Règle : en Droit ou déjà accroché à un bord,
@@ -2365,6 +2406,10 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         size: penSize,
         points: [pos],
       };
+      penAuditLog(`${e.pointerType.toUpperCase()} DOWN → stroke started (pen)`, {
+        pointerId: e.pointerId,
+        strokeId: currentStroke.current.id,
+      });
       if (!rulerStrokeEdge.current) {
         scheduleHoldCheck(pos, "pen");
       }
@@ -2411,12 +2456,18 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       scheduleRender();
     }
 
-    if (activePointerId.current !== e.pointerId) return;
+    if (activePointerId.current !== e.pointerId) {
+      penAuditLog(`${e.pointerType.toUpperCase()} MOVE blocked: activePointerId mismatch`, {
+        pointerId: e.pointerId,
+      });
+      return;
+    }
 
     if (touchScrollState.current) {
       // Défilement au doigt démarré à la place d'un trait/forme (voir
       // handlePointerDown) — même formule que Déplacement, dupliquée
       // volontairement pour ne rien partager avec panState.
+      penAuditLog(`${e.pointerType.toUpperCase()} MOVE blocked: touchScrollState`, { pointerId: e.pointerId });
       const container = containerRef.current;
       if (container) {
         container.scrollLeft = touchScrollState.current.startScrollLeft - (e.clientX - touchScrollState.current.startClientX);
@@ -2429,6 +2480,15 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       lastPenTime.current = Date.now();
     }
     const pos = getPos(e);
+    if (PEN_AUDIT && currentStroke.current && auditLastLoggedStrokeId.current !== currentStroke.current.id) {
+      // Un seul log par trait (pas un par point) pour rester lisible même
+      // sur une lettre à beaucoup de points.
+      auditLastLoggedStrokeId.current = currentStroke.current.id;
+      penAuditLog(`${e.pointerType.toUpperCase()} MOVE accepted → point ajouté au trait`, {
+        pointerId: e.pointerId,
+        strokeId: currentStroke.current.id,
+      });
+    }
     if (rulerStrokeEdge.current) {
       // Trait déjà accroché à un bord de la règle (décidé au posé, voir
       // handlePointerDown) : chaque point suivant est aussi projeté sur ce
@@ -2585,6 +2645,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   }
 
   function endStroke() {
+    penAuditLog("endStroke() entry");
     if (holdTimer.current) {
       clearTimeout(holdTimer.current);
       holdTimer.current = null;
@@ -2595,6 +2656,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     if (touchScrollState.current) {
       // Défilement au doigt (voir handlePointerDown/handlePointerMove) —
       // jamais de trait/forme à committer, juste nettoyer cet état séparé.
+      penAuditLog("endStroke() → branche touchScrollState : trait NON committé, juste nettoyé");
       touchScrollState.current = null;
       activePointerId.current = null;
       scheduleRender();
@@ -2771,6 +2833,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     const finished = currentStroke.current;
     currentStroke.current = null;
     activePointerId.current = null;
+    penAuditLog("endStroke() → activePointerId remis à null", { hadFinishedStroke: !!finished });
 
     const locked = lockedSnap.current;
     lockedSnap.current = null;
@@ -2835,6 +2898,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     }
 
     if (!finished) {
+      penAuditLog("endStroke() → return: aucun trait en cours (finished=null)");
       scheduleRender();
       return;
     }
@@ -2843,18 +2907,36 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     const duration = start ? Date.now() - start.time : Infinity;
     const isTap = tapIsCandidate.current && start !== null && duration <= TAP_MAX_DURATION_MS;
     tapStartInfo.current = null;
+    penAuditLog(`endStroke() → stroke classified ${isTap ? "tap" : "trait normal"}`, {
+      strokeId: finished.id,
+      durationMs: start ? duration : null,
+      tapMaxDurationMs: TAP_MAX_DURATION_MS,
+      isTap,
+    });
 
     if (isTap && start) {
       const last = lastTap.current;
+      const distanceFromLastTap = last ? Math.hypot(start.x - last.x, start.y - last.y) : null;
       const isDoubleTap =
         last !== null &&
         Date.now() - last.time <= DOUBLE_TAP_MAX_INTERVAL_MS &&
         Math.hypot(start.x - last.x, start.y - last.y) <= DOUBLE_TAP_MAX_DISTANCE;
+      penAuditLog(`endStroke() → doubleTap=${isDoubleTap}`, {
+        strokeId: finished.id,
+        hadPreviousTap: last !== null,
+        intervalSinceLastTapMs: last ? Date.now() - last.time : null,
+        doubleTapMaxIntervalMs: DOUBLE_TAP_MAX_INTERVAL_MS,
+        distanceFromLastTap,
+        doubleTapMaxDistance: DOUBLE_TAP_MAX_DISTANCE,
+      });
 
       if (isDoubleTap) {
         // Double-tap détecté : on annule ce tout petit trait (le point qui
         // aurait été laissé par ce second tap) et on déclenche la bascule
         // vers la gomme plutôt que de committer un trait.
+        penAuditLog("endStroke() → stroke discarded (double-tap), onPenDoubleTap() appelé", {
+          strokeId: finished.id,
+        });
         lastTap.current = null;
         scheduleRender();
         onPenDoubleTap?.();
@@ -2865,6 +2947,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       lastTap.current = null;
     }
 
+    penAuditLog("endStroke() → stroke committed", { strokeId: finished.id, pointCount: finished.points.length });
     if (finished.points.length > 0) {
       commitDoc({
         strokes: [...strokesRef.current, finished],
@@ -2883,22 +2966,31 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   }
 
   function handlePointerUp(e: React.PointerEvent<HTMLCanvasElement>) {
+    penAuditLog(`${e.pointerType.toUpperCase()} UP entry`, { pointerId: e.pointerId });
     if (e.pointerType === "touch") {
       endPinchIfDone(e.pointerId);
       if (endRulerTouch(e.pointerId)) {
         scheduleRender();
+        penAuditLog("TOUCH UP return: endRulerTouch", { pointerId: e.pointerId });
         return;
       }
     }
-    if (activePointerId.current !== e.pointerId) return;
+    if (activePointerId.current !== e.pointerId) {
+      penAuditLog(`${e.pointerType.toUpperCase()} UP blocked: activePointerId mismatch`, {
+        pointerId: e.pointerId,
+      });
+      return;
+    }
     endStroke();
   }
 
   function handlePointerCancel(e: React.PointerEvent<HTMLCanvasElement>) {
+    penAuditLog(`${e.pointerType.toUpperCase()} CANCEL entry`, { pointerId: e.pointerId });
     if (e.pointerType === "touch") {
       endPinchIfDone(e.pointerId);
       if (endRulerTouch(e.pointerId)) {
         scheduleRender();
+        penAuditLog("TOUCH CANCEL return: endRulerTouch", { pointerId: e.pointerId });
         return;
       }
     }
@@ -2910,11 +3002,19 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       hoveredStrokeId.current = null;
       scheduleRender();
     }
-    if (activePointerId.current !== e.pointerId) return;
+    if (activePointerId.current !== e.pointerId) {
+      penAuditLog(`${e.pointerType.toUpperCase()} CANCEL blocked: activePointerId mismatch`, {
+        pointerId: e.pointerId,
+      });
+      return;
+    }
     if (holdTimer.current) {
       clearTimeout(holdTimer.current);
       holdTimer.current = null;
     }
+    penAuditLog(`${e.pointerType.toUpperCase()} CANCEL → reset complet (trait abandonné, non committé)`, {
+      pointerId: e.pointerId,
+    });
     currentStroke.current = null;
     currentShape.current = null;
     shapeStartPos.current = null;
@@ -2959,6 +3059,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
    * gomme, règle, image, nouveau tracé de lasso...), comportement
    * strictement inchangé. */
   function handlePointerLeaveCanvas(e: React.PointerEvent<HTMLCanvasElement>) {
+    penAuditLog(`${e.pointerType.toUpperCase()} LEAVE entry`, { pointerId: e.pointerId });
     if (selectionDragMode.current && activePointerId.current === e.pointerId) return;
     handlePointerCancel(e);
   }
