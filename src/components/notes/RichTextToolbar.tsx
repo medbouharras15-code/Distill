@@ -186,22 +186,7 @@ export function RichTextToolbar({ editor }: { editor: Editor }) {
         if ((e.target as HTMLElement).tagName !== "INPUT") e.preventDefault();
       }}
     >
-      {/* 1. Style de paragraphe */}
-      <select
-        value={paragraphValue}
-        onChange={(e) => applyParagraphStyle(e.target.value)}
-        aria-label="Style de paragraphe"
-        title="Style de paragraphe"
-        className="shrink-0 rounded-full border border-border bg-background-alt px-2.5 py-1 text-xs font-medium text-foreground"
-      >
-        <option value="body">Corps</option>
-        <option value="h1">Titre 1</option>
-        <option value="h2">Titre 2</option>
-        <option value="h3">Titre 3</option>
-        <option value="quote">Citation</option>
-      </select>
-
-      {/* 2. Police */}
+      {/* Police */}
       <select
         value={currentFontFamily}
         onChange={(e) => editor.chain().focus().setFontFamily(e.target.value).run()}
@@ -274,9 +259,12 @@ export function RichTextToolbar({ editor }: { editor: Editor }) {
         </button>
       </div>
 
-      {/* 4a. Couleur de texte — pastilles rapides (voir TEXT_COLORS : "Auto"
+      {/* Couleur de texte — pastilles rapides (voir TEXT_COLORS : "Auto"
           hérite du thème, les autres sont des teintes fixes lisibles en
-          clair comme en sombre). */}
+          clair comme en sombre). La couleur personnalisée (sélecteur natif)
+          est dans "…", pas ici — usage rare, ligne principale réservée à
+          l'essentiel (voir la demande : Police/Taille/B/I/U/Couleur/
+          Alignement/Liste, tout le reste en secondaire). */}
       <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-border bg-background-alt px-1 py-1">
         {TEXT_COLORS.map((c) => (
           <button
@@ -300,25 +288,9 @@ export function RichTextToolbar({ editor }: { editor: Editor }) {
         ))}
       </div>
 
-      {/* 4b. Couleur de texte — personnalisée */}
-      <span className="relative h-8 w-8 shrink-0" title="Couleur personnalisée">
-        <input
-          type="color"
-          value={currentColor || "#8a8a8a"}
-          onChange={(e) => editor.chain().focus().setColor(e.target.value).run()}
-          aria-label="Couleur personnalisée du texte"
-          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-        />
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-1.5 rounded-full border border-border"
-          style={{ backgroundColor: currentColor || "transparent" }}
-        />
-      </span>
-
       <div className="h-6 w-px shrink-0 bg-border" />
 
-      {/* 5-7. Gras / italique / souligné */}
+      {/* Gras / italique / souligné */}
       <ToolbarButton onClick={() => editor.chain().focus().toggleBold().run()} active={editor.isActive("bold")} label="Gras">
         <BoldIcon className="h-4 w-4" />
       </ToolbarButton>
@@ -329,81 +301,158 @@ export function RichTextToolbar({ editor }: { editor: Editor }) {
         <UnderlineIcon className="h-4 w-4" />
       </ToolbarButton>
 
-      {/* 8. Plus d'options texte */}
+      {/* Plus d'options — tout ce qui n'est pas dans la priorité demandée
+          (Police/Taille/B/I/U/Couleur/Alignement/Liste) : style de
+          paragraphe (titres/citation), lien, liste de tâches, citation en
+          bloc dédiée, bloc de code, retrait, barré/exposant/indice, couleur
+          personnalisée. Regroupé en grille compacte plutôt qu'une ligne qui
+          déborderait. */}
       <div className="relative shrink-0">
         <ToolbarButton
           onClick={() => {
             setMoreOpen((open) => !open);
             setLinkOpen(false);
           }}
-          active={moreOpen || editor.isActive("strike") || editor.isActive("superscript") || editor.isActive("subscript")}
+          active={
+            moreOpen ||
+            editor.isActive("strike") ||
+            editor.isActive("superscript") ||
+            editor.isActive("subscript") ||
+            editor.isActive("link") ||
+            editor.isActive("blockquote") ||
+            editor.isActive("codeBlock") ||
+            editor.isActive("taskList") ||
+            paragraphValue !== "body"
+          }
           label="Plus d'options de texte"
         >
           <ChevronDownIcon className="h-4 w-4" />
         </ToolbarButton>
         {moreOpen && (
-          <div className="absolute left-0 top-full z-10 mt-1 flex items-center gap-1 rounded-xl border border-border bg-card p-1 shadow-lg">
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleStrike().run()}
-              active={editor.isActive("strike")}
-              label="Barré"
+          <div className="absolute left-0 top-full z-10 mt-1 flex w-64 flex-col gap-1.5 rounded-xl border border-border bg-card p-2 shadow-lg">
+            <select
+              value={paragraphValue}
+              onChange={(e) => applyParagraphStyle(e.target.value)}
+              aria-label="Style de paragraphe"
+              title="Style de paragraphe"
+              className="w-full rounded-full border border-border bg-background-alt px-2.5 py-1 text-xs font-medium text-foreground"
             >
-              <StrikethroughIcon className="h-4 w-4" />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleSuperscript().run()}
-              active={editor.isActive("superscript")}
-              label="Exposant"
-            >
-              <SuperscriptIcon className="h-4 w-4" />
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={() => editor.chain().focus().toggleSubscript().run()}
-              active={editor.isActive("subscript")}
-              label="Indice"
-            >
-              <SubscriptIcon className="h-4 w-4" />
-            </ToolbarButton>
-          </div>
-        )}
-      </div>
+              <option value="body">Corps</option>
+              <option value="h1">Titre 1</option>
+              <option value="h2">Titre 2</option>
+              <option value="h3">Titre 3</option>
+              <option value="quote">Citation</option>
+            </select>
 
-      {/* 9. Lien */}
-      <div className="relative shrink-0">
-        <ToolbarButton onClick={openLinkPopover} active={linkOpen || editor.isActive("link")} label="Insérer un lien">
-          <LinkIcon className="h-4 w-4" />
-        </ToolbarButton>
-        {linkOpen && (
-          <div className="absolute left-0 top-full z-10 mt-1 flex items-center gap-1.5 rounded-xl border border-border bg-card p-2 shadow-lg">
-            <input
-              type="url"
-              value={linkDraft}
-              onChange={(e) => setLinkDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") applyLink();
-                if (e.key === "Escape") setLinkOpen(false);
-              }}
-              placeholder="https://…"
-              autoFocus
-              className="w-44 rounded-full border border-border bg-background-alt px-3 py-1 text-xs text-foreground outline-none"
-            />
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={applyLink}
-              className="shrink-0 rounded-full bg-accent px-3 py-1 text-xs font-medium text-accent-foreground transition hover:bg-accent-dark"
-            >
-              Appliquer
-            </button>
-            {editor.isActive("link") && (
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={removeLink}
-                className="shrink-0 rounded-full border border-border px-2.5 py-1 text-xs text-muted transition hover:text-foreground"
+            <div className="flex flex-wrap items-center gap-1">
+              <ToolbarButton
+                onClick={() => editor.chain().focus().toggleStrike().run()}
+                active={editor.isActive("strike")}
+                label="Barré"
               >
-                Retirer
-              </button>
+                <StrikethroughIcon className="h-4 w-4" />
+              </ToolbarButton>
+              <ToolbarButton
+                onClick={() => editor.chain().focus().toggleSuperscript().run()}
+                active={editor.isActive("superscript")}
+                label="Exposant"
+              >
+                <SuperscriptIcon className="h-4 w-4" />
+              </ToolbarButton>
+              <ToolbarButton
+                onClick={() => editor.chain().focus().toggleSubscript().run()}
+                active={editor.isActive("subscript")}
+                label="Indice"
+              >
+                <SubscriptIcon className="h-4 w-4" />
+              </ToolbarButton>
+              <ToolbarButton
+                onClick={() => editor.chain().focus().toggleTaskList().run()}
+                active={editor.isActive("taskList")}
+                label="Liste de tâches"
+              >
+                <ChecklistIcon className="h-4 w-4" />
+              </ToolbarButton>
+              <ToolbarButton
+                onClick={() => editor.chain().focus().toggleBlockquote().run()}
+                active={editor.isActive("blockquote")}
+                label="Citation en bloc"
+              >
+                <BlockquoteIcon className="h-4 w-4" />
+              </ToolbarButton>
+              <ToolbarButton
+                onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+                active={editor.isActive("codeBlock")}
+                label="Bloc de code"
+              >
+                <CodeBlockIcon className="h-4 w-4" />
+              </ToolbarButton>
+              <ToolbarButton
+                onClick={() => editor.chain().focus().sinkListItem("listItem").run()}
+                disabled={!editor.can().sinkListItem("listItem")}
+                label="Augmenter le retrait"
+              >
+                <IndentIncreaseIcon className="h-4 w-4" />
+              </ToolbarButton>
+              <ToolbarButton
+                onClick={() => editor.chain().focus().liftListItem("listItem").run()}
+                disabled={!editor.can().liftListItem("listItem")}
+                label="Diminuer le retrait"
+              >
+                <IndentDecreaseIcon className="h-4 w-4" />
+              </ToolbarButton>
+              <ToolbarButton onClick={openLinkPopover} active={linkOpen || editor.isActive("link")} label="Insérer un lien">
+                <LinkIcon className="h-4 w-4" />
+              </ToolbarButton>
+              <span className="relative grid h-8 w-8 shrink-0 place-items-center" title="Couleur personnalisée">
+                <input
+                  type="color"
+                  value={currentColor || "#8a8a8a"}
+                  onChange={(e) => editor.chain().focus().setColor(e.target.value).run()}
+                  aria-label="Couleur personnalisée du texte"
+                  className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                />
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none h-4 w-4 rounded-full border border-border"
+                  style={{ backgroundColor: currentColor || "transparent" }}
+                />
+              </span>
+            </div>
+
+            {linkOpen && (
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="url"
+                  value={linkDraft}
+                  onChange={(e) => setLinkDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") applyLink();
+                    if (e.key === "Escape") setLinkOpen(false);
+                  }}
+                  placeholder="https://…"
+                  autoFocus
+                  className="w-full min-w-0 rounded-full border border-border bg-background-alt px-3 py-1 text-xs text-foreground outline-none"
+                />
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={applyLink}
+                  className="shrink-0 rounded-full bg-accent px-3 py-1 text-xs font-medium text-accent-foreground transition hover:bg-accent-dark"
+                >
+                  Appliquer
+                </button>
+                {editor.isActive("link") && (
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={removeLink}
+                    className="shrink-0 rounded-full border border-border px-2.5 py-1 text-xs text-muted transition hover:text-foreground"
+                  >
+                    Retirer
+                  </button>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -411,14 +460,8 @@ export function RichTextToolbar({ editor }: { editor: Editor }) {
 
       <div className="h-6 w-px shrink-0 bg-border" />
 
-      {/* 10-12. Listes */}
-      <ToolbarButton
-        onClick={() => editor.chain().focus().toggleTaskList().run()}
-        active={editor.isActive("taskList")}
-        label="Liste de tâches"
-      >
-        <ChecklistIcon className="h-4 w-4" />
-      </ToolbarButton>
+      {/* Liste — à puces / numérotée (la liste de tâches, plus spécialisée,
+          est dans "…" ci-dessus). */}
       <ToolbarButton
         onClick={() => editor.chain().focus().toggleBulletList().run()}
         active={editor.isActive("bulletList")}
@@ -434,43 +477,9 @@ export function RichTextToolbar({ editor }: { editor: Editor }) {
         <NumberedListIcon className="h-4 w-4" />
       </ToolbarButton>
 
-      {/* 13-14. Citation / code */}
-      <ToolbarButton
-        onClick={() => editor.chain().focus().toggleBlockquote().run()}
-        active={editor.isActive("blockquote")}
-        label="Citation en bloc"
-      >
-        <BlockquoteIcon className="h-4 w-4" />
-      </ToolbarButton>
-      <ToolbarButton
-        onClick={() => editor.chain().focus().toggleCodeBlock().run()}
-        active={editor.isActive("codeBlock")}
-        label="Bloc de code"
-      >
-        <CodeBlockIcon className="h-4 w-4" />
-      </ToolbarButton>
-
       <div className="h-6 w-px shrink-0 bg-border" />
 
-      {/* 15-16. Retrait */}
-      <ToolbarButton
-        onClick={() => editor.chain().focus().sinkListItem("listItem").run()}
-        disabled={!editor.can().sinkListItem("listItem")}
-        label="Augmenter le retrait"
-      >
-        <IndentIncreaseIcon className="h-4 w-4" />
-      </ToolbarButton>
-      <ToolbarButton
-        onClick={() => editor.chain().focus().liftListItem("listItem").run()}
-        disabled={!editor.can().liftListItem("listItem")}
-        label="Diminuer le retrait"
-      >
-        <IndentDecreaseIcon className="h-4 w-4" />
-      </ToolbarButton>
-
-      <div className="h-6 w-px shrink-0 bg-border" />
-
-      {/* 17. Alignement */}
+      {/* Alignement */}
       <div className="relative shrink-0">
         <ToolbarButton onClick={() => setAlignOpen((open) => !open)} active={alignOpen} label="Alignement du texte">
           {ALIGN_OPTIONS.find((a) => a.value === alignValue)?.icon}

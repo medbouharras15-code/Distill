@@ -9,6 +9,7 @@ import {
   useState,
   type RefObject,
 } from "react";
+import { flushSync } from "react-dom";
 import type {
   EraserMode,
   EraserTarget,
@@ -2233,9 +2234,18 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         width,
         html: "",
       };
-      setDraftTextBoxes((prev) => [...prev, newBox]);
-      setSelectedTextBoxId(id);
-      setAutoFocusTextBoxId(id);
+      // flushSync : force React à committer (et exécuter les layout effects,
+      // voir l'autofocus en useLayoutEffect de TextBoxOverlay) avant de
+      // rendre la main au navigateur — reste au plus près du tap d'origine
+      // pour que Safari/iOS associe le .focus() programmatique qui suit à
+      // ce même geste utilisateur et ouvre le clavier dès le premier tap.
+      // Geste ponctuel (créer une TextBox), jamais un chemin appelé en
+      // boucle : le coût d'un rendu synchrone est négligeable ici.
+      flushSync(() => {
+        setDraftTextBoxes((prev) => [...prev, newBox]);
+        setSelectedTextBoxId(id);
+        setAutoFocusTextBoxId(id);
+      });
     } else if (tool === "pan") {
       // "Déplacement" fait aussi office d'outil de sélection pour les
       // photos déjà en place : cliquer directement dessus la sélectionne/
@@ -2948,6 +2958,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
               element={displayTb}
               pageWidth={PAGE_WIDTH}
               pageHeight={PAGE_HEIGHT}
+              containerRef={containerRef}
               selected={selectedTextBoxId === tb.id}
               interactive={tool === "text"}
               autoFocus={autoFocusTextBoxId === tb.id}

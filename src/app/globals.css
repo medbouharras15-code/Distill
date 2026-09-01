@@ -399,6 +399,16 @@ body {
   color: var(--foreground);
   outline: none;
   cursor: text;
+  /* Le canvas de dessin (ancêtre, voir NotesPageClient.tsx/NotesCanvas.tsx)
+   * désactive volontairement la sélection native et le menu contextuel
+   * iOS (`select-none`/`.notes-no-callout`) pour éviter le halo de
+   * sélection pendant qu'on trace au doigt — ces deux propriétés
+   * s'héritent, il faut donc explicitement les réactiver ici pour que la
+   * sélection tactile native (appui long, glissé, double-tap, menu
+   * Copier/Rechercher) fonctionne dans le texte riche lui-même. */
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
 }
 
 .notes-textbox-prose p {
