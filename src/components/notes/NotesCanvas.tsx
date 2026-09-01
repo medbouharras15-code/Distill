@@ -1097,15 +1097,50 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
    * Aucune logique fonctionnelle modifiée : uniquement des console.log. */
   const PEN_AUDIT = true;
   const auditLastLoggedStrokeId = useRef<string | null>(null);
+  // Panneau visible temporaire (iPad, sans Safari Web Inspector) : les
+  // lignes vivent dans ce ref (évite de recréer un tableau à chaque appel)
+  // et auditLogTick force juste le re-rendu du panneau après chaque ajout.
+  const auditLogRef = useRef<string[]>([]);
+  const [auditLogTick, setAuditLogTick] = useState(0);
+  const auditLogScrollRef = useRef<HTMLDivElement | null>(null);
   function penAuditLog(label: string, extra?: Record<string, unknown>) {
     if (!PEN_AUDIT) return;
-    console.log(`[PEN-AUDIT] ${label}`, {
+    const payload = {
       activePointerId: activePointerId.current,
       hasCurrentStroke: !!currentStroke.current,
       hasTouchScrollState: !!touchScrollState.current,
       tool,
       ...extra,
-    });
+    };
+    console.log(`[PEN-AUDIT] ${label}`, payload);
+    const time = new Date().toISOString().slice(11, 23);
+    auditLogRef.current.push(`${time} ${label} ${JSON.stringify(payload)}`);
+    if (auditLogRef.current.length > 500) {
+      auditLogRef.current.splice(0, auditLogRef.current.length - 500);
+    }
+    setAuditLogTick((t) => t + 1);
+  }
+
+  useEffect(() => {
+    if (!PEN_AUDIT) return;
+    const el = auditLogScrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [auditLogTick, PEN_AUDIT]);
+
+  async function handleCopyAuditLog() {
+    const text = auditLogRef.current.join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Clipboard API indisponible/refusée : rien d'autre à faire ici, le
+      // panneau reste lisible et copiable manuellement à l'écran.
+    }
+  }
+
+  function handleClearAuditLog() {
+    auditLogRef.current = [];
+    auditLastLoggedStrokeId.current = null;
+    setAuditLogTick((t) => t + 1);
   }
 
   /** Récupère (en la mettant en cache) l'image HTML correspondant à une
@@ -3234,6 +3269,37 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
           <div>
             scroll max : {containerRef.current ? containerRef.current.scrollWidth - containerRef.current.clientWidth : "—"}×
             {containerRef.current ? containerRef.current.scrollHeight - containerRef.current.clientHeight : "—"}
+          </div>
+        </div>
+      )}
+
+      {PEN_AUDIT && (
+        <div className="pointer-events-auto fixed bottom-2 left-2 z-50 flex max-h-[45vh] w-[280px] flex-col rounded-lg bg-black/85 p-2 font-mono text-[10px] leading-snug text-lime-300 shadow-lg">
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <span className="font-semibold text-white">PEN-AUDIT ({auditLogRef.current.length})</span>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={handleCopyAuditLog}
+                className="rounded bg-white/15 px-2 py-0.5 text-white active:bg-white/30"
+              >
+                Copier
+              </button>
+              <button
+                type="button"
+                onClick={handleClearAuditLog}
+                className="rounded bg-white/15 px-2 py-0.5 text-white active:bg-white/30"
+              >
+                Effacer
+              </button>
+            </div>
+          </div>
+          <div ref={auditLogScrollRef} className="flex-1 overflow-y-auto whitespace-pre-wrap break-all">
+            {auditLogRef.current.length === 0 ? (
+              <div className="text-white/50">(aucun événement pour l&apos;instant — écris avec le Pencil)</div>
+            ) : (
+              auditLogRef.current.map((line, i) => <div key={i}>{line}</div>)
+            )}
           </div>
         </div>
       )}
