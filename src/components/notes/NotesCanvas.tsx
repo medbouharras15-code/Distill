@@ -1073,6 +1073,22 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   } | null>(null);
   const [isPanning, setIsPanning] = useState(false);
 
+  /** Doigt ≠ écriture : Stylo/Stylo bille/Crayon (tool "pen"), Surligneur
+   * et Formes ne créent jamais de contenu au doigt — seul l'Apple Pencil
+   * (pointerType "pen") dessine. Un doigt qui glisse pendant que l'un de
+   * ces outils est actif fait défiler la page à la place, exactement comme
+   * l'outil Déplacement — mais via cet état totalement séparé de
+   * `panState` ci-dessus, pour ne modifier aucune ligne de son propre
+   * mécanisme déjà validé (même formule de défilement, dupliquée
+   * volontairement plutôt que partagée). */
+  const touchScrollState = useRef<{
+    startClientX: number;
+    startClientY: number;
+    startScrollLeft: number;
+    startScrollTop: number;
+  } | null>(null);
+  const touchDrawBlocked = tool === "pen" || tool === "highlighter" || tool === "shapes";
+
   /** Récupère (en la mettant en cache) l'image HTML correspondant à une
    * source donnée — ne retourne l'image que si elle est déjà chargée ;
    * déclenche un nouveau rendu dès que le chargement se termine. */
@@ -2126,10 +2142,14 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       }
     }
 
-    if (tool !== "pan" && e.pointerType === "touch" && Date.now() - lastPenTime.current < PALM_REJECTION_MS) {
+    if (tool !== "pan" && !touchDrawBlocked && e.pointerType === "touch" && Date.now() - lastPenTime.current < PALM_REJECTION_MS) {
       // Rejet de paume : on ignore ce contact tactile pendant l'écriture au
-      // stylet — sauf avec l'outil Déplacement, explicitement choisi pour
-      // naviguer et qui ne dessine jamais rien.
+      // stylet — sauf avec l'outil Déplacement (explicitement choisi pour
+      // naviguer, ne dessine jamais rien) et les outils où le doigt ne
+      // dessine déjà plus jamais (`touchDrawBlocked`, voir plus haut) : le
+      // seul risque qu'évitait ce rejet pour eux — un trait accidentel —
+      // n'existe structurellement plus, autant laisser le doigt défiler
+      // immédiatement plutôt que d'attendre la fin de cette fenêtre.
       return;
     }
     if (e.pointerType === "pen") {
@@ -2206,6 +2226,17 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       }
       eraseAt(pos);
       lastEraserPos.current = { x: pos.x, y: pos.y };
+    } else if (e.pointerType === "touch" && touchDrawBlocked) {
+      // Doigt ≠ écriture : jamais de trait/forme au doigt avec ces outils —
+      // il fait défiler la page comme le ferait Déplacement à la place
+      // (voir touchScrollState, état séparé de panState/tool==="pan").
+      const container = containerRef.current;
+      touchScrollState.current = {
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        startScrollLeft: container ? container.scrollLeft : 0,
+        startScrollTop: container ? container.scrollTop : 0,
+      };
     } else if (tool === "shapes") {
       shapeStartPos.current = { x: pos.x, y: pos.y };
       currentShape.current = {
@@ -2379,6 +2410,19 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     }
 
     if (activePointerId.current !== e.pointerId) return;
+
+    if (touchScrollState.current) {
+      // Défilement au doigt démarré à la place d'un trait/forme (voir
+      // handlePointerDown) — même formule que Déplacement, dupliquée
+      // volontairement pour ne rien partager avec panState.
+      const container = containerRef.current;
+      if (container) {
+        container.scrollLeft = touchScrollState.current.startScrollLeft - (e.clientX - touchScrollState.current.startClientX);
+        container.scrollTop = touchScrollState.current.startScrollTop - (e.clientY - touchScrollState.current.startClientY);
+      }
+      return;
+    }
+
     if (e.pointerType === "pen") {
       lastPenTime.current = Date.now();
     }
@@ -2545,6 +2589,16 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     }
     holdAnchorPos.current = null;
     rulerStrokeEdge.current = null;
+
+    if (touchScrollState.current) {
+      // Défilement au doigt (voir handlePointerDown/handlePointerMove) —
+      // jamais de trait/forme à committer, juste nettoyer cet état séparé.
+      touchScrollState.current = null;
+      activePointerId.current = null;
+      scheduleRender();
+      onActionComplete?.();
+      return;
+    }
 
     if (tool === "pan") {
       if (commitImageInteraction()) {
@@ -2882,6 +2936,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     clearCrossPageDragState();
     lassoPath.current = [];
     panState.current = null;
+    touchScrollState.current = null;
     setIsPanning(false);
     activePointerId.current = null;
     tapStartInfo.current = null;
