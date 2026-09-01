@@ -1121,11 +1121,78 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     setAuditLogTick((t) => t + 1);
   }
 
+  /** AUDIT (round 2) : champs bruts de l'événement, pour distinguer un vrai
+   * contact d'un survol Pencil (pressure/buttons/isPrimary notamment). */
+  function pointerAuditFields(e: React.PointerEvent) {
+    return {
+      pointerId: e.pointerId,
+      pointerType: e.pointerType,
+      isPrimary: e.isPrimary,
+      buttons: e.buttons,
+      button: e.button,
+      pressure: e.pressure,
+      width: e.width,
+      height: e.height,
+    };
+  }
+
+  /** AUDIT (round 2) : throttle par pointerId — le survol Pencil (pointerId
+   * bas et stable, ex. 1) peut émettre des pointermove à haute fréquence ;
+   * les logguer un par un floodait la console ET provoquait un re-rendu
+   * React à chaque fois (setAuditLogTick), ce qui pouvait perturber la
+   * mesure elle-même. On ne garde qu'un point toutes les 300ms par
+   * pointerId, largement suffisant pour prouver la continuité du survol
+   * pendant le "trou" sans polluer la trace. */
+  const auditMoveThrottle = useRef<Map<number, number>>(new Map());
+  function penAuditLogThrottled(pointerId: number, label: string, extra?: Record<string, unknown>) {
+    if (!PEN_AUDIT) return;
+    const now = Date.now();
+    const last = auditMoveThrottle.current.get(pointerId) ?? 0;
+    if (now - last < 300) return;
+    auditMoveThrottle.current.set(pointerId, now);
+    penAuditLog(label, extra);
+  }
+
   useEffect(() => {
     if (!PEN_AUDIT) return;
     const el = auditLogScrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [auditLogTick, PEN_AUDIT]);
+
+  /** AUDIT round 2 — TEMPORAIRE : écoute native `pointerdown` en phase de
+   * capture sur `document`, en plus (jamais à la place) des handlers React
+   * du canvas. Purement observationnel — pas de preventDefault/
+   * stopPropagation, ne modifie jamais le routage réel de l'événement.
+   * Objectif unique : distinguer si un pointerdown Pencil existe quelque
+   * part dans le DOM pendant le "trou" observé entre deux traits (cas A —
+   * problème de routage vers React/canvas) ou s'il n'existe nulle part
+   * avant l'apparition du prochain trait (cas B — rien à corriger côté
+   * JS, limite native Safari/iPadOS). */
+  useEffect(() => {
+    if (!PEN_AUDIT) return;
+    function handleNativePointerDownCapture(e: PointerEvent) {
+      penAuditLog("NATIF(doc) pointerdown", {
+        pointerId: e.pointerId,
+        pointerType: e.pointerType,
+        isPrimary: e.isPrimary,
+        buttons: e.buttons,
+        button: e.button,
+        pressure: e.pressure,
+        width: e.width,
+        height: e.height,
+      });
+    }
+    document.addEventListener("pointerdown", handleNativePointerDownCapture, { capture: true, passive: true });
+    return () => {
+      document.removeEventListener("pointerdown", handleNativePointerDownCapture, { capture: true });
+    };
+    // penAuditLog volontairement omis : sa nouvelle instance à chaque rendu
+    // forcerait un détachement/rattachement du listener natif à chaque
+    // rendu au lieu de seulement au changement d'outil — il ne lit que des
+    // refs stables + `tool` (déjà dans les dépendances), donc son contenu
+    // reste correct malgré l'identité de fonction non suivie ici.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [PEN_AUDIT, tool]);
 
   async function handleCopyAuditLog() {
     const text = auditLogRef.current.join("\n");
@@ -1140,6 +1207,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   function handleClearAuditLog() {
     auditLogRef.current = [];
     auditLastLoggedStrokeId.current = null;
+    auditMoveThrottle.current.clear();
     setAuditLogTick((t) => t + 1);
   }
 
@@ -2141,11 +2209,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   }
 
   function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
-    penAuditLog(`${e.pointerType.toUpperCase()} DOWN entry`, {
-      pointerId: e.pointerId,
-      isPrimary: e.isPrimary,
-      buttons: e.buttons,
-    });
+    penAuditLog(`${e.pointerType.toUpperCase()} DOWN entry`, pointerAuditFields(e));
     if (e.pointerType === "touch") {
       // Doigt sur le corps de la règle : démarre/rejoint son geste de
       // déplacement (1 doigt) ou de rotation (2e doigt) — jamais le
@@ -2231,7 +2295,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     // pointeur possédait activePointerId/touchScrollState/currentStroke à
     // cet instant, ce log révèle l'orphelinage (rien ne le nettoie ici).
     penAuditLog(`${e.pointerType.toUpperCase()} DOWN accepted (avant écrasement activePointerId)`, {
-      pointerId: e.pointerId,
+      ...pointerAuditFields(e),
       prevActivePointerId: activePointerId.current,
       prevHasTouchScrollState: !!touchScrollState.current,
       prevHasCurrentStroke: !!currentStroke.current,
@@ -2492,9 +2556,13 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     }
 
     if (activePointerId.current !== e.pointerId) {
-      penAuditLog(`${e.pointerType.toUpperCase()} MOVE blocked: activePointerId mismatch`, {
-        pointerId: e.pointerId,
-      });
+      // AUDIT round 2 : throttlé (300ms/pointerId) — le survol Pencil
+      // (pointerId bas et stable) peut spammer ce cas à haute fréquence.
+      penAuditLogThrottled(
+        e.pointerId,
+        `${e.pointerType.toUpperCase()} MOVE blocked: activePointerId mismatch`,
+        pointerAuditFields(e),
+      );
       return;
     }
 
@@ -2502,7 +2570,11 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       // Défilement au doigt démarré à la place d'un trait/forme (voir
       // handlePointerDown) — même formule que Déplacement, dupliquée
       // volontairement pour ne rien partager avec panState.
-      penAuditLog(`${e.pointerType.toUpperCase()} MOVE blocked: touchScrollState`, { pointerId: e.pointerId });
+      penAuditLogThrottled(
+        e.pointerId,
+        `${e.pointerType.toUpperCase()} MOVE blocked: touchScrollState`,
+        pointerAuditFields(e),
+      );
       const container = containerRef.current;
       if (container) {
         container.scrollLeft = touchScrollState.current.startScrollLeft - (e.clientX - touchScrollState.current.startClientX);
@@ -3001,7 +3073,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   }
 
   function handlePointerUp(e: React.PointerEvent<HTMLCanvasElement>) {
-    penAuditLog(`${e.pointerType.toUpperCase()} UP entry`, { pointerId: e.pointerId });
+    penAuditLog(`${e.pointerType.toUpperCase()} UP entry`, pointerAuditFields(e));
     if (e.pointerType === "touch") {
       endPinchIfDone(e.pointerId);
       if (endRulerTouch(e.pointerId)) {
@@ -3020,7 +3092,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   }
 
   function handlePointerCancel(e: React.PointerEvent<HTMLCanvasElement>) {
-    penAuditLog(`${e.pointerType.toUpperCase()} CANCEL entry`, { pointerId: e.pointerId });
+    penAuditLog(`${e.pointerType.toUpperCase()} CANCEL entry`, pointerAuditFields(e));
     if (e.pointerType === "touch") {
       endPinchIfDone(e.pointerId);
       if (endRulerTouch(e.pointerId)) {
@@ -3094,9 +3166,17 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
    * gomme, règle, image, nouveau tracé de lasso...), comportement
    * strictement inchangé. */
   function handlePointerLeaveCanvas(e: React.PointerEvent<HTMLCanvasElement>) {
-    penAuditLog(`${e.pointerType.toUpperCase()} LEAVE entry`, { pointerId: e.pointerId });
+    penAuditLog(`${e.pointerType.toUpperCase()} LEAVE entry`, pointerAuditFields(e));
     if (selectionDragMode.current && activePointerId.current === e.pointerId) return;
     handlePointerCancel(e);
+  }
+
+  /** AUDIT round 2 — TEMPORAIRE : purement observationnel, aucun état
+   * touché. Le canvas n'avait jusqu'ici aucun handler pour cet événement ;
+   * on veut savoir s'il se déclenche pendant le "trou" entre deux traits
+   * (perte de capture inattendue), invisible jusqu'ici. */
+  function handleLostPointerCapture(e: React.PointerEvent<HTMLCanvasElement>) {
+    penAuditLog(`${e.pointerType.toUpperCase()} LOSTCAPTURE entry`, pointerAuditFields(e));
   }
 
   return (
@@ -3142,6 +3222,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
         onPointerLeave={handlePointerLeaveCanvas}
+        onLostPointerCapture={handleLostPointerCapture}
         onContextMenu={(e) => e.preventDefault()}
       />
 
