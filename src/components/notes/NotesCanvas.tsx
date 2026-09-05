@@ -3366,8 +3366,12 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       pointerId: e.pointerId,
     });
     if (PEN_AUDIT && e.pointerType === "pen") {
+      // AUDIT (correctif) : ne compte comme une vraie annulation que si la
+      // tentative n'avait pas encore atteint son pointerup — un CANCEL/
+      // LOSTCAPTURE qui arrive après un trait déjà terminé (relâchement
+      // implicite normal de la capture, par ex.) n'interrompt rien.
       const attempt = penAttempts.current.get(e.pointerId);
-      if (attempt) attempt.cancelOrLost = true;
+      if (attempt && attempt.upAt === null) attempt.cancelOrLost = true;
     }
     currentStroke.current = null;
     currentShape.current = null;
@@ -3425,8 +3429,12 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   function handleLostPointerCapture(e: React.PointerEvent<HTMLCanvasElement>) {
     penAuditLog(`${e.pointerType.toUpperCase()} LOSTCAPTURE entry`, pointerAuditFields(e));
     if (PEN_AUDIT && e.pointerType === "pen") {
+      // AUDIT (correctif) : lostpointercapture se déclenche aussi
+      // normalement après un trait déjà réussi (relâchement implicite de la
+      // capture au pointerup) — ne le compter comme interruption que si la
+      // tentative n'avait pas encore atteint son pointerup.
       const attempt = penAttempts.current.get(e.pointerId);
-      if (attempt) attempt.cancelOrLost = true;
+      if (attempt && attempt.upAt === null) attempt.cancelOrLost = true;
     }
   }
 
