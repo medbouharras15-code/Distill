@@ -188,6 +188,116 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
     return new URLSearchParams(window.location.search).get("debug") === "1";
   });
 
+  /** AUDIT TEMPORAIRE — moniteur natif Pencil global et singleton, posé une
+   * seule fois ici (NotesPageClient n'existe qu'en une instance pour tout
+   * le carnet, contrairement à NotesCanvas — une par page). Complètement
+   * indépendant du système de tentatives déjà présent dans NotesCanvas.tsx
+   * (aucune lecture de ses Maps internes) : sert uniquement à vérifier si
+   * un pointerdown Pencil atteint bien `document`, même quand aucun trait
+   * n'apparaît et qu'aucune tentative n'est créée côté NotesCanvas.
+   * Purement diagnostique — aucune logique de dessin touchée ici. */
+  const NATIVE_PEN_AUDIT = true;
+  // Refs = source de vérité mutée par les listeners (jamais lues pendant le
+  // rendu — seulement dans les handlers/effets, voir react-hooks/refs). Les
+  // états ci-dessous n'en sont que des copies explicitement synchronisées
+  // aux points où on veut un re-rendu, jamais à chaque pointermove.
+  const nativePenDownsRef = useRef(0);
+  const nativePenMovesRef = useRef(0);
+  const nativePenUpsRef = useRef(0);
+  const nativePenCanvasTargetedRef = useRef(0);
+  const nativePenDownLogRef = useRef<string[]>([]);
+  const [nativePenDownsDisplay, setNativePenDownsDisplay] = useState(0);
+  const [nativePenMovesDisplay, setNativePenMovesDisplay] = useState(0);
+  const [nativePenUpsDisplay, setNativePenUpsDisplay] = useState(0);
+  const [nativePenCanvasTargetedDisplay, setNativePenCanvasTargetedDisplay] = useState(0);
+  const [nativePenDownLogDisplay, setNativePenDownLogDisplay] = useState<string[]>([]);
+  const nativePenAuditScrollRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!NATIVE_PEN_AUDIT) return;
+    function handleNativePenDown(e: PointerEvent) {
+      if (e.pointerType !== "pen") return;
+      nativePenDownsRef.current += 1;
+      const targetsCanvas = e.target instanceof HTMLCanvasElement && !!e.target.dataset.pageId;
+      if (targetsCanvas) nativePenCanvasTargetedRef.current += 1;
+      const target =
+        e.target instanceof Element
+          ? `${e.target.tagName}${(e.target as HTMLElement).dataset?.pageId ? `[data-page-id=${(e.target as HTMLElement).dataset.pageId}]` : ""}`
+          : String(e.target);
+      const time = new Date().toISOString().slice(11, 23);
+      nativePenDownLogRef.current.push(
+        `NATIVE PEN DOWN #${nativePenDownsRef.current} | ${time} | id=${e.pointerId} | target=${target} | x=${e.clientX.toFixed(1)},y=${e.clientY.toFixed(1)}`,
+      );
+      if (nativePenDownLogRef.current.length > 300) {
+        nativePenDownLogRef.current.splice(0, nativePenDownLogRef.current.length - 300);
+      }
+      // Un pointerdown est un événement discret (pas à chaque pointermove) :
+      // synchroniser l'affichage ici, y compris le compteur de moves, est
+      // sans rapport avec la contrainte "pas de setState par pointermove".
+      setNativePenDownsDisplay(nativePenDownsRef.current);
+      setNativePenCanvasTargetedDisplay(nativePenCanvasTargetedRef.current);
+      setNativePenMovesDisplay(nativePenMovesRef.current);
+      setNativePenDownLogDisplay([...nativePenDownLogRef.current]);
+    }
+    function handleNativePenMove(e: PointerEvent) {
+      if (e.pointerType !== "pen") return;
+      if (e.buttons <= 0 && e.pressure <= 0) return;
+      // Pas de setState ici : compteur muet en ref, comme pour le panneau
+      // par page — seuls pointerdown/pointerup déclenchent un re-rendu.
+      nativePenMovesRef.current += 1;
+    }
+    function handleNativePenUp(e: PointerEvent) {
+      if (e.pointerType !== "pen") return;
+      nativePenUpsRef.current += 1;
+      setNativePenUpsDisplay(nativePenUpsRef.current);
+      setNativePenMovesDisplay(nativePenMovesRef.current);
+    }
+    document.addEventListener("pointerdown", handleNativePenDown, { capture: true, passive: true });
+    document.addEventListener("pointermove", handleNativePenMove, { capture: true, passive: true });
+    document.addEventListener("pointerup", handleNativePenUp, { capture: true, passive: true });
+    return () => {
+      document.removeEventListener("pointerdown", handleNativePenDown, { capture: true });
+      document.removeEventListener("pointermove", handleNativePenMove, { capture: true });
+      document.removeEventListener("pointerup", handleNativePenUp, { capture: true });
+    };
+  }, [NATIVE_PEN_AUDIT]);
+
+  useEffect(() => {
+    if (!NATIVE_PEN_AUDIT) return;
+    const el = nativePenAuditScrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [nativePenDownLogDisplay, NATIVE_PEN_AUDIT]);
+
+  async function handleCopyNativePenAudit() {
+    const text = [
+      `PEN native downs reçus : ${nativePenDownsRef.current}`,
+      `PEN native moves (pressés) : ${nativePenMovesRef.current}`,
+      `PEN native ups reçus : ${nativePenUpsRef.current}`,
+      `PEN downs ciblant un canvas : ${nativePenCanvasTargetedRef.current}`,
+      "",
+      ...nativePenDownLogRef.current,
+    ].join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Clipboard API indisponible/refusée : sans conséquence, le panneau
+      // reste lisible à l'écran.
+    }
+  }
+
+  function handleClearNativePenAudit() {
+    nativePenDownsRef.current = 0;
+    nativePenMovesRef.current = 0;
+    nativePenUpsRef.current = 0;
+    nativePenCanvasTargetedRef.current = 0;
+    nativePenDownLogRef.current = [];
+    setNativePenDownsDisplay(0);
+    setNativePenMovesDisplay(0);
+    setNativePenUpsDisplay(0);
+    setNativePenCanvasTargetedDisplay(0);
+    setNativePenDownLogDisplay([]);
+  }
+
   /** Contenu restauré par page (id → document), rempli une seule fois par le
    * chargement initial ci-dessous — lu par chaque NotesCanvas à son montage
    * (prop `initialDocument`), jamais mis à jour ensuite (voir sa prop). */
@@ -829,6 +939,43 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
               backgroundColor={backgroundColor}
               onBackgroundColorChange={setBackgroundColor}
             />
+          </div>
+        </div>
+      )}
+
+      {NATIVE_PEN_AUDIT && (
+        <div className="pointer-events-auto fixed left-2 top-2 z-50 flex max-h-[50vh] w-[300px] flex-col rounded-lg bg-black/85 p-2 font-mono text-[10px] leading-snug text-amber-300 shadow-lg">
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <span className="font-semibold text-white">NATIVE-PEN-MONITOR</span>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={handleCopyNativePenAudit}
+                className="rounded bg-white/15 px-2 py-0.5 text-white active:bg-white/30"
+              >
+                Copier
+              </button>
+              <button
+                type="button"
+                onClick={handleClearNativePenAudit}
+                className="rounded bg-white/15 px-2 py-0.5 text-white active:bg-white/30"
+              >
+                Effacer
+              </button>
+            </div>
+          </div>
+          <div className="mb-1 border-b border-white/20 pb-1 text-white/90">
+            <div>PEN native downs reçus : {nativePenDownsDisplay}</div>
+            <div>PEN native moves (pressés) : {nativePenMovesDisplay}</div>
+            <div>PEN native ups reçus : {nativePenUpsDisplay}</div>
+            <div>PEN downs ciblant un canvas : {nativePenCanvasTargetedDisplay}</div>
+          </div>
+          <div ref={nativePenAuditScrollRef} className="flex-1 overflow-y-auto whitespace-pre-wrap break-all">
+            {nativePenDownLogDisplay.length === 0 ? (
+              <div className="text-white/50">(aucun contact Pencil pour l&apos;instant)</div>
+            ) : (
+              nativePenDownLogDisplay.map((line, i) => <div key={i}>{line}</div>)
+            )}
           </div>
         </div>
       )}
