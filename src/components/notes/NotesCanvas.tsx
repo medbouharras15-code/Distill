@@ -1122,6 +1122,15 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     setAuditLogTick((t) => t + 1);
   }
 
+  /** AUDIT (round 4) : résumé compact d'un nœud DOM (tag/class/id), pour
+   * inspecter la cible réelle d'un événement natif sans logguer l'objet
+   * entier. `Window`/`Document` (bouts de composedPath()) ne sont pas des
+   * `Element` et remontent `null` plutôt que de planter. */
+  function describeElement(el: EventTarget | Element | null | undefined) {
+    if (!el || !(el instanceof Element)) return null;
+    return { tag: el.tagName, className: el.className || null, id: el.id || null };
+  }
+
   /** AUDIT (round 2) : champs bruts de l'événement, pour distinguer un vrai
    * contact d'un survol Pencil (pressure/buttons/isPrimary notamment). */
   function pointerAuditFields(e: React.PointerEvent) {
@@ -1275,6 +1284,40 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
       });
       if (e.pointerType === "pen") {
         getOrCreatePenAttempt(e.pointerId).nativeDownAt = Date.now();
+        // AUDIT (round 4) : routage DOM — où l'événement natif atterrit-il
+        // réellement, et le canvas est-il bien sous le doigt/la pointe à cet
+        // instant ? Lecture seule (getBoundingClientRect/elementFromPoint/
+        // composedPath) : aucune capture, aucun pointer-events, rien de
+        // fonctionnel n'est modifié ici.
+        const canvasEl = canvasRef.current;
+        const canvasRect = canvasEl?.getBoundingClientRect() ?? null;
+        const insideCanvasRect = !!(
+          canvasRect &&
+          e.clientX >= canvasRect.left &&
+          e.clientX <= canvasRect.right &&
+          e.clientY >= canvasRect.top &&
+          e.clientY <= canvasRect.bottom
+        );
+        penAuditLog("NATIF(doc) pointerdown routing", {
+          pointerId: e.pointerId,
+          target: describeElement(e.target),
+          currentTarget: "document",
+          composedPath: e.composedPath().slice(0, 8).map(describeElement),
+          clientX: e.clientX,
+          clientY: e.clientY,
+          canvasRect: canvasRect
+            ? {
+                left: canvasRect.left,
+                top: canvasRect.top,
+                right: canvasRect.right,
+                bottom: canvasRect.bottom,
+                width: canvasRect.width,
+                height: canvasRect.height,
+              }
+            : null,
+          insideCanvasRect,
+          elementAtPoint: describeElement(document.elementFromPoint(e.clientX, e.clientY)),
+        });
       }
     }
     document.addEventListener("pointerdown", handleNativePointerDownCapture, { capture: true, passive: true });
@@ -1288,6 +1331,31 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     // reste correct malgré l'identité de fonction non suivie ici.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [PEN_AUDIT, tool]);
+
+  /** AUDIT (round 4) — TEMPORAIRE : listener natif posé directement sur le
+   * nœud DOM du canvas (pas sur document), en phase de capture, uniquement
+   * pour savoir si l'événement natif atteint bien CE nœud précis. Purement
+   * observationnel : pas de preventDefault/stopPropagation, aucune capture
+   * de pointeur posée ici, `pointer-events` non touché. Nettoyage explicite
+   * au démontage/re-render pour ne jamais accumuler plusieurs listeners. */
+  useEffect(() => {
+    if (!PEN_AUDIT) return;
+    const canvasEl = canvasRef.current;
+    if (!canvasEl) return;
+    function handleCanvasNativePointerDownCapture(e: PointerEvent) {
+      if (e.pointerType !== "pen") return;
+      penAuditLog("NATIF(canvas) pointerdown", {
+        pointerId: e.pointerId,
+        clientX: e.clientX,
+        clientY: e.clientY,
+      });
+    }
+    canvasEl.addEventListener("pointerdown", handleCanvasNativePointerDownCapture, { capture: true, passive: true });
+    return () => {
+      canvasEl.removeEventListener("pointerdown", handleCanvasNativePointerDownCapture, { capture: true });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [PEN_AUDIT]);
 
   async function handleCopyAuditLog() {
     const summaryLines = Array.from(penAttempts.current.values()).map(formatPenAttemptLine);
