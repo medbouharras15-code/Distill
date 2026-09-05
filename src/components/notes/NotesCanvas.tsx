@@ -1103,7 +1103,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
    * orphelins quand un pointerdown Pencil reprend la main sur un doigt déjà
    * actif, (B) annulation d'un trait classé "double-tap" (bascule Gomme).
    * Aucune logique fonctionnelle modifiée : uniquement des console.log. */
-  const PEN_AUDIT = true;
+  const PEN_AUDIT = false; // TEST A/B : désactivé temporairement — repasser à true pour réactiver
   const auditLastLoggedStrokeId = useRef<string | null>(null);
   // Panneau visible temporaire (iPad, sans Safari Web Inspector) : les
   // lignes vivent dans ce ref (évite de recréer un tableau à chaque appel)

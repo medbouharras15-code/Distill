@@ -196,7 +196,7 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
    * un pointerdown Pencil atteint bien `document`, même quand aucun trait
    * n'apparaît et qu'aucune tentative n'est créée côté NotesCanvas.
    * Purement diagnostique — aucune logique de dessin touchée ici. */
-  const NATIVE_PEN_AUDIT = true;
+  const NATIVE_PEN_AUDIT = false; // TEST A/B : désactivé temporairement — repasser à true pour réactiver
   // Refs = source de vérité mutée par les listeners (jamais lues pendant le
   // rendu — seulement dans les handlers/effets, voir react-hooks/refs). Les
   // états ci-dessous n'en sont que des copies explicitement synchronisées
