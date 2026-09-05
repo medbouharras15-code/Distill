@@ -680,6 +680,7 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
                       else pageRefs.current.delete(page.id);
                     }}
                     pageId={page.id}
+                    currentPageId={currentPageId}
                     crossPageDrag={crossPageDragBridge}
                     tool={tool}
                     penColor={penColor}

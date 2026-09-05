@@ -379,6 +379,13 @@ interface NotesCanvasProps {
    * reconnaître (se distinguer d'une éventuelle page cible) dans le pont
    * partagé par NotesPageClient. */
   pageId: string;
+  /** AUDIT TEMPORAIRE — id de la page actuellement affichée/active dans le
+   * carnet (voir NotesPageClient). Sert uniquement à n'afficher le panneau
+   * [PEN-AUDIT] que dans l'instance correspondant à la page courante — sans
+   * ça, une instance par page empile autant de panneaux identiques au même
+   * endroit de l'écran. Purement diagnostic, ne change aucun comportement
+   * normal des pages. */
+  currentPageId?: string | null;
   /** Pont partagé (voir CrossPageDragBridge) permettant au Lasso de
    * détecter/transférer une sélection glissée vers une autre page du même
    * carnet — un seul objet stable pour tout le carnet, comme `containerRef`. */
@@ -465,6 +472,7 @@ interface NotesCanvasProps {
 export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(function NotesCanvas(
   {
     pageId,
+    currentPageId,
     crossPageDrag,
     tool,
     penColor,
@@ -1107,6 +1115,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
   function penAuditLog(label: string, extra?: Record<string, unknown>) {
     if (!PEN_AUDIT) return;
     const payload = {
+      pageId,
       activePointerId: activePointerId.current,
       hasCurrentStroke: !!currentStroke.current,
       hasTouchScrollState: !!touchScrollState.current,
@@ -1128,7 +1137,12 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
    * `Element` et remontent `null` plutôt que de planter. */
   function describeElement(el: EventTarget | Element | null | undefined) {
     if (!el || !(el instanceof Element)) return null;
-    return { tag: el.tagName, className: el.className || null, id: el.id || null };
+    return {
+      tag: el.tagName,
+      className: el.className || null,
+      id: el.id || null,
+      pageId: el instanceof HTMLElement ? (el.dataset.pageId ?? null) : null,
+    };
   }
 
   /** AUDIT (round 2) : champs bruts de l'événement, pour distinguer un vrai
@@ -1282,43 +1296,56 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         width: e.width,
         height: e.height,
       });
-      if (e.pointerType === "pen") {
-        getOrCreatePenAttempt(e.pointerId).nativeDownAt = Date.now();
-        // AUDIT (round 4) : routage DOM — où l'événement natif atterrit-il
-        // réellement, et le canvas est-il bien sous le doigt/la pointe à cet
-        // instant ? Lecture seule (getBoundingClientRect/elementFromPoint/
-        // composedPath) : aucune capture, aucun pointer-events, rien de
-        // fonctionnel n'est modifié ici.
-        const canvasEl = canvasRef.current;
-        const canvasRect = canvasEl?.getBoundingClientRect() ?? null;
-        const insideCanvasRect = !!(
-          canvasRect &&
-          e.clientX >= canvasRect.left &&
-          e.clientX <= canvasRect.right &&
-          e.clientY >= canvasRect.top &&
-          e.clientY <= canvasRect.bottom
-        );
-        penAuditLog("NATIF(doc) pointerdown routing", {
-          pointerId: e.pointerId,
-          target: describeElement(e.target),
-          currentTarget: "document",
-          composedPath: e.composedPath().slice(0, 8).map(describeElement),
-          clientX: e.clientX,
-          clientY: e.clientY,
-          canvasRect: canvasRect
-            ? {
-                left: canvasRect.left,
-                top: canvasRect.top,
-                right: canvasRect.right,
-                bottom: canvasRect.bottom,
-                width: canvasRect.width,
-                height: canvasRect.height,
-              }
-            : null,
-          insideCanvasRect,
-          elementAtPoint: describeElement(document.elementFromPoint(e.clientX, e.clientY)),
-        });
-      }
+      if (e.pointerType !== "pen") return;
+      // AUDIT (round 5) : ce listener document est GLOBAL — une instance de
+      // NotesCanvas existe par page, toutes montées en même temps (voir
+      // NotesPageClient), donc CHAQUE instance reçoit CHAQUE pointerdown,
+      // quelle que soit la page réellement touchée. Le rect ne doit donc
+      // jamais venir de `canvasRef.current` de CETTE instance (qui peut
+      // appartenir à une tout autre page) — on le calcule depuis le canvas
+      // réellement ciblé par l'événement.
+      const targetCanvas = e.target instanceof HTMLCanvasElement ? e.target : null;
+      const targetPageId = targetCanvas?.dataset.pageId ?? null;
+      const canvasRect = targetCanvas?.getBoundingClientRect() ?? null;
+      const insideCanvasRect = !!(
+        canvasRect &&
+        e.clientX >= canvasRect.left &&
+        e.clientX <= canvasRect.right &&
+        e.clientY >= canvasRect.top &&
+        e.clientY <= canvasRect.bottom
+      );
+      // AUDIT (round 4) : routage DOM — où l'événement natif atterrit-il
+      // réellement, et le canvas est-il bien sous le doigt/la pointe à cet
+      // instant ? Lecture seule (getBoundingClientRect/elementFromPoint/
+      // composedPath) : aucune capture, aucun pointer-events, rien de
+      // fonctionnel n'est modifié ici.
+      penAuditLog("NATIF(doc) pointerdown routing", {
+        pointerId: e.pointerId,
+        targetPageId,
+        target: describeElement(e.target),
+        currentTarget: "document",
+        composedPath: e.composedPath().slice(0, 8).map(describeElement),
+        clientX: e.clientX,
+        clientY: e.clientY,
+        canvasRect: canvasRect
+          ? {
+              left: canvasRect.left,
+              top: canvasRect.top,
+              right: canvasRect.right,
+              bottom: canvasRect.bottom,
+              width: canvasRect.width,
+              height: canvasRect.height,
+            }
+          : null,
+        insideCanvasRect,
+        elementAtPoint: describeElement(document.elementFromPoint(e.clientX, e.clientY)),
+      });
+      // AUDIT (round 5) : on ne crée/actualise une tentative dans la Map de
+      // CETTE instance que si le canvas réellement touché lui appartient —
+      // sinon chaque page enregistrerait une fausse tentative (native ✓,
+      // react ✗ pour toujours) pour un événement qui ne la concerne pas.
+      if (targetPageId !== pageId) return;
+      getOrCreatePenAttempt(e.pointerId).nativeDownAt = Date.now();
     }
     document.addEventListener("pointerdown", handleNativePointerDownCapture, { capture: true, passive: true });
     return () => {
@@ -3441,6 +3468,8 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
           WebkitTapHighlightColor: "transparent",
         }}
         className="bg-card"
+        data-page-id={pageId}
+        data-canvas-audit-id={pageId}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -3578,11 +3607,11 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         </div>
       )}
 
-      {PEN_AUDIT && (
+      {PEN_AUDIT && pageId === currentPageId && (
         <div className="pointer-events-auto fixed bottom-2 left-2 z-50 flex max-h-[60vh] w-[340px] flex-col rounded-lg bg-black/85 p-2 font-mono text-[10px] leading-snug text-lime-300 shadow-lg">
           <div className="mb-1 flex items-center justify-between gap-2">
             <span className="font-semibold text-white">
-              PEN-AUDIT — {penAttempts.current.size} tentative(s), {auditLogRef.current.length} événement(s)
+              PEN-AUDIT [{pageId}] — {penAttempts.current.size} tentative(s), {auditLogRef.current.length} événement(s)
             </span>
             <div className="flex gap-1">
               <button
