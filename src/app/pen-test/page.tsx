@@ -14,6 +14,15 @@ export default function PenTestPage() {
   const countRef = useRef(0);
   const [count, setCount] = useState(0);
 
+  // Diagnostic léger (aucun log, aucun elementFromPoint, aucune mise à jour
+  // sur pointermove/touchmove) : compte en parallèle les événements
+  // down/up des deux API web, pour voir laquelle voit vraiment le contact
+  // quand un trait rapide manque.
+  const [pointerDownCount, setPointerDownCount] = useState(0);
+  const [pointerUpCount, setPointerUpCount] = useState(0);
+  const [touchStartCount, setTouchStartCount] = useState(0);
+  const [touchEndCount, setTouchEndCount] = useState(0);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -28,6 +37,10 @@ export default function PenTestPage() {
   }, []);
 
   function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
+    // Compte TOUT pointerdown (pas seulement pen) — le protocole de test
+    // étant sans doigt, tout ce qui arrive ici pendant le test vient du
+    // Pencil, filtré ou non.
+    setPointerDownCount((c) => c + 1);
     if (e.pointerType !== "pen") return;
     countRef.current += 1;
     setCount(countRef.current);
@@ -52,6 +65,9 @@ export default function PenTestPage() {
   }
 
   function handlePointerEnd(e: React.PointerEvent<HTMLCanvasElement>) {
+    // Ce handler sert aussi bien à onPointerUp qu'à onPointerCancel — on ne
+    // compte que le vrai "pointerup" (e.type le distingue de "pointercancel").
+    if (e.type === "pointerup") setPointerUpCount((c) => c + 1);
     if (e.pointerType !== "pen") return;
     drawingRef.current = false;
     lastPosRef.current = null;
@@ -96,6 +112,8 @@ export default function PenTestPage() {
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerEnd}
         onPointerCancel={handlePointerEnd}
+        onTouchStart={() => setTouchStartCount((c) => c + 1)}
+        onTouchEnd={() => setTouchEndCount((c) => c + 1)}
         onContextMenu={(e) => e.preventDefault()}
         onDragStart={(e) => e.preventDefault()}
       />
@@ -111,18 +129,24 @@ export default function PenTestPage() {
           fontFamily: "monospace",
           fontSize: 14,
           display: "flex",
-          alignItems: "center",
-          gap: 12,
+          flexDirection: "column",
+          gap: 4,
         }}
       >
-        <span>PEN downs reçus : {count}</span>
-        <button
-          type="button"
-          onClick={handleClear}
-          style={{ padding: "2px 8px", background: "white", color: "black", borderRadius: 4 }}
-        >
-          Effacer
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span>PEN downs reçus : {count}</span>
+          <button
+            type="button"
+            onClick={handleClear}
+            style={{ padding: "2px 8px", background: "white", color: "black", borderRadius: 4 }}
+          >
+            Effacer
+          </button>
+        </div>
+        <div>pointerdown : {pointerDownCount}</div>
+        <div>pointerup : {pointerUpCount}</div>
+        <div>touchstart : {touchStartCount}</div>
+        <div>touchend : {touchEndCount}</div>
       </div>
     </div>
   );
