@@ -64,14 +64,40 @@ export default function PenTestPage() {
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "white" }}>
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "white",
+        // Empêche la sélection de texte native et le menu callout iOS
+        // (Copier/Traduire/Rechercher) de se déclencher pendant l'écriture
+        // au Pencil — sans ces protections, Safari peut interpréter le
+        // contact comme un geste de sélection et voler le pointeur.
+        WebkitUserSelect: "none",
+        userSelect: "none",
+        WebkitTouchCallout: "none",
+      }}
+      onContextMenu={(e) => e.preventDefault()}
+    >
       <canvas
         ref={canvasRef}
-        style={{ touchAction: "none", display: "block", width: "100%", height: "100%" }}
+        draggable={false}
+        style={{
+          touchAction: "none",
+          display: "block",
+          width: "100%",
+          height: "100%",
+          WebkitUserSelect: "none",
+          userSelect: "none",
+          WebkitTouchCallout: "none",
+          WebkitTapHighlightColor: "transparent",
+        }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerEnd}
         onPointerCancel={handlePointerEnd}
+        onContextMenu={(e) => e.preventDefault()}
+        onDragStart={(e) => e.preventDefault()}
       />
       <div
         style={{
