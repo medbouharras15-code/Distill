@@ -1095,7 +1095,8 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     startScrollLeft: number;
     startScrollTop: number;
   } | null>(null);
-  const touchDrawBlocked = tool === "pen" || tool === "highlighter" || tool === "shapes";
+  const FINGER_TO_SCROLL_ENABLED = false; // TEST A/B : false = comportement doigt de 61589c0 (Doigt ≠ écriture désactivé)
+  const touchDrawBlocked = FINGER_TO_SCROLL_ENABLED && (tool === "pen" || tool === "highlighter" || tool === "shapes");
 
   /** AUDIT TEMPORAIRE — À RETIRER après diagnostic du trait Pencil perdu.
    * Trace le cycle pointerdown/pointermove/pointerup/pointercancel pour
