@@ -530,6 +530,16 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
   // à sa propre tranche plutôt qu'à tout l'écran.
   const pageDimensions = getPageDimensions(paperSize);
   const slotAspectRatio = `${pageDimensions.width} / ${pageDimensions.height}`;
+  /** Même ratio que ci-dessus, mais par page : une page avec un
+   * `pdfBackground` doit avoir un slot à la forme du PDF natif (voir
+   * PAGE_WIDTH/PAGE_HEIGHT dans NotesCanvas.tsx, calculés à partir de ce
+   * même `aspectRatio`) — sinon le slot papier générique étire le rendu du
+   * PDF (et le canvas d'encre) de façon non uniforme pour remplir une boîte
+   * à la mauvaise forme. Une page sans `pdfBackground` garde exactement
+   * `slotAspectRatio` (comportement papier inchangé). */
+  function slotAspectRatioFor(page: EditorPage): string {
+    return page.pdfBackground ? `${page.pdfBackground.aspectRatio}` : slotAspectRatio;
+  }
 
   /** Change le zoom du carnet entier en gardant fixe, à l'écran, le point de
    * contenu qui se trouve sous (clientX, clientY) — pincement à deux
@@ -858,7 +868,7 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
                     else pageSlotEls.current.delete(page.id);
                   }}
                   onPointerDownCapture={() => setCurrentPageId(page.id)}
-                  style={{ aspectRatio: slotAspectRatio }}
+                  style={{ aspectRatio: slotAspectRatioFor(page) }}
                   className="w-full"
                 >
                   <NotesCanvas
