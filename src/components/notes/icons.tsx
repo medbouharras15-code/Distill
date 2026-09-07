@@ -554,6 +554,22 @@ export function TrashIcon({ className }: IconProps) {
   );
 }
 
+/** Poignée de déplacement (6 points) — dédiée au drag de la toolbar
+ * flottante (voir NotesToolbar.tsx), distincte des boutons d'outils pour ne
+ * jamais intercepter un tap destiné à un outil. */
+export function DragHandleIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <circle cx="9" cy="6" r="1.4" />
+      <circle cx="15" cy="6" r="1.4" />
+      <circle cx="9" cy="12" r="1.4" />
+      <circle cx="15" cy="12" r="1.4" />
+      <circle cx="9" cy="18" r="1.4" />
+      <circle cx="15" cy="18" r="1.4" />
+    </svg>
+  );
+}
+
 /** Feuille cornée avec "PDF" — bouton d'import PDF de la barre Notes,
  * distinct de PhotoIcon pour rester reconnaissable même en icône réduite. */
 export function PdfFileIcon({ className }: IconProps) {

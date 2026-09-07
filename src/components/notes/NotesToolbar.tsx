@@ -1,15 +1,16 @@
 "use client";
 
-import type { ComponentType, ReactNode } from "react";
+import type { ComponentType, ReactNode, RefObject } from "react";
 import type { EraserMode, EraserTarget, HighlighterMode, PenType, ShapeType } from "@/lib/notes/types";
 import type { NotesTool } from "./NotesCanvas";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AiOrb } from "@/components/Brand";
 import { TOOL_ICON_ASSETS, type ToolIconKey } from "@/lib/notes/toolIconAssets";
 import { ToolIconAsset } from "./ToolIconAsset";
 import {
   BallpointPenIcon,
   CircleShapeIcon,
+  DragHandleIcon,
   EraserIcon,
   FitScreenIcon,
   HighlighterIcon,
@@ -132,7 +133,7 @@ function ColorRow({
 }) {
   const isCustom = !colors.some((c) => c.value === value);
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1.5">
       {colors.map((c) => {
         const active = value === c.value;
         return (
@@ -142,7 +143,7 @@ function ColorRow({
             onClick={() => onChange(c.value)}
             aria-label={c.label}
             title={c.label}
-            className={`h-7 w-7 shrink-0 rounded-full border-2 transition-all duration-200 active:scale-90 ${
+            className={`h-6 w-6 shrink-0 rounded-full border-2 transition-all duration-200 active:scale-90 ${
               active
                 ? "scale-110 border-accent shadow-[0_2px_10px_-3px_color-mix(in_srgb,var(--accent)_65%,transparent)]"
                 : "border-border/60 hover:scale-105 hover:border-muted-foreground/40"
@@ -152,7 +153,7 @@ function ColorRow({
         );
       })}
 
-      <span className="relative h-7 w-7 shrink-0" title="Palette complète">
+      <span className="relative h-6 w-6 shrink-0" title="Palette complète">
         <input
           type="color"
           value={value}
@@ -183,7 +184,7 @@ function SelectedColorIndicator({ color }: { color: string }) {
     <span
       aria-hidden="true"
       title="Couleur actuelle"
-      className="h-8 w-8 shrink-0 rounded-full border-2 border-border/70 shadow-[var(--shadow-sm)]"
+      className="h-7 w-7 shrink-0 rounded-full border-2 border-border/70 shadow-[var(--shadow-sm)]"
       style={{ backgroundColor: color }}
     />
   );
@@ -204,7 +205,7 @@ function SizeDotPicker({
   const maxDot = 19;
 
   return (
-    <div className="flex shrink-0 items-center gap-1 rounded-full border border-border/70 bg-background-alt/70 p-1">
+    <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-border/70 bg-background-alt/70 p-1">
       {sizes.map((s, i) => {
         const dot = max === min ? maxDot : minDot + ((s - min) / (max - min)) * (maxDot - minDot);
         const active = value === s;
@@ -215,7 +216,7 @@ function SizeDotPicker({
             onClick={() => onChange(s)}
             aria-pressed={active}
             aria-label={`Taille ${i + 1} sur ${sizes.length}`}
-            className={`grid h-8 w-8 shrink-0 place-items-center rounded-full transition-all duration-200 active:scale-90 ${
+            className={`grid h-7 w-7 shrink-0 place-items-center rounded-full transition-all duration-200 active:scale-90 ${
               active ? "scale-105 bg-card shadow-[var(--shadow-sm)] ring-1 ring-accent/60" : "hover:bg-card/60"
             }`}
             style={EASE_SIGNATURE_STYLE}
@@ -255,34 +256,29 @@ function ToolButton({
   title?: string;
 }) {
   return (
+    // Étiquette texte retirée (gardée en title/aria-label, visible au survol
+    // et pour les lecteurs d'écran) : la barre compacte n'a plus la place
+    // pour un nom sous chaque icône — la cible tactile reste ~40px (h-10
+    // w-10), volontairement pas réduite en dessous pour rester confortable
+    // au doigt/stylet sur iPad.
     <button
       type="button"
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       disabled={disabled}
       aria-pressed={active}
+      aria-label={label}
       title={title ?? (disabled ? `${label} — bientôt disponible` : label)}
-      className="flex w-14 shrink-0 flex-col items-center gap-1 rounded-2xl py-1 transition-all duration-200 active:scale-95 disabled:cursor-not-allowed disabled:active:scale-100"
+      className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl transition-all duration-200 active:scale-95 disabled:cursor-not-allowed disabled:active:scale-100 ${
+        disabled
+          ? "text-muted/50"
+          : active
+            ? SELECTED_TOOL_GLOW
+            : "text-foreground/70 hover:bg-background-alt hover:text-foreground"
+      }`}
+      style={EASE_SIGNATURE_STYLE}
     >
-      <span
-        className={`grid h-11 w-11 place-items-center rounded-2xl transition-all duration-200 ${
-          disabled
-            ? "text-muted/50"
-            : active
-              ? SELECTED_TOOL_GLOW
-              : "text-foreground/70 hover:bg-background-alt hover:text-foreground"
-        }`}
-        style={EASE_SIGNATURE_STYLE}
-      >
-        <ToolIconAsset asset={TOOL_ICON_ASSETS[iconKey]} fallback={fallback} alt={label} />
-      </span>
-      <span
-        className={`text-[10px] font-medium leading-none transition-colors duration-200 ${
-          disabled ? "text-muted/50" : active ? "text-accent-dark" : "text-muted"
-        }`}
-      >
-        {label}
-      </span>
+      <ToolIconAsset asset={TOOL_ICON_ASSETS[iconKey]} fallback={fallback} alt={label} />
     </button>
   );
 }
@@ -310,7 +306,7 @@ function ActionIconButton({
       disabled={disabled}
       title={title}
       aria-label={title}
-      className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl text-foreground/70 transition-all duration-200 hover:bg-background-alt hover:text-foreground active:scale-90 disabled:cursor-not-allowed disabled:text-muted/40 disabled:hover:bg-transparent disabled:active:scale-100"
+      className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-foreground/70 transition-all duration-200 hover:bg-background-alt hover:text-foreground active:scale-90 disabled:cursor-not-allowed disabled:text-muted/40 disabled:hover:bg-transparent disabled:active:scale-100"
     >
       <ToolIconAsset asset={TOOL_ICON_ASSETS[iconKey]} fallback={fallback} alt={title} />
     </button>
@@ -380,9 +376,55 @@ interface NotesToolbarProps {
   /** Instrument auxiliaire, indépendant de `tool` — voir NotesPageClient. */
   rulerActive: boolean;
   onToggleRuler: () => void;
+
+  /** Conteneur `relative` dans lequel cette toolbar flotte et se déplace
+   * (voir NotesPageClient.tsx, `editorAreaRef`) — sert à borner le drag
+   * (voir la poignée ci-dessous) pour que la toolbar reste toujours
+   * entièrement visible, jamais partiellement hors de cette zone. */
+  boundsRef: RefObject<HTMLDivElement | null>;
+}
+
+/** Position persistée de la toolbar flottante — en fractions [0,1] de
+ * l'espace de déplacement RÉELLEMENT disponible (taille du conteneur moins
+ * taille de la toolbar elle-même), jamais en pixels bruts ni en fraction
+ * simple de la taille du conteneur : ainsi, `x = xFrac * (containerWidth -
+ * toolbarWidth)` reste TOUJOURS dans `[0, containerWidth - toolbarWidth]`
+ * par construction, quels que soient les changements de taille du
+ * conteneur (rotation d'écran) ou de la toolbar elle-même (barre d'options
+ * qui apparaît/disparaît) — la toolbar reste garantie entièrement visible
+ * sans recalcul de clamp complexe à chaque cas. */
+interface ToolbarPos {
+  xFrac: number;
+  yFrac: number;
+}
+
+const TOOLBAR_POS_STORAGE_KEY = "distill-notes-toolbar-pos";
+/** Position par défaut avant toute lecture de localStorage (ou en cas
+ * d'échec) — haut de l'écran, légèrement décalée du bord gauche. */
+const DEFAULT_TOOLBAR_POS: ToolbarPos = { xFrac: 0.02, yFrac: 0.02 };
+/** Distance (fraction de l'espace de déplacement) en dessous de laquelle
+ * un relâchement de drag aligne la toolbar sur le bord le plus proche —
+ * léger effet d'aimantation, purement cosmétique. */
+const SNAP_THRESHOLD_FRAC = 0.04;
+
+function clampFrac(v: number): number {
+  return Math.max(0, Math.min(1, v));
+}
+
+function readStoredToolbarPos(): ToolbarPos {
+  try {
+    const raw = localStorage.getItem(TOOLBAR_POS_STORAGE_KEY);
+    if (!raw) return DEFAULT_TOOLBAR_POS;
+    const parsed = JSON.parse(raw) as Partial<ToolbarPos>;
+    if (typeof parsed.xFrac !== "number" || typeof parsed.yFrac !== "number") return DEFAULT_TOOLBAR_POS;
+    return { xFrac: clampFrac(parsed.xFrac), yFrac: clampFrac(parsed.yFrac) };
+  } catch {
+    return DEFAULT_TOOLBAR_POS;
+  }
 }
 
 export function NotesToolbar({
+  boundsRef,
   tool,
   onSelectPen,
   onSelectHighlighter,
@@ -442,31 +484,167 @@ export function NotesToolbar({
     onPenTypeChange(type);
   };
 
+  // Position de la toolbar flottante — voir ToolbarPos ci-dessus. Lue une
+  // seule fois au montage (jamais recalculée depuis localStorage ensuite),
+  // écrite au relâchement d'un drag.
+  const [pos, setPos] = useState<ToolbarPos>(readStoredToolbarPos);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  /** Donnée de geste en cours — en ref (jamais en state) : lue/écrite à
+   * chaque pointermove, un state React serait à la fois inutile (rien
+   * n'affiche cette donnée brute) et plus lent (re-rendu à chaque frame). */
+  const dragRef = useRef<{
+    startClientX: number;
+    startClientY: number;
+    startLeft: number;
+    startTop: number;
+    maxX: number;
+    maxY: number;
+  } | null>(null);
+
+  /** Tailles mesurées (conteneur + toolbar elle-même) — en state, jamais lues
+   * depuis les refs pendant le rendu (interdit par les règles des Hooks :
+   * un ref n'est garanti à jour qu'après montage/effet, jamais pendant le
+   * rendu lui-même). Mises à jour au montage puis à chaque changement de
+   * taille du conteneur (rotation/redimensionnement) OU de la toolbar
+   * elle-même (barre d'options qui apparaît/disparaît selon l'outil). */
+  const [measured, setMeasured] = useState({ containerW: 0, containerH: 0, toolbarW: 0, toolbarH: 0 });
+  useEffect(() => {
+    const container = boundsRef.current;
+    const el = rootRef.current;
+    if (!container || !el) return;
+    const update = () => {
+      const containerRect = container.getBoundingClientRect();
+      const toolbarRect = el.getBoundingClientRect();
+      setMeasured({
+        containerW: containerRect.width,
+        containerH: containerRect.height,
+        toolbarW: toolbarRect.width,
+        toolbarH: toolbarRect.height,
+      });
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(container);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [boundsRef]);
+
+  const maxX = Math.max(0, measured.containerW - measured.toolbarW);
+  const maxY = Math.max(0, measured.containerH - measured.toolbarH);
+  const left = pos.xFrac * maxX;
+  const top = pos.yFrac * maxY;
+
+  function persistPos(next: ToolbarPos) {
+    try {
+      localStorage.setItem(TOOLBAR_POS_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // Mode privé, quota dépassé... : la position reste valable pour
+      // cette session, simplement pas mémorisée pour la prochaine.
+    }
+  }
+
+  /** Aimante légèrement la position au bord le plus proche si elle en est
+   * déjà proche au relâchement — purement cosmétique, jamais appliqué
+   * pendant le drag lui-même (seulement au pointerup). */
+  function applySnap(p: ToolbarPos): ToolbarPos {
+    const snap = (v: number) => (v < SNAP_THRESHOLD_FRAC ? 0 : v > 1 - SNAP_THRESHOLD_FRAC ? 1 : v);
+    return { xFrac: snap(p.xFrac), yFrac: snap(p.yFrac) };
+  }
+
+  function handleHandlePointerDown(e: React.PointerEvent<HTMLButtonElement>) {
+    const container = boundsRef.current;
+    const el = rootRef.current;
+    if (!container || !el) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const containerR = container.getBoundingClientRect();
+    const elR = el.getBoundingClientRect();
+    dragRef.current = {
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      startLeft: elR.left - containerR.left,
+      startTop: elR.top - containerR.top,
+      maxX: Math.max(0, containerR.width - elR.width),
+      maxY: Math.max(0, containerR.height - elR.height),
+    };
+  }
+
+  function handleHandlePointerMove(e: React.PointerEvent<HTMLButtonElement>) {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const dx = e.clientX - drag.startClientX;
+    const dy = e.clientY - drag.startClientY;
+    const nextLeft = Math.max(0, Math.min(drag.maxX, drag.startLeft + dx));
+    const nextTop = Math.max(0, Math.min(drag.maxY, drag.startTop + dy));
+    setPos({
+      xFrac: drag.maxX > 0 ? nextLeft / drag.maxX : 0,
+      yFrac: drag.maxY > 0 ? nextTop / drag.maxY : 0,
+    });
+  }
+
+  function handleHandlePointerUp() {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    setPos((prev) => {
+      const snapped = applySnap(prev);
+      persistPos(snapped);
+      return snapped;
+    });
+  }
+
   return (
     // pointer-events-none sur la colonne : avec deux barres empilées (+ leur
     // écart), le rectangle englobant du conteneur dépasse largement les
     // barres visibles — sans ça, cette zone "vide" mais cliquable avalait le
     // pincer-zoomer et le glisser du canvas juste en dessous/entre les
     // barres. Chaque barre repasse en pointer-events-auto individuellement.
-    <div className="pointer-events-none flex flex-col items-center gap-2.5">
-      {/* Barre flottante principale : outils de dessin, réellement positionnée
-          au-dessus du canvas (voir NotesPageClient.tsx), avec un léger halo
+    // Positionnée en absolute (voir NotesPageClient.tsx, `boundsRef`) :
+    // `left`/`top` sont recalculés à chaque rendu depuis `pos` (fractions
+    // persistées) et les tailles réelles mesurées — jamais mis en cache,
+    // donc toujours cohérents après une rotation d'écran ou un changement
+    // de taille de la toolbar elle-même.
+    <div
+      ref={rootRef}
+      className="pointer-events-none absolute flex w-fit max-w-[calc(100%-8px)] flex-col items-center gap-2"
+      style={{ left, top }}
+    >
+      {/* Barre flottante principale : outils de dessin, avec un léger halo
           décoratif jade et un fond vitré (backdrop-blur) — cohérent avec la
           signature "premium" du reste du site (AiPanel, Dashboard) sans
           reprendre .ai-gradient, réservé à la signature IA elle-même. */}
-      <div className="pointer-events-auto relative w-full">
+      <div className="pointer-events-auto relative w-fit max-w-full">
         <div
           aria-hidden="true"
           className="pointer-events-none absolute -left-8 -top-10 h-36 w-36 rounded-full opacity-25 blur-2xl"
           style={{ background: "radial-gradient(circle, color-mix(in srgb, var(--accent) 38%, transparent) 0%, transparent 72%)" }}
         />
-        <div className="relative flex flex-nowrap items-center gap-2 overflow-x-auto rounded-2xl border border-border/60 bg-card/95 px-3 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
+        <div className="relative flex flex-nowrap items-center gap-1.5 overflow-x-auto rounded-2xl border border-border/60 bg-card/95 px-2 py-1.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
+          {/* Poignée de déplacement — seul élément qui déclenche le drag de
+              toute la toolbar (barre principale + barre d'options en
+              dessous, ancrées ensemble) ; `touch-action: none` empêche le
+              geste de défiler/zoomer la page pendant qu'on glisse la
+              poignée sur iPad. */}
+          <button
+            type="button"
+            aria-label="Déplacer la barre d'outils"
+            title="Déplacer la barre d'outils"
+            onPointerDown={handleHandlePointerDown}
+            onPointerMove={handleHandlePointerMove}
+            onPointerUp={handleHandlePointerUp}
+            onPointerCancel={handleHandlePointerUp}
+            className="grid h-10 w-6 shrink-0 cursor-grab place-items-center rounded-xl text-muted transition-colors hover:bg-background-alt hover:text-foreground active:cursor-grabbing"
+            style={{ touchAction: "none" }}
+          >
+            <DragHandleIcon className="h-4 w-4" />
+          </button>
+
+          <div className="h-8 w-px shrink-0 bg-border/70" />
+
           <button
             type="button"
             onClick={onToggleAi}
             aria-pressed={aiOpen}
             title="IA Distill — résumé & flashcards"
-            className={`flex shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition-all duration-200 active:scale-95 ${
+            className={`flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-semibold transition-all duration-200 active:scale-95 ${
               aiOpen
                 ? "ai-gradient text-white shadow-[0_4px_14px_-6px_var(--ai-glow)]"
                 : "border border-border/70 text-foreground/80 hover:border-accent/40 hover:bg-background-alt hover:text-foreground"
@@ -475,7 +653,7 @@ export function NotesToolbar({
             <AiOrb size={20} active={aiOpen} /> IA
           </button>
 
-          <div className="h-12 w-px shrink-0 bg-border/70" />
+          <div className="h-8 w-px shrink-0 bg-border/70" />
 
           <input
             ref={fileInputRef}
@@ -584,7 +762,7 @@ export function NotesToolbar({
             />
           </div>
 
-          <div className="h-12 w-px shrink-0 bg-border/70" />
+          <div className="h-8 w-px shrink-0 bg-border/70" />
 
           <div className="flex shrink-0 items-center gap-0.5">
             <ActionIconButton
@@ -603,14 +781,14 @@ export function NotesToolbar({
             />
           </div>
 
-          <div className="h-12 w-px shrink-0 bg-border/70" />
+          <div className="h-8 w-px shrink-0 bg-border/70" />
 
           <button
             type="button"
             onClick={onFitToScreen}
             aria-label="Ajuster à l'écran (zoom 100%)"
             title="Ajuster à l'écran (zoom 100%)"
-            className="flex shrink-0 items-center gap-1.5 rounded-full border border-accent/50 bg-accent-light px-3 py-1.5 text-xs font-semibold text-accent-dark transition-all duration-200 hover:brightness-95 active:scale-95"
+            className="flex h-10 shrink-0 items-center gap-1 rounded-full border border-accent/50 bg-accent-light px-2.5 text-[11px] font-semibold text-accent-dark transition-all duration-200 hover:brightness-95 active:scale-95"
           >
             <FitScreenIcon className="h-4 w-4" />
             100%
@@ -621,7 +799,7 @@ export function NotesToolbar({
       {/* Seconde barre flottante : réglages de l'outil actif (épaisseur,
           couleurs, indicateur de couleur sélectionnée, "Plus d'options"). */}
       {tool === "pen" && (
-        <div className="pointer-events-auto flex max-w-full flex-nowrap animate-fade items-center gap-3 overflow-x-auto rounded-full border border-border/60 bg-card/95 px-4 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
+        <div className="pointer-events-auto flex max-w-full flex-nowrap animate-fade items-center gap-2 overflow-x-auto rounded-full border border-border/60 bg-card/95 px-3 py-1.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
           <SizeDotPicker sizes={PEN_SIZES} value={penSize} onChange={onPenSizeChange} />
           <div className="h-8 w-px shrink-0 bg-border/70" />
           <ColorRow colors={PEN_COLORS} value={penColor} onChange={onPenColorChange} />
@@ -630,8 +808,8 @@ export function NotesToolbar({
       )}
 
       {tool === "highlighter" && (
-        <div className="pointer-events-auto flex max-w-full flex-col items-stretch gap-2 rounded-2xl border border-border/60 bg-card/95 px-4 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
-          <div className="flex flex-nowrap animate-fade items-center gap-3 overflow-x-auto">
+        <div className="pointer-events-auto flex max-w-full flex-col items-stretch gap-2 rounded-2xl border border-border/60 bg-card/95 px-3 py-1.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
+          <div className="flex flex-nowrap animate-fade items-center gap-2 overflow-x-auto">
             <SizeDotPicker sizes={HIGHLIGHTER_SIZES} value={highlighterSize} onChange={onHighlighterSizeChange} />
             <div className="h-8 w-px shrink-0 bg-border/70" />
             <ColorRow colors={HIGHLIGHTER_COLORS} value={highlighterColor} onChange={onHighlighterColorChange} />
@@ -702,7 +880,7 @@ export function NotesToolbar({
       )}
 
       {tool === "eraser" && (
-        <div className="pointer-events-auto flex max-w-full flex-nowrap animate-fade items-center gap-3 overflow-x-auto rounded-full border border-border/60 bg-card/95 px-4 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
+        <div className="pointer-events-auto flex max-w-full flex-nowrap animate-fade items-center gap-2 overflow-x-auto rounded-full border border-border/60 bg-card/95 px-3 py-1.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
           <SizeDotPicker sizes={ERASER_SIZES} value={eraserRadius} onChange={onEraserRadiusChange} />
           <div className="h-8 w-px shrink-0 bg-border/70" />
           <div className="flex shrink-0 items-center gap-1 rounded-full border border-border/70 bg-background-alt/70 p-1">
@@ -734,7 +912,7 @@ export function NotesToolbar({
       )}
 
       {tool === "shapes" && (
-        <div className="pointer-events-auto flex max-w-full flex-nowrap animate-fade items-center gap-3 overflow-x-auto rounded-full border border-border/60 bg-card/95 px-4 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
+        <div className="pointer-events-auto flex max-w-full flex-nowrap animate-fade items-center gap-2 overflow-x-auto rounded-full border border-border/60 bg-card/95 px-3 py-1.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
           <div className="flex shrink-0 items-center gap-1 rounded-full border border-border/70 bg-background-alt/70 p-1">
             {SHAPE_TYPES.map(({ value, label, Icon }) => {
               const active = shapeType === value;
@@ -745,7 +923,7 @@ export function NotesToolbar({
                   onClick={() => onShapeTypeChange(value)}
                   aria-pressed={active}
                   title={label}
-                  className={`grid h-8 w-8 shrink-0 place-items-center rounded-full transition-all duration-200 active:scale-90 ${
+                  className={`grid h-7 w-7 shrink-0 place-items-center rounded-full transition-all duration-200 active:scale-90 ${
                     active
                       ? "scale-105 bg-card text-accent-dark shadow-[var(--shadow-sm)] ring-1 ring-accent/60"
                       : "text-muted hover:bg-card/60 hover:text-foreground"
@@ -768,7 +946,7 @@ export function NotesToolbar({
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="pointer-events-auto flex shrink-0 animate-fade items-center gap-2 rounded-full border border-border/60 bg-card/95 px-4 py-2.5 text-xs font-medium text-foreground shadow-[var(--shadow-lg)] backdrop-blur-sm transition-all duration-200 hover:border-accent/40 active:scale-95"
+          className="pointer-events-auto flex shrink-0 animate-fade items-center gap-2 rounded-full border border-border/60 bg-card/95 px-3 py-1.5 text-xs font-medium text-foreground shadow-[var(--shadow-lg)] backdrop-blur-sm transition-all duration-200 hover:border-accent/40 active:scale-95"
         >
           <PhotoIcon className="h-4 w-4" />
           Ajouter une photo
@@ -784,7 +962,7 @@ export function NotesToolbar({
         <button
           type="button"
           onClick={onPaste}
-          className="pointer-events-auto flex shrink-0 animate-fade items-center gap-2 rounded-full border border-border/60 bg-card/95 px-4 py-2.5 text-xs font-medium text-foreground shadow-[var(--shadow-lg)] backdrop-blur-sm transition-all duration-200 hover:border-accent/40 active:scale-95"
+          className="pointer-events-auto flex shrink-0 animate-fade items-center gap-2 rounded-full border border-border/60 bg-card/95 px-3 py-1.5 text-xs font-medium text-foreground shadow-[var(--shadow-lg)] backdrop-blur-sm transition-all duration-200 hover:border-accent/40 active:scale-95"
         >
           Coller
         </button>

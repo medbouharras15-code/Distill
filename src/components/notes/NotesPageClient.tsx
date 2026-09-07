@@ -91,6 +91,12 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
   const pageRefs = useRef<Map<string, NotesCanvasHandle>>(new Map());
   const pageSlotEls = useRef<Map<string, HTMLDivElement>>(new Map());
   const pagesScrollRef = useRef<HTMLDivElement | null>(null);
+  /** Conteneur `relative` englobant la fenêtre de défilement des pages ET
+   * les éléments flottants qui s'y ancrent (toolbar déplaçable, boutons de
+   * zoom) — sert à mesurer l'espace réellement disponible pour la page
+   * (voir `fitScale` plus bas) et de référence de bornage pour le drag de
+   * la toolbar (voir NotesToolbar.tsx, prop `boundsRef`). */
+  const editorAreaRef = useRef<HTMLDivElement | null>(null);
   /** Enveloppe la liste de pages : porte la largeur en % dépendant du zoom
    * (voir zoomAtPoint), exactement comme `wrapperRef` le faisait par page
    * dans NotesCanvas — sauf qu'il n'y en a maintenant qu'un seul pour tout
@@ -529,17 +535,64 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
   // ratio pageH/pageW que l'affichage à 100 % dans NotesCanvas, mais borné
   // à sa propre tranche plutôt qu'à tout l'écran.
   const pageDimensions = getPageDimensions(paperSize);
-  const slotAspectRatio = `${pageDimensions.width} / ${pageDimensions.height}`;
-  /** Même ratio que ci-dessus, mais par page : une page avec un
-   * `pdfBackground` doit avoir un slot à la forme du PDF natif (voir
-   * PAGE_WIDTH/PAGE_HEIGHT dans NotesCanvas.tsx, calculés à partir de ce
-   * même `aspectRatio`) — sinon le slot papier générique étire le rendu du
-   * PDF (et le canvas d'encre) de façon non uniforme pour remplir une boîte
-   * à la mauvaise forme. Une page sans `pdfBackground` garde exactement
-   * `slotAspectRatio` (comportement papier inchangé). */
-  function slotAspectRatioFor(page: EditorPage): string {
-    return page.pdfBackground ? `${page.pdfBackground.aspectRatio}` : slotAspectRatio;
+  /** Ratio largeur/hauteur d'une page : celui du PDF natif si elle a un
+   * `pdfBackground` (voir PAGE_WIDTH/PAGE_HEIGHT dans NotesCanvas.tsx,
+   * calculés à partir de ce même `aspectRatio`), sinon le ratio papier
+   * partagé par le carnet. */
+  function pageAspectRatio(page: EditorPage): number {
+    return page.pdfBackground?.aspectRatio ?? pageDimensions.width / pageDimensions.height;
   }
+  function slotAspectRatioFor(page: EditorPage): string {
+    return `${pageAspectRatio(page)}`;
+  }
+
+  /** Taille réelle (px) de la fenêtre de défilement des pages — mesurée
+   * pour que le zoom "100 %" corresponde à un affichage plein écran (voir
+   * `fitScale` ci-dessous), pas seulement à la largeur comme avant.
+   * Observée sur `pagesScrollRef` (dimensionné par le flex layout de la
+   * page, jamais par son propre contenu défilant) plutôt que sur le
+   * wrapper zoomé ou une page : aucune dépendance circulaire avec la
+   * valeur qu'on est en train de calculer à partir d'elle — c'est
+   * précisément le piège qu'évitait déjà le choix ci-dessus de ne pas
+   * mesurer la hauteur de page en JS. */
+  const [scrollAreaSize, setScrollAreaSize] = useState({ width: 0, height: 0 });
+  useEffect(() => {
+    const el = pagesScrollRef.current;
+    if (!el) return;
+    const update = () => setScrollAreaSize({ width: el.clientWidth, height: el.clientHeight });
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  /** Facteur qui fait qu'un zoom de 100 % affiche la page courante en
+   * plein écran (largeur ET hauteur), ratio conservé, sans jamais dépasser
+   * 100 % de la largeur disponible (`Math.min(1, ...)`) : si le ratio de
+   * la page rend sa hauteur, à pleine largeur, inférieure à l'espace
+   * vertical disponible, `fitScale` reste `1` (comportement identique à
+   * avant, déjà "plein écran" par la largeur) ; sinon il réduit la largeur
+   * pour que la hauteur rentre exactement, page entière visible, jamais
+   * rognée ni déformée. Composé multiplicativement avec `zoom` (qui garde
+   * exactement son sens de multiplicateur relatif, voir `zoomAtPoint`) :
+   * dans un carnet mélangeant plusieurs ratios (page papier + PDF paysage,
+   * p. ex.), l'ajustement est exact pour la page courante, approximatif
+   * pour une page voisine d'un ratio différent au même niveau de zoom —
+   * conséquence assumée du modèle "un seul zoom pour tout le carnet
+   * défilant", déjà en place avant ce chantier. */
+  const currentPageForFit = pages.find((p) => p.id === currentPageId) ?? pages[0];
+  const referenceRatio = currentPageForFit ? pageAspectRatio(currentPageForFit) : pageDimensions.width / pageDimensions.height;
+  const fitScale =
+    scrollAreaSize.width > 0 && scrollAreaSize.height > 0
+      ? Math.min(1, (scrollAreaSize.height * referenceRatio) / scrollAreaSize.width)
+      : 1;
+  /** Miroir synchrone de `fitScale`, même raison que `zoomRef` : lu par
+   * `zoomAtPoint` pendant un pincement, qui écrit `wrapper.style.width`
+   * directement en DOM sans attendre un re-rendu React. */
+  const fitScaleRef = useRef(fitScale);
+  useEffect(() => {
+    fitScaleRef.current = fitScale;
+  }, [fitScale]);
 
   /** Change le zoom du carnet entier en gardant fixe, à l'écran, le point de
    * contenu qui se trouve sous (clientX, clientY) — pincement à deux
@@ -591,7 +644,7 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
     const newWrapperHeight = oldWrapperHeight * scaleRatio;
     const newOffsetX = Math.max(0, (containerWidth - newWrapperWidth) / 2);
 
-    wrapper.style.width = `${clamped * 100}%`;
+    wrapper.style.width = `${clamped * fitScaleRef.current * 100}%`;
     container.scrollLeft = fracX * newWrapperWidth - pointerX + newOffsetX;
     container.scrollTop = fracY * newWrapperHeight - pointerY;
 
@@ -737,116 +790,109 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
           sans aucune marge — c'est elle que l'utilisateur perçoit comme
           "la feuille" et qui doit remplir tout l'espace disponible, sans
           bande de couleur de fond visible autour. */}
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-4 pt-6 sm:px-6">
-        <div className="flex items-center justify-between">
-          <BackLink href="/dashboard">Retour à Distill</BackLink>
-          <h1 className="font-display text-lg font-medium text-foreground">Notes à main levée</h1>
-          <div className="w-24" />
-        </div>
-
-        {/* Barre d'outils principale — déménagée ici depuis son ancienne
-            position flottante au-dessus du canvas : même composant, mêmes
-            boutons, même comportement (NotesToolbar.tsx n'a pas changé),
-            seul l'emplacement change. */}
-        <div className="flex w-full justify-center">
-          <div className="w-fit max-w-full">
-            <NotesToolbar
-              tool={tool}
-              onSelectPen={selectPen}
-              onSelectHighlighter={selectHighlighter}
-              onSelectEraser={selectEraser}
-              onSelectShapes={selectShapes}
-              onSelectPhoto={selectPhoto}
-              onSelectPan={selectPan}
-              onSelectText={selectText}
-              onSelectLasso={selectLasso}
-              hasClipboard={clipboard !== null}
-              onPaste={() => getActivePageHandle()?.paste()}
-              onPenDoubleClick={activateTempEraser}
-              onImportPhotos={(files) => getActivePageHandle()?.importPhotos(files)}
-              onImportPdf={handleImportPdf}
-              penColor={penColor}
-              onPenColorChange={setPenColor}
-              penSize={penSize}
-              onPenSizeChange={setPenSize}
-              penType={penType}
-              onPenTypeChange={setPenType}
-              highlighterColor={highlighterColor}
-              onHighlighterColorChange={setHighlighterColor}
-              highlighterSize={highlighterSize}
-              onHighlighterSizeChange={setHighlighterSize}
-              highlighterMode={highlighterMode}
-              onHighlighterModeChange={setHighlighterMode}
-              highlighterOpacity={highlighterOpacity}
-              onHighlighterOpacityChange={setHighlighterOpacity}
-              eraserRadius={eraserRadius}
-              onEraserRadiusChange={setEraserRadius}
-              eraserMode={eraserMode}
-              onEraserModeChange={setEraserMode}
-              eraserTarget={eraserTarget}
-              onEraserTargetChange={setEraserTarget}
-              shapeType={shapeType}
-              onShapeTypeChange={setShapeType}
-              shapeColor={shapeColor}
-              onShapeColorChange={setShapeColor}
-              shapeStrokeWidth={shapeStrokeWidth}
-              onShapeStrokeWidthChange={setShapeStrokeWidth}
-              canUndo={activeHistory?.canUndo ?? false}
-              canRedo={activeHistory?.canRedo ?? false}
-              onUndo={() => getActivePageHandle()?.undo()}
-              onRedo={() => getActivePageHandle()?.redo()}
-              onFitToScreen={resetZoom}
-              aiOpen={aiOpen}
-              onToggleAi={toggleAi}
-              rulerActive={rulerActive}
-              onToggleRuler={toggleRuler}
-            />
-          </div>
-        </div>
-
-        {/* Bandeau d'état de l'import PDF (voir handleImportPdf) — additif,
-            n'affecte aucun autre élément de l'interface, disparaît de
-            lui-même dès que l'import réussit ou qu'un nouvel import démarre. */}
-        {pdfImportStatus && (
-          <div className="flex w-fit items-center gap-2 self-center rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted">
-            {pdfImportStatus}
-          </div>
-        )}
-
+      {/* En-tête réduit au strict minimum : une seule ligne compacte (lien
+          retour + bouton de feuille), pour que la zone de page commence le
+          plus haut possible — la toolbar principale et sa barre d'options
+          ne sont plus ici (voir plus bas, flottantes au-dessus de la page).
+          La bannière d'import PDF et la barre de texte contextuelle restent
+          conditionnelles : aucune hauteur fixe n'est jamais réservée quand
+          elles sont absentes. */}
+      <div className="flex w-full items-center justify-between gap-2 px-3 py-1.5">
+        <BackLink href="/dashboard">Retour</BackLink>
         <button
           type="button"
           onClick={() => setSheetPanelOpen(true)}
-          className="flex w-fit items-center gap-2 self-center rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted transition hover:text-foreground"
+          className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-muted transition hover:text-foreground"
         >
           <span
-            className="h-3 w-3 rounded-full border border-border"
+            className="h-2.5 w-2.5 rounded-full border border-border"
             style={{ backgroundColor }}
             aria-hidden="true"
           />
           {sheetLabel} · {paperLabel}
         </button>
-
-        {/* Barre de texte contextuelle — visible uniquement quand l'outil
-            Texte est actif ET qu'une TextBox est réellement en édition
-            (`activeTextEditor`, voir plus haut). Ne suit JAMAIS la
-            position de la TextBox : elle reste ici, sous la barre
-            principale, quel que soit l'endroit de la page où l'on
-            écrit — c'est `activeTextEditor` qui change, pas la position de
-            cette barre. `data-text-toolbar-root` : repère utilisé par
-            TextBoxOverlay.tsx pour ne pas confondre un clic ici avec un
-            abandon réel du bloc en édition (voir son `onBlur`). Rendu
-            conditionnel pur : aucune hauteur réservée quand elle est
-            absente, la colonne se recalcule d'elle-même. */}
-        {tool === "text" && activeTextEditor && (
-          <div data-text-toolbar-root className="flex w-full justify-center">
-            <div className="w-fit max-w-full">
-              <RichTextToolbar editor={activeTextEditor} />
-            </div>
-          </div>
-        )}
       </div>
 
-      <div className="relative mt-3 min-h-0 w-full flex-1">
+      {pdfImportStatus && (
+        <div className="flex w-fit items-center gap-2 self-center rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted">
+          {pdfImportStatus}
+        </div>
+      )}
+
+      {/* Barre de texte contextuelle — visible uniquement quand l'outil
+          Texte est actif ET qu'une TextBox est réellement en édition
+          (`activeTextEditor`, voir plus haut). `data-text-toolbar-root` :
+          repère utilisé par TextBoxOverlay.tsx pour ne pas confondre un
+          clic ici avec un abandon réel du bloc en édition (voir son
+          `onBlur`). Rendu conditionnel pur : aucune hauteur réservée
+          quand elle est absente. */}
+      {tool === "text" && activeTextEditor && (
+        <div data-text-toolbar-root className="flex w-full justify-center px-2">
+          <div className="w-fit max-w-full">
+            <RichTextToolbar editor={activeTextEditor} />
+          </div>
+        </div>
+      )}
+
+      <div ref={editorAreaRef} className="relative min-h-0 w-full flex-1">
+        {/* Toolbar principale + barre d'options — flottantes, déplaçables
+            (voir NotesToolbar.tsx), ancrées à ce même conteneur que la
+            fenêtre de défilement des pages ci-dessous (comme les boutons de
+            zoom, déjà positionnés en absolute ici) : "flotter au-dessus de
+            la page" au sens propre, plus dans le flux de l'en-tête. */}
+        <NotesToolbar
+          boundsRef={editorAreaRef}
+          tool={tool}
+          onSelectPen={selectPen}
+          onSelectHighlighter={selectHighlighter}
+          onSelectEraser={selectEraser}
+          onSelectShapes={selectShapes}
+          onSelectPhoto={selectPhoto}
+          onSelectPan={selectPan}
+          onSelectText={selectText}
+          onSelectLasso={selectLasso}
+          hasClipboard={clipboard !== null}
+          onPaste={() => getActivePageHandle()?.paste()}
+          onPenDoubleClick={activateTempEraser}
+          onImportPhotos={(files) => getActivePageHandle()?.importPhotos(files)}
+          onImportPdf={handleImportPdf}
+          penColor={penColor}
+          onPenColorChange={setPenColor}
+          penSize={penSize}
+          onPenSizeChange={setPenSize}
+          penType={penType}
+          onPenTypeChange={setPenType}
+          highlighterColor={highlighterColor}
+          onHighlighterColorChange={setHighlighterColor}
+          highlighterSize={highlighterSize}
+          onHighlighterSizeChange={setHighlighterSize}
+          highlighterMode={highlighterMode}
+          onHighlighterModeChange={setHighlighterMode}
+          highlighterOpacity={highlighterOpacity}
+          onHighlighterOpacityChange={setHighlighterOpacity}
+          eraserRadius={eraserRadius}
+          onEraserRadiusChange={setEraserRadius}
+          eraserMode={eraserMode}
+          onEraserModeChange={setEraserMode}
+          eraserTarget={eraserTarget}
+          onEraserTargetChange={setEraserTarget}
+          shapeType={shapeType}
+          onShapeTypeChange={setShapeType}
+          shapeColor={shapeColor}
+          onShapeColorChange={setShapeColor}
+          shapeStrokeWidth={shapeStrokeWidth}
+          onShapeStrokeWidthChange={setShapeStrokeWidth}
+          canUndo={activeHistory?.canUndo ?? false}
+          canRedo={activeHistory?.canRedo ?? false}
+          onUndo={() => getActivePageHandle()?.undo()}
+          onRedo={() => getActivePageHandle()?.redo()}
+          onFitToScreen={resetZoom}
+          aiOpen={aiOpen}
+          onToggleAi={toggleAi}
+          rulerActive={rulerActive}
+          onToggleRuler={toggleRuler}
+        />
+
         {/* Fenêtre de zoom/défilement unique pour tout le carnet — même
             structure conteneur+wrapper que chaque NotesCanvas utilisait
             auparavant pour sa propre page, mais posée une seule fois
@@ -857,7 +903,11 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
             carnet — plus besoin d'un relais explicite à chaque frontière de
             page. */}
         <div ref={pagesScrollRef} className="h-full w-full overflow-auto" style={{ touchAction: "none" }}>
-          <div ref={pagesWrapperRef} className="relative mx-auto" style={{ width: `${zoom * 100}%` }}>
+          <div
+            ref={pagesWrapperRef}
+            className="relative mx-auto"
+            style={{ width: `${zoom * fitScale * 100}%` }}
+          >
             {pages.map((page, index) => (
               <div key={page.id}>
                 {index > 0 && <div className="h-px w-full bg-border" aria-hidden="true" />}
@@ -869,7 +919,7 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
                   }}
                   onPointerDownCapture={() => setCurrentPageId(page.id)}
                   style={{ aspectRatio: slotAspectRatioFor(page) }}
-                  className="w-full"
+                  className="w-full rounded-sm border border-border shadow-[var(--shadow-sm)]"
                 >
                   <NotesCanvas
                     ref={(handle) => {
