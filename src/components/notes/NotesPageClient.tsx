@@ -35,10 +35,14 @@ import type {
   EraserTarget,
   HighlighterMode,
   PaperSize,
+  PdfPageBackground,
   PenType,
   ShapeType,
   SheetType,
 } from "@/lib/notes/types";
+import { uploadPdfToBlob } from "@/lib/aiMedia";
+import { MAX_PDF_FILE_BYTES } from "@/lib/fileSizeLimits";
+import { getDocumentProxy } from "unpdf";
 
 function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
@@ -50,6 +54,11 @@ function clamp(v: number, min: number, max: number): number {
  * l'instant (pas de sauvegarde, comme le reste de l'éditeur aujourd'hui). */
 interface EditorPage {
   id: string;
+  /** Fond PDF non interactif de cette page (voir PdfPageBackground et
+   * handleImportPdf) — absent pour une page papier normale, comme
+   * aujourd'hui. Jamais mis à jour après création : une page importée
+   * garde le même fond PDF toute sa vie dans cette phase. */
+  pdfBackground?: PdfPageBackground;
 }
 
 interface NotesAuth {
@@ -322,7 +331,7 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
             sheetType: SheetType;
             paperSize: PaperSize;
             backgroundColor: string;
-            content: Document;
+            content: Document & { pdfBackground?: PdfPageBackground };
           }[];
         };
         if (cancelled) return;
@@ -338,7 +347,7 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
           setSheetType(sorted[0].sheetType);
           setPaperSize(sorted[0].paperSize);
           setBackgroundColor(sorted[0].backgroundColor);
-          setPages(sorted.map((p) => ({ id: p.id })));
+          setPages(sorted.map((p) => ({ id: p.id, pdfBackground: p.content.pdfBackground })));
           setSheetChosen(true);
         }
       } catch (err) {
@@ -362,6 +371,11 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
    * passe, une erreur reste silencieuse côté utilisateur (journalisée). */
   function handlePageDocChange(pageId: string, position: number, doc: Document) {
     if (auth === null) return;
+    // pdfBackground n'est jamais dans `doc` (jamais dans Document/commitDoc,
+    // voir NotesCanvas.tsx) : on le fusionne ici, juste pour cet appel
+    // réseau, depuis l'état `pages` (seule source de vérité) — content reste
+    // une simple colonne jsonb côté serveur, aucune migration nécessaire.
+    const pdfBackground = pages.find((p) => p.id === pageId)?.pdfBackground;
     fetch("/api/notes/pages", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -371,11 +385,64 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
         sheetType,
         paperSize,
         backgroundColor,
-        content: doc,
+        content: pdfBackground ? { ...doc, pdfBackground } : doc,
       }),
     }).catch((err) => {
       console.error("Impossible d'enregistrer la page Notes :", err);
     });
+  }
+
+  /** Message transitoire d'import PDF (voir handleImportPdf) — bandeau
+   * additif, indépendant de tout autre état de l'éditeur. */
+  const [pdfImportStatus, setPdfImportStatus] = useState<string | null>(null);
+
+  /** Import PDF (voir NotesToolbar) : un fichier devient N nouvelles pages
+   * Distill (une par page PDF), ajoutées en fin de carnet, partageant un
+   * seul upload et un seul `sourceId` (voir PdfPageBackground). `pages`
+   * n'est modifié qu'une fois tout validé (comptage de pages, upload) —
+   * un échec à n'importe quelle étape laisse le carnet actuel intact. */
+  async function handleImportPdf(file: File) {
+    if (auth === null) {
+      setPdfImportStatus("Connectez-vous pour importer un PDF.");
+      return;
+    }
+    if (file.type !== "application/pdf" || file.size > MAX_PDF_FILE_BYTES) {
+      setPdfImportStatus("Impossible d'importer ce PDF.");
+      return;
+    }
+    setPdfImportStatus("Importation du PDF…");
+    try {
+      // Comptage de pages + ratio natif de chacune, sur le fichier local —
+      // avant même l'upload, pour ne téléverser qu'un PDF déjà validé.
+      const buffer = await file.arrayBuffer();
+      const doc = await getDocumentProxy(new Uint8Array(buffer));
+      const pageCount = doc.numPages;
+      const aspectRatios: number[] = [];
+      for (let i = 1; i <= pageCount; i++) {
+        const viewport = (await doc.getPage(i)).getViewport({ scale: 1 });
+        aspectRatios.push(viewport.width / viewport.height);
+      }
+
+      const { url } = await uploadPdfToBlob(file);
+      const sourceId = crypto.randomUUID();
+      const newPages: EditorPage[] = aspectRatios.map((aspectRatio, i) => ({
+        id: crypto.randomUUID(),
+        pdfBackground: { sourceId, url, pageNumber: i + 1, pageCount, originalName: file.name, aspectRatio },
+      }));
+
+      setPages((prev) => [...prev, ...newPages]);
+      const firstNewPageId = newPages[0]?.id ?? null;
+      setCurrentPageId(firstNewPageId);
+      // Même schéma que resetZoom plus bas : le slot de la nouvelle page ne
+      // monte qu'après ce re-rendu, d'où le report d'une frame.
+      requestAnimationFrame(() => {
+        if (firstNewPageId) pageSlotEls.current.get(firstNewPageId)?.scrollIntoView({ block: "start" });
+      });
+      setPdfImportStatus(null);
+    } catch (err) {
+      console.error("Impossible d'importer ce PDF :", err);
+      setPdfImportStatus("Impossible d'importer ce PDF.");
+    }
   }
 
   function selectPen() {
@@ -687,6 +754,7 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
               onPaste={() => getActivePageHandle()?.paste()}
               onPenDoubleClick={activateTempEraser}
               onImportPhotos={(files) => getActivePageHandle()?.importPhotos(files)}
+              onImportPdf={handleImportPdf}
               penColor={penColor}
               onPenColorChange={setPenColor}
               penSize={penSize}
@@ -725,6 +793,15 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
             />
           </div>
         </div>
+
+        {/* Bandeau d'état de l'import PDF (voir handleImportPdf) — additif,
+            n'affecte aucun autre élément de l'interface, disparaît de
+            lui-même dès que l'import réussit ou qu'un nouvel import démarre. */}
+        {pdfImportStatus && (
+          <div className="flex w-fit items-center gap-2 self-center rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted">
+            {pdfImportStatus}
+          </div>
+        )}
 
         <button
           type="button"
@@ -824,6 +901,7 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
                     clipboard={clipboard}
                     onClipboardChange={setClipboard}
                     onActiveTextEditorChange={handleActiveTextEditorChange}
+                    pdfBackground={page.pdfBackground}
                   />
                 </div>
               </div>

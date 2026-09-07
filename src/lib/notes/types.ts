@@ -130,6 +130,30 @@ export interface NotePage {
   updatedAt: string;
 }
 
+/** Fond PDF non interactif d'une page (voir PdfPageLayer.tsx) — jamais un
+ * `ImageElement`, jamais sélectionnable au Lasso, jamais effaçable, jamais
+ * dans l'historique Annuler/Rétablir : une page n'en porte au plus qu'un,
+ * en dehors de `strokes`/`shapes`/`images`/`textBoxes`. */
+export interface PdfPageBackground {
+  /** Commun à toutes les pages issues du même import PDF (un seul fichier
+   * téléversé, partagé par N pages) — jamais réutilisé entre deux imports. */
+  sourceId: string;
+  /** URL du PDF complet (Vercel Blob) — la même pour toutes les pages
+   * partageant `sourceId`. */
+  url: string;
+  /** 1-indexé : quelle page du PDF cette page Distill affiche. */
+  pageNumber: number;
+  /** Nombre total de pages du PDF source. */
+  pageCount: number;
+  /** Nom du fichier original, pour l'affichage (jamais réutilisé comme id). */
+  originalName: string;
+  /** Largeur/hauteur natives de cette page PDF (ratio, pas des pixels) —
+   * sert à ce que les dimensions logiques de la page Distill correspondent
+   * exactement au format du PDF plutôt qu'au format papier global du
+   * carnet (voir NotesCanvas.tsx). */
+  aspectRatio: number;
+}
+
 export interface Notebook {
   id: string;
   name: string;

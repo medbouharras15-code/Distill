@@ -17,6 +17,7 @@ import {
   LineShapeIcon,
   NoteIcon,
   PanIcon,
+  PdfFileIcon,
   PencilIcon,
   PenIcon,
   PhotoIcon,
@@ -332,6 +333,10 @@ interface NotesToolbarProps {
   hasClipboard: boolean;
   onPaste: () => void;
   onImportPhotos: (files: FileList) => void;
+  /** Import PDF (voir NotesPageClient.handleImportPdf) — un seul fichier à
+   * la fois, contrairement à onImportPhotos (qui accepte une sélection
+   * multiple), puisqu'un import PDF crée déjà plusieurs pages à lui seul. */
+  onImportPdf: (file: File) => void;
 
   penColor: string;
   onPenColorChange: (color: string) => void;
@@ -389,6 +394,7 @@ export function NotesToolbar({
   onSelectLasso,
   onPenDoubleClick,
   onImportPhotos,
+  onImportPdf,
   hasClipboard,
   onPaste,
   penColor,
@@ -428,6 +434,7 @@ export function NotesToolbar({
   onToggleRuler,
 }: NotesToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const pdfInputRef = useRef<HTMLInputElement | null>(null);
   const [moreHighlighterOptionsOpen, setMoreHighlighterOptionsOpen] = useState(false);
 
   const selectPenType = (type: PenType) => {
@@ -480,6 +487,18 @@ export function NotesToolbar({
               if (e.target.files && e.target.files.length > 0) {
                 onImportPhotos(e.target.files);
               }
+              e.target.value = "";
+            }}
+          />
+
+          <input
+            ref={pdfInputRef}
+            type="file"
+            accept="application/pdf"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) onImportPdf(file);
               e.target.value = "";
             }}
           />
@@ -540,6 +559,14 @@ export function NotesToolbar({
               iconKey="photo"
               fallback={<PhotoIcon className="h-5 w-5" />}
               onClick={onSelectPhoto}
+            />
+            <ToolButton
+              active={false}
+              label="PDF"
+              iconKey="pdf"
+              fallback={<PdfFileIcon className="h-5 w-5" />}
+              onClick={() => pdfInputRef.current?.click()}
+              title="Importer un PDF (une page Distill par page PDF)"
             />
             <ToolButton
               active={tool === "shapes"}

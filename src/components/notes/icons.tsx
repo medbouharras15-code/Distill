@@ -553,3 +553,22 @@ export function TrashIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+/** Feuille cornée avec "PDF" — bouton d'import PDF de la barre Notes,
+ * distinct de PhotoIcon pour rester reconnaissable même en icône réduite. */
+export function PdfFileIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M6 3.5h8.2L18 7.3V20a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinejoin="round"
+      />
+      <path d="M14.2 3.5V7a1 1 0 0 0 1 1h2.8" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" />
+      <text x="12" y="16.2" textAnchor="middle" fontSize="6.4" fontWeight="700" fill="currentColor" stroke="none">
+        PDF
+      </text>
+    </svg>
+  );
+}

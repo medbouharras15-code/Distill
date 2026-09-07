@@ -17,6 +17,7 @@ import type {
   ImageElement,
   InkTool,
   PaperSize,
+  PdfPageBackground,
   PenType,
   ShapeElement,
   ShapeType,
@@ -25,6 +26,7 @@ import type {
   StrokePoint,
   TextBoxElement,
 } from "@/lib/notes/types";
+import { PdfPageLayer } from "./PdfPageLayer";
 import {
   drawEraserCirclePreview,
   drawImageElement,
@@ -368,6 +370,17 @@ function drawSelectionBoxAndHandles(ctx: CanvasRenderingContext2D, b: Bounds) {
   ctx.restore();
 }
 
+/** Même convention que `getPageDimensions` (sheets.ts, papier) mais pour une
+ * page PDF : le grand côté fait 1100px logiques, l'autre est dérivé du ratio
+ * natif (largeur/hauteur) de la page PDF source, portrait ou paysage. */
+const PDF_PAGE_LONG_EDGE = 1100;
+
+function pdfPageDimensions(aspectRatio: number): { width: number; height: number } {
+  return aspectRatio <= 1
+    ? { width: Math.round(PDF_PAGE_LONG_EDGE * aspectRatio), height: PDF_PAGE_LONG_EDGE }
+    : { width: PDF_PAGE_LONG_EDGE, height: Math.round(PDF_PAGE_LONG_EDGE / aspectRatio) };
+}
+
 /** Taille par défaut (unités logiques de page) d'un nouveau bloc de texte
  * créé d'un tap/clic avec l'outil "T". */
 const DEFAULT_TEXTBOX_WIDTH = 260;
@@ -467,6 +480,14 @@ interface NotesCanvasProps {
    * carnet (rendue par NotesPageClient, plus liée à la position d'une
    * TextBox) en a besoin pour savoir quelle instance TipTap contrôler. */
   onActiveTextEditorChange?: (editor: Editor, active: boolean) => void;
+  /** Fond PDF non interactif de cette page (voir PdfPageLayer.tsx et
+   * PdfPageBackground) — absent pour une page papier normale, auquel cas
+   * rien ne change par rapport au comportement actuel. Jamais dans
+   * `Document`/`commitDoc` : ni sauvegardé par `onDocChange`, ni affecté
+   * par Annuler/Rétablir, ni lu par le Lasso/la Gomme. Quand présent,
+   * `PAGE_WIDTH`/`PAGE_HEIGHT` sont dérivés de son `aspectRatio` (au lieu
+   * de `paperSize`) pour que la page épouse exactement le format du PDF. */
+  pdfBackground?: PdfPageBackground | null;
 }
 
 export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(function NotesCanvas(
@@ -505,10 +526,19 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     clipboard = null,
     onClipboardChange,
     onActiveTextEditorChange,
+    pdfBackground = null,
   },
   ref,
 ) {
-  const { width: PAGE_WIDTH, height: PAGE_HEIGHT } = getPageDimensions(paperSize);
+  // Une page PDF épouse le format natif de sa page source (pas le format
+  // papier global du carnet) : même convention "grand côté = 1100px
+  // logiques" que getPageDimensions (sheets.ts), pour que pen/gomme/etc.,
+  // tous calibrés dans ce même repère, se comportent identiquement sur une
+  // page PDF et sur une page papier — sans toucher à sheets.ts, qui reste
+  // purement dédié au papier.
+  const { width: PAGE_WIDTH, height: PAGE_HEIGHT } = pdfBackground
+    ? pdfPageDimensions(pdfBackground.aspectRatio)
+    : getPageDimensions(paperSize);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
@@ -1502,9 +1532,14 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     const ctx = ctxRef.current;
     if (!ctx) return;
     ctx.clearRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
-    ctx.fillStyle = backgroundColor;
-    ctx.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
-    drawSheetPattern(ctx, sheetType, PAGE_WIDTH, PAGE_HEIGHT, backgroundColor);
+    // Fond papier sauté (canvas laissé transparent) quand un PDF de fond
+    // existe pour cette page — sinon il masquerait le calque PdfPageLayer
+    // rendu derrière (voir la prop pdfBackground et le JSX plus bas).
+    if (!pdfBackground) {
+      ctx.fillStyle = backgroundColor;
+      ctx.fillRect(0, 0, PAGE_WIDTH, PAGE_HEIGHT);
+      drawSheetPattern(ctx, sheetType, PAGE_WIDTH, PAGE_HEIGHT, backgroundColor);
+    }
     const isDarkBg = isColorDark(backgroundColor);
 
     const selTransform = selectionTransform.current;
@@ -1713,6 +1748,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     eraserMode,
     eraserRadius,
     selection,
+    pdfBackground,
   ]);
 
   const scheduleRender = useCallback(() => {
@@ -3486,6 +3522,24 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         userSelect: "none",
       }}
     >
+      {/* Calque PDF de fond — jamais un ImageElement, jamais dans le Document/
+          commitDoc, jamais interactif. z-index négatif : sur un contexte
+          d'empilement CSS, un descendant positionné avec un z-index négatif
+          se peint AVANT tout contenu non positionné du même parent — donc
+          garanti sous le <canvas> ci-dessous (qui reste, lui, non positionné,
+          intact) sans qu'aucune de ses propres règles CSS n'ait à changer. */}
+      {pdfBackground && (
+        <div className="absolute inset-0" style={{ zIndex: -1, pointerEvents: "none" }}>
+          <PdfPageLayer
+            sourceId={pdfBackground.sourceId}
+            url={pdfBackground.url}
+            pageNumber={pdfBackground.pageNumber}
+            pageWidth={PAGE_WIDTH}
+            pageHeight={PAGE_HEIGHT}
+          />
+        </div>
+      )}
+
       {/* Plus de conteneur/wrapper de zoom propre à cette page : le canvas
           remplit directement son slot (100%/100%), dont la taille réelle à
           l'écran dépend de la fenêtre de zoom/défilement partagée que
@@ -3513,7 +3567,7 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
           userSelect: "none",
           WebkitTapHighlightColor: "transparent",
         }}
-        className="bg-card"
+        className={pdfBackground ? undefined : "bg-card"}
         data-page-id={pageId}
         data-canvas-audit-id={pageId}
         onPointerDown={handlePointerDown}

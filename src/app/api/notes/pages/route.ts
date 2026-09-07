@@ -1,13 +1,25 @@
 import { NextResponse } from "next/server";
 import { getUserAndProfile } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { ImageElement, PaperSize, ShapeElement, SheetType, Stroke, TextBoxElement } from "@/lib/notes/types";
+import type {
+  ImageElement,
+  PaperSize,
+  PdfPageBackground,
+  ShapeElement,
+  SheetType,
+  Stroke,
+  TextBoxElement,
+} from "@/lib/notes/types";
 
 interface NotePageContent {
   strokes: Stroke[];
   shapes: ShapeElement[];
   images: ImageElement[];
   textBoxes: TextBoxElement[];
+  /** Absent pour toute page existante avant ce chantier (rétrocompatible) et
+   * pour toute page papier normale — voir PdfPageBackground. Jamais dans
+   * `strokes`/`shapes`/`images`/`textBoxes`. */
+  pdfBackground?: PdfPageBackground;
 }
 
 interface NotePageRow {
@@ -24,10 +36,36 @@ interface NotePageRow {
  * requête anormalement volumineuse plutôt que de la stocker sans limite. */
 const MAX_CONTENT_BYTES = 5_000_000;
 
+function isValidPdfBackground(value: unknown): value is PdfPageBackground {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.sourceId === "string" &&
+    v.sourceId.length > 0 &&
+    typeof v.url === "string" &&
+    v.url.length > 0 &&
+    typeof v.originalName === "string" &&
+    v.originalName.length > 0 &&
+    v.originalName.length <= 255 &&
+    typeof v.pageNumber === "number" &&
+    Number.isInteger(v.pageNumber) &&
+    v.pageNumber >= 1 &&
+    typeof v.pageCount === "number" &&
+    Number.isInteger(v.pageCount) &&
+    v.pageCount >= v.pageNumber &&
+    typeof v.aspectRatio === "number" &&
+    Number.isFinite(v.aspectRatio) &&
+    v.aspectRatio > 0
+  );
+}
+
 function isValidContent(value: unknown): value is NotePageContent {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
-  return Array.isArray(v.strokes) && Array.isArray(v.shapes) && Array.isArray(v.images) && Array.isArray(v.textBoxes);
+  if (!Array.isArray(v.strokes) || !Array.isArray(v.shapes) || !Array.isArray(v.images) || !Array.isArray(v.textBoxes)) {
+    return false;
+  }
+  return v.pdfBackground === undefined || isValidPdfBackground(v.pdfBackground);
 }
 
 /** Liste les pages du carnet Notes de l'utilisateur connecté, triées par

@@ -20,6 +20,7 @@ export type ToolIconKey =
   | "text"
   | "note"
   | "photo"
+  | "pdf"
   | "shapes"
   | "pan"
   | "undo"
@@ -41,6 +42,7 @@ export const TOOL_ICON_ASSETS: Record<ToolIconKey, string | null> = {
   note: "/tools/note.webp",
   text: null,
   photo: null,
+  pdf: null,
   shapes: null,
   pan: null,
   undo: null,
