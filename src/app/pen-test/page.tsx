@@ -23,6 +23,13 @@ export default function PenTestPage() {
   const [touchStartCount, setTouchStartCount] = useState(0);
   const [touchEndCount, setTouchEndCount] = useState(0);
 
+  // Compteur de touchmove filtrés touchType==="stylus" — en ref (pas de
+  // setState par événement, touchmove pouvant être très fréquent), affiché
+  // en le resynchronisant seulement aux événements de fin de geste déjà
+  // existants (touchend/pointerup), jamais pendant le mouvement lui-même.
+  const stylusTouchMoveRef = useRef(0);
+  const [stylusTouchMoveCount, setStylusTouchMoveCount] = useState(0);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -39,12 +46,18 @@ export default function PenTestPage() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    // Test A/B : un listener natif non-passif sur "touchmove", qui empêche
-    // explicitement le comportement natif (preventDefault), pour mesurer si
-    // cela améliore la livraison des contacts Pencil rapides — voir le fil
-    // Apple Developer Forums "Safari iPadOS 14 Missing PointerEvents with
-    // Scribble". Aucun comptage, aucun log : juste le preventDefault.
+    // Test A/B (variante filtrée) : preventDefault() uniquement si au moins
+    // un des touches actifs a touchType === "stylus" (extension WebKit du
+    // Pencil, cousine de force/altitudeAngle/azimuthAngle déjà exposées sur
+    // Touch). But : vérifier si le bénéfice observé sans filtrage se
+    // maintient une fois restreint au seul Apple Pencil, avant d'envisager
+    // une intégration dans NotesCanvas qui ne doit jamais affecter le doigt.
     function handleNativeTouchMove(e: TouchEvent) {
+      const hasStylus = Array.from(e.touches).some(
+        (t) => (t as Touch & { touchType?: string }).touchType === "stylus",
+      );
+      if (!hasStylus) return;
+      stylusTouchMoveRef.current += 1;
       e.preventDefault();
     }
     canvas.addEventListener("touchmove", handleNativeTouchMove, { passive: false });
@@ -85,6 +98,7 @@ export default function PenTestPage() {
     // Ce handler sert aussi bien à onPointerUp qu'à onPointerCancel — on ne
     // compte que le vrai "pointerup" (e.type le distingue de "pointercancel").
     if (e.type === "pointerup") setPointerUpCount((c) => c + 1);
+    setStylusTouchMoveCount(stylusTouchMoveRef.current);
     if (e.pointerType !== "pen") return;
     drawingRef.current = false;
     lastPosRef.current = null;
@@ -130,7 +144,10 @@ export default function PenTestPage() {
         onPointerUp={handlePointerEnd}
         onPointerCancel={handlePointerEnd}
         onTouchStart={() => setTouchStartCount((c) => c + 1)}
-        onTouchEnd={() => setTouchEndCount((c) => c + 1)}
+        onTouchEnd={() => {
+          setTouchEndCount((c) => c + 1);
+          setStylusTouchMoveCount(stylusTouchMoveRef.current);
+        }}
         onContextMenu={(e) => e.preventDefault()}
         onDragStart={(e) => e.preventDefault()}
       />
@@ -164,6 +181,7 @@ export default function PenTestPage() {
         <div>pointerup : {pointerUpCount}</div>
         <div>touchstart : {touchStartCount}</div>
         <div>touchend : {touchEndCount}</div>
+        <div>stylus touchmove détectés : {stylusTouchMoveCount}</div>
       </div>
     </div>
   );
