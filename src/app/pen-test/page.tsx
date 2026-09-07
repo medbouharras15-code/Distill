@@ -36,6 +36,23 @@ export default function PenTestPage() {
     return () => window.removeEventListener("resize", resize);
   }, []);
 
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    // Test A/B : un listener natif non-passif sur "touchmove", qui empêche
+    // explicitement le comportement natif (preventDefault), pour mesurer si
+    // cela améliore la livraison des contacts Pencil rapides — voir le fil
+    // Apple Developer Forums "Safari iPadOS 14 Missing PointerEvents with
+    // Scribble". Aucun comptage, aucun log : juste le preventDefault.
+    function handleNativeTouchMove(e: TouchEvent) {
+      e.preventDefault();
+    }
+    canvas.addEventListener("touchmove", handleNativeTouchMove, { passive: false });
+    return () => {
+      canvas.removeEventListener("touchmove", handleNativeTouchMove);
+    };
+  }, []);
+
   function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
     // Compte TOUT pointerdown (pas seulement pen) — le protocole de test
     // étant sans doigt, tout ce qui arrive ici pendant le test vient du
