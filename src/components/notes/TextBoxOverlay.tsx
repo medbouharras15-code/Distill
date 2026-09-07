@@ -105,6 +105,13 @@ export function TextBoxOverlay({
     editorProps: {
       attributes: { class: "notes-textbox-prose" },
     },
+    // Couleur par défaut : uniquement pour un bloc réellement neuf et vide
+    // (jamais pour un bloc existant rechargé avec son propre HTML, quel que
+    // soit son format déjà enregistré) — le noir devient la couleur des
+    // prochains caractères tapés, sans jamais toucher un TextBox existant.
+    onCreate: ({ editor: ed }) => {
+      if (!element.html) ed.chain().setColor("#000000").run();
+    },
     onFocus: ({ editor: ed }) => {
       onSelect();
       setIsEditing(true);

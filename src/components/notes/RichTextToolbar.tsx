@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Editor } from "@tiptap/react";
+import { useEditorState, type Editor } from "@tiptap/react";
 import {
   AlignCenterIcon,
   AlignJustifyIcon,
@@ -47,6 +47,7 @@ const QUICK_FONT_SIZES = [12, 14, 16, 18, 24, 32];
  * mi-luminosité (ni proches du noir ni du blanc pur) pour rester lisibles
  * sur les deux fonds. */
 const TEXT_COLORS: { label: string; value: string | null }[] = [
+  { label: "Noir", value: "#000000" },
   { label: "Auto", value: null },
   { label: "Gris", value: "#8a8a8a" },
   { label: "Rouge", value: "#c0524a" },
@@ -133,11 +134,24 @@ export function RichTextToolbar({ editor }: { editor: Editor }) {
           : "body";
 
   const currentFontFamily = editor.getAttributes("textStyle").fontFamily || TEXT_FONT_FAMILIES[0].value;
-  const currentFontSize = Number(editor.getAttributes("textStyle").fontSize) || 14;
-  // `null` = aucune couleur inline (hérite de var(--foreground), voir
-  // TEXT_COLORS "Auto") — le picker natif ci-dessous, lui, a besoin d'une
-  // vraie valeur hex à afficher même dans ce cas.
-  const currentColor: string | null = editor.getAttributes("textStyle").color || null;
+
+  // `editor.getAttributes(...)` lu directement au rendu ne suffit pas pour
+  // fontSize/couleur : rien ne re-rend ce composant quand une commande
+  // change le format (setFontSize/setColor ne déclenchent aucun setState
+  // React) — la barre affichait alors une valeur figée à sa création,
+  // jamais synchronisée avec le vrai format actif de l'éditeur.
+  // `useEditorState` souscrit ce composant aux transactions de l'éditeur et
+  // le re-rend à chaque changement, avec la même lecture qu'avant.
+  const { currentFontSize, currentColor } = useEditorState({
+    editor,
+    selector: ({ editor: ed }) => ({
+      currentFontSize: Number(ed.getAttributes("textStyle").fontSize) || 14,
+      // `null` = aucune couleur inline (hérite de var(--foreground), voir
+      // TEXT_COLORS "Auto") — le picker natif ci-dessous, lui, a besoin
+      // d'une vraie valeur hex à afficher même dans ce cas.
+      currentColor: (ed.getAttributes("textStyle").color as string | undefined) || null,
+    }),
+  });
 
   const alignValue = editor.isActive({ textAlign: "center" })
     ? "center"
