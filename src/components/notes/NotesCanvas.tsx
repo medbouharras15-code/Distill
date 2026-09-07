@@ -3520,14 +3520,25 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
         WebkitTouchCallout: "none",
         WebkitUserSelect: "none",
         userSelect: "none",
+        // Pose un contexte d'empilement CSS local à CETTE page (position +
+        // z-index explicite, même valeur "0" que le comportement implicite
+        // d'avant sans PDF) : le z-index:-1 du calque PDF ci-dessous reste
+        // ainsi garanti sous le <canvas> de cette page précise, sans jamais
+        // pouvoir se comparer à des éléments d'une AUTRE page ou d'un
+        // ancêtre plus haut dans l'arbre (ce qui serait sinon le cas —
+        // `position: relative` seul, sans z-index, ne crée pas de contexte
+        // d'empilement). N'affecte que l'ordre de peinture visuel : aucune
+        // incidence sur les Pointer Events, la géométrie ou tout autre
+        // comportement de cette page.
+        zIndex: 0,
       }}
     >
       {/* Calque PDF de fond — jamais un ImageElement, jamais dans le Document/
-          commitDoc, jamais interactif. z-index négatif : sur un contexte
-          d'empilement CSS, un descendant positionné avec un z-index négatif
-          se peint AVANT tout contenu non positionné du même parent — donc
-          garanti sous le <canvas> ci-dessous (qui reste, lui, non positionné,
-          intact) sans qu'aucune de ses propres règles CSS n'ait à changer. */}
+          commitDoc, jamais interactif. z-index négatif, à l'intérieur du
+          contexte d'empilement local posé ci-dessus sur rootRef : se peint
+          donc garanti sous le <canvas> de CETTE page (qui reste, lui, non
+          positionné, intact) sans qu'aucune de ses propres règles CSS n'ait
+          à changer. */}
       {pdfBackground && (
         <div className="absolute inset-0" style={{ zIndex: -1, pointerEvents: "none" }}>
           <PdfPageLayer
