@@ -3439,6 +3439,43 @@ export const NotesCanvas = forwardRef<NotesCanvasHandle, NotesCanvasProps>(funct
     }
   }
 
+  /** Reflet de `tool` en ref, lu uniquement par `handleNativeTouchMove`
+   * ci-dessous — évite de détacher/rattacher ce listener natif à chaque
+   * changement d'outil. */
+  const toolRef = useRef(tool);
+  useEffect(() => {
+    toolRef.current = tool;
+  }, [tool]);
+
+  /** Contournement WebKit/Scribble : sur iPadOS, l'Apple Pencil peut voir
+   * son pointerdown/touchstart avalé par la reconnaissance d'écriture
+   * Scribble pendant une écriture rapide (voir l'audit /pen-test — un
+   * touchmove natif non-passif qui appelle preventDefault() empêche cette
+   * interception). Restreint aux seuls contacts stylet
+   * (`touchType === "stylus"`, jamais le doigt) et aux seuls outils de
+   * tracé (Stylo/Stylo bille/Crayon, Surligneur, Formes) — n'affecte donc
+   * jamais le scroll au doigt ni le pincement à deux doigts, tous deux
+   * pilotés par les Pointer Events existants, indépendants de ce listener
+   * Touch Events séparé. Aucune autre logique touchée : ni le rendu, ni la
+   * capture de pointeur, ni le rejet de paume, ni aucun autre outil. */
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    function handleNativeTouchMove(e: TouchEvent) {
+      const hasStylus = Array.from(e.touches).some(
+        (t) => (t as Touch & { touchType?: string }).touchType === "stylus",
+      );
+      if (!hasStylus) return;
+      const t = toolRef.current;
+      if (t !== "pen" && t !== "highlighter" && t !== "shapes") return;
+      e.preventDefault();
+    }
+    canvas.addEventListener("touchmove", handleNativeTouchMove, { passive: false });
+    return () => {
+      canvas.removeEventListener("touchmove", handleNativeTouchMove);
+    };
+  }, []);
+
   return (
     <div
       ref={rootRef}
