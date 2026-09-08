@@ -5,6 +5,7 @@ import type { EraserMode, EraserTarget, HighlighterMode, PenType, ShapeType } fr
 import type { NotesTool } from "./NotesCanvas";
 import { useEffect, useRef, useState } from "react";
 import { AiOrb } from "@/components/Brand";
+import { BackLink } from "@/components/ui";
 import { TOOL_ICON_ASSETS, type ToolIconKey } from "@/lib/notes/toolIconAssets";
 import { ToolIconAsset } from "./ToolIconAsset";
 import {
@@ -256,29 +257,39 @@ function ToolButton({
   title?: string;
 }) {
   return (
-    // Étiquette texte retirée (gardée en title/aria-label, visible au survol
-    // et pour les lecteurs d'écran) : la barre compacte n'a plus la place
-    // pour un nom sous chaque icône — la cible tactile reste ~40px (h-10
-    // w-10), volontairement pas réduite en dessous pour rester confortable
-    // au doigt/stylet sur iPad.
+    // Étiquette conservée sous l'icône (voir la référence visuelle) — plus
+    // petite qu'avant la passe de compacité précédente, mais toujours
+    // présente : la zone tactile reste tout le bouton (icône + étiquette),
+    // nettement au-dessus de 40px, jamais réduite pour gagner de la place —
+    // seuls les espacements autour ont été resserrés.
     <button
       type="button"
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       disabled={disabled}
       aria-pressed={active}
-      aria-label={label}
       title={title ?? (disabled ? `${label} — bientôt disponible` : label)}
-      className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl transition-all duration-200 active:scale-95 disabled:cursor-not-allowed disabled:active:scale-100 ${
-        disabled
-          ? "text-muted/50"
-          : active
-            ? SELECTED_TOOL_GLOW
-            : "text-foreground/70 hover:bg-background-alt hover:text-foreground"
-      }`}
-      style={EASE_SIGNATURE_STYLE}
+      className="flex w-12 shrink-0 flex-col items-center gap-0.5 rounded-xl py-1 transition-all duration-200 active:scale-95 disabled:cursor-not-allowed disabled:active:scale-100"
     >
-      <ToolIconAsset asset={TOOL_ICON_ASSETS[iconKey]} fallback={fallback} alt={label} />
+      <span
+        className={`grid h-9 w-9 place-items-center rounded-full transition-all duration-200 ${
+          disabled
+            ? "text-muted/50"
+            : active
+              ? SELECTED_TOOL_GLOW
+              : "text-foreground/70 hover:bg-background-alt hover:text-foreground"
+        }`}
+        style={EASE_SIGNATURE_STYLE}
+      >
+        <ToolIconAsset asset={TOOL_ICON_ASSETS[iconKey]} fallback={fallback} alt={label} />
+      </span>
+      <span
+        className={`text-[9px] font-medium leading-none transition-colors duration-200 ${
+          disabled ? "text-muted/50" : active ? "text-accent-dark" : "text-muted"
+        }`}
+      >
+        {label}
+      </span>
     </button>
   );
 }
@@ -306,7 +317,7 @@ function ActionIconButton({
       disabled={disabled}
       title={title}
       aria-label={title}
-      className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-foreground/70 transition-all duration-200 hover:bg-background-alt hover:text-foreground active:scale-90 disabled:cursor-not-allowed disabled:text-muted/40 disabled:hover:bg-transparent disabled:active:scale-100"
+      className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-foreground/70 transition-all duration-200 hover:bg-background-alt hover:text-foreground active:scale-90 disabled:cursor-not-allowed disabled:text-muted/40 disabled:hover:bg-transparent disabled:active:scale-100"
     >
       <ToolIconAsset asset={TOOL_ICON_ASSETS[iconKey]} fallback={fallback} alt={title} />
     </button>
@@ -382,6 +393,14 @@ interface NotesToolbarProps {
    * (voir la poignée ci-dessous) pour que la toolbar reste toujours
    * entièrement visible, jamais partiellement hors de cette zone. */
   boundsRef: RefObject<HTMLDivElement | null>;
+
+  /** Retour + sélecteur de feuille — intégrés directement dans la barre
+   * flottante (voir NotesPageClient.tsx) : il n'existe plus de header séparé
+   * au-dessus de la page. */
+  sheetLabel: string;
+  paperLabel: string;
+  backgroundColor: string;
+  onOpenSheetPanel: () => void;
 }
 
 /** Position persistée de la toolbar flottante — en fractions [0,1] de
@@ -399,9 +418,12 @@ interface ToolbarPos {
 }
 
 const TOOLBAR_POS_STORAGE_KEY = "distill-notes-toolbar-pos";
-/** Position par défaut avant toute lecture de localStorage (ou en cas
- * d'échec) — haut de l'écran, légèrement décalée du bord gauche. */
-const DEFAULT_TOOLBAR_POS: ToolbarPos = { xFrac: 0.02, yFrac: 0.02 };
+/** Position par défaut avant toute lecture de localStorage, en cas d'échec,
+ * ou si la valeur stockée est invalide — haut de l'écran, centrée
+ * horizontalement (`xFrac: 0.5` == `left = (containerWidth - toolbarWidth)
+ * / 2`, la formule de centrage classique, puisque `xFrac` est déjà exprimé
+ * comme fraction de l'espace de déplacement disponible). */
+const DEFAULT_TOOLBAR_POS: ToolbarPos = { xFrac: 0.5, yFrac: 0.02 };
 /** Distance (fraction de l'espace de déplacement) en dessous de laquelle
  * un relâchement de drag aligne la toolbar sur le bord le plus proche —
  * léger effet d'aimantation, purement cosmétique. */
@@ -411,13 +433,17 @@ function clampFrac(v: number): number {
   return Math.max(0, Math.min(1, v));
 }
 
+/** Toute valeur stockée invalide (absente, corrompue, JSON invalide, pas un
+ * nombre fini — `NaN`/`Infinity` passeraient un simple `typeof === "number"`)
+ * retombe sur `DEFAULT_TOOLBAR_POS`, jamais sur une position à moitié
+ * lisible : la toolbar doit être visible dès le premier rendu. */
 function readStoredToolbarPos(): ToolbarPos {
   try {
     const raw = localStorage.getItem(TOOLBAR_POS_STORAGE_KEY);
     if (!raw) return DEFAULT_TOOLBAR_POS;
     const parsed = JSON.parse(raw) as Partial<ToolbarPos>;
-    if (typeof parsed.xFrac !== "number" || typeof parsed.yFrac !== "number") return DEFAULT_TOOLBAR_POS;
-    return { xFrac: clampFrac(parsed.xFrac), yFrac: clampFrac(parsed.yFrac) };
+    if (!Number.isFinite(parsed.xFrac) || !Number.isFinite(parsed.yFrac)) return DEFAULT_TOOLBAR_POS;
+    return { xFrac: clampFrac(parsed.xFrac as number), yFrac: clampFrac(parsed.yFrac as number) };
   } catch {
     return DEFAULT_TOOLBAR_POS;
   }
@@ -425,6 +451,10 @@ function readStoredToolbarPos(): ToolbarPos {
 
 export function NotesToolbar({
   boundsRef,
+  sheetLabel,
+  paperLabel,
+  backgroundColor,
+  onOpenSheetPanel,
   tool,
   onSelectPen,
   onSelectHighlighter,
@@ -601,10 +631,23 @@ export function NotesToolbar({
     // `left`/`top` sont recalculés à chaque rendu depuis `pos` (fractions
     // persistées) et les tailles réelles mesurées — jamais mis en cache,
     // donc toujours cohérents après une rotation d'écran ou un changement
-    // de taille de la toolbar elle-même.
+    // de taille de la toolbar elle-même. `z-30` explicite : sans lui, cette
+    // barre (positionnée, z-index auto) se comparait en ordre de peinture à
+    // égalité avec le `z-index:0` explicite posé sur le `rootRef` de chaque
+    // page (voir NotesCanvas.tsx, nécessaire pour son calque PDF) — et
+    // perdait cette comparaison par ORDRE du DOM, puisqu'elle est montée
+    // avant la liste des pages : elle se retrouvait donc peinte SOUS chaque
+    // page, invisible. Un z-index nettement supérieur (ici 30, au-dessus
+    // des contrôles de zoom/page à z-20) la place au-dessus de tout,
+    // indépendamment de l'ordre du DOM. `dark` : cette barre garde
+    // volontairement la palette sombre "premium" de Distill quel que soit
+    // le thème choisi par ailleurs sur le site — tous les tokens déjà
+    // utilisés ci-dessous (bg-card, border-border, text-muted, --accent...)
+    // basculent automatiquement sur leurs valeurs sombres (globals.css,
+    // règle `.dark`), sans qu'aucune couleur ne soit codée en dur ici.
     <div
       ref={rootRef}
-      className="pointer-events-none absolute flex w-fit max-w-[calc(100%-8px)] flex-col items-center gap-2"
+      className="dark pointer-events-none absolute z-30 flex w-fit max-w-[calc(100%-8px)] flex-col items-center gap-1.5"
       style={{ left, top }}
     >
       {/* Barre flottante principale : outils de dessin, avec un léger halo
@@ -617,7 +660,7 @@ export function NotesToolbar({
           className="pointer-events-none absolute -left-8 -top-10 h-36 w-36 rounded-full opacity-25 blur-2xl"
           style={{ background: "radial-gradient(circle, color-mix(in srgb, var(--accent) 38%, transparent) 0%, transparent 72%)" }}
         />
-        <div className="relative flex flex-nowrap items-center gap-1.5 overflow-x-auto rounded-2xl border border-border/60 bg-card/95 px-2 py-1.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
+        <div className="relative flex flex-nowrap items-center gap-1 overflow-x-auto rounded-2xl border border-border/60 bg-card/95 px-1.5 py-1.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
           {/* Poignée de déplacement — seul élément qui déclenche le drag de
               toute la toolbar (barre principale + barre d'options en
               dessous, ancrées ensemble) ; `touch-action: none` empêche le
@@ -637,20 +680,37 @@ export function NotesToolbar({
             <DragHandleIcon className="h-4 w-4" />
           </button>
 
+          {/* Retour + sélecteur de feuille — plus de header séparé
+              au-dessus de la page (voir NotesPageClient.tsx) : intégrés
+              directement dans la barre flottante. */}
+          <BackLink href="/dashboard" className="shrink-0 px-1">
+            Retour
+          </BackLink>
+
+          <button
+            type="button"
+            onClick={onOpenSheetPanel}
+            className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-background-alt px-2.5 py-1.5 text-[11px] font-medium text-muted transition hover:text-foreground"
+          >
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-full border border-border"
+              style={{ backgroundColor }}
+              aria-hidden="true"
+            />
+            {sheetLabel} · {paperLabel}
+          </button>
+
           <div className="h-8 w-px shrink-0 bg-border/70" />
 
           <button
             type="button"
             onClick={onToggleAi}
             aria-pressed={aiOpen}
+            aria-label="IA Distill — résumé & flashcards"
             title="IA Distill — résumé & flashcards"
-            className={`flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-semibold transition-all duration-200 active:scale-95 ${
-              aiOpen
-                ? "ai-gradient text-white shadow-[0_4px_14px_-6px_var(--ai-glow)]"
-                : "border border-border/70 text-foreground/80 hover:border-accent/40 hover:bg-background-alt hover:text-foreground"
-            }`}
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-full transition-transform duration-200 active:scale-90"
           >
-            <AiOrb size={20} active={aiOpen} /> IA
+            <AiOrb size={26} active={aiOpen} />
           </button>
 
           <div className="h-8 w-px shrink-0 bg-border/70" />

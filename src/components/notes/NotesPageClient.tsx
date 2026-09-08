@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ChevronLeft, ChevronRight } from "@/lib/icons";
 import {
   MAX_ZOOM,
   MIN_ZOOM,
@@ -667,6 +668,20 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
     });
   }, [currentPageId]);
 
+  /** Navigue vers la page à l'index donné (boutons précédent/suivant de
+   * l'indicateur de page) — même schéma que resetZoom : le slot ne peut
+   * être ciblé qu'après le re-rendu déclenché par `setCurrentPageId`, d'où
+   * le report d'une frame. No-op si l'index est hors bornes (première/
+   * dernière page). */
+  function goToPage(index: number) {
+    const target = pages[index];
+    if (!target) return;
+    setCurrentPageId(target.id);
+    requestAnimationFrame(() => {
+      pageSlotEls.current.get(target.id)?.scrollIntoView({ block: "start" });
+    });
+  }
+
   /** Zoom via les boutons +/- : centré sur le milieu de la zone visible
    * actuelle plutôt que de recentrer ailleurs (même logique de point fixe
    * que le pincement et la molette, appliquée au centre de l'écran faute
@@ -780,60 +795,12 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
       className="notes-no-callout flex h-dvh w-full select-none flex-col overflow-hidden"
       onContextMenu={(e) => e.preventDefault()}
     >
-      {/* Barre supérieure (en-tête) : Titre → barre d'outils principale →
-          sélecteur de feuille → barre de texte contextuelle (seulement
-          quand une TextBox est en édition, voir plus bas) → feuille.
-          Empilement en flex-col simple : aucune ligne n'est jamais
-          "réservée" quand elle ne s'affiche pas, la colonne se recalcule
-          naturellement (voir `activeTextEditor`). La zone du canvas sort
-          volontairement de ce conteneur pour toucher les bords de l'écran
-          sans aucune marge — c'est elle que l'utilisateur perçoit comme
-          "la feuille" et qui doit remplir tout l'espace disponible, sans
-          bande de couleur de fond visible autour. */}
-      {/* En-tête réduit au strict minimum : une seule ligne compacte (lien
-          retour + bouton de feuille), pour que la zone de page commence le
-          plus haut possible — la toolbar principale et sa barre d'options
-          ne sont plus ici (voir plus bas, flottantes au-dessus de la page).
-          La bannière d'import PDF et la barre de texte contextuelle restent
-          conditionnelles : aucune hauteur fixe n'est jamais réservée quand
-          elles sont absentes. */}
-      <div className="flex w-full items-center justify-between gap-2 px-3 py-1.5">
-        <BackLink href="/dashboard">Retour</BackLink>
-        <button
-          type="button"
-          onClick={() => setSheetPanelOpen(true)}
-          className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-muted transition hover:text-foreground"
-        >
-          <span
-            className="h-2.5 w-2.5 rounded-full border border-border"
-            style={{ backgroundColor }}
-            aria-hidden="true"
-          />
-          {sheetLabel} · {paperLabel}
-        </button>
-      </div>
-
-      {pdfImportStatus && (
-        <div className="flex w-fit items-center gap-2 self-center rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted">
-          {pdfImportStatus}
-        </div>
-      )}
-
-      {/* Barre de texte contextuelle — visible uniquement quand l'outil
-          Texte est actif ET qu'une TextBox est réellement en édition
-          (`activeTextEditor`, voir plus haut). `data-text-toolbar-root` :
-          repère utilisé par TextBoxOverlay.tsx pour ne pas confondre un
-          clic ici avec un abandon réel du bloc en édition (voir son
-          `onBlur`). Rendu conditionnel pur : aucune hauteur réservée
-          quand elle est absente. */}
-      {tool === "text" && activeTextEditor && (
-        <div data-text-toolbar-root className="flex w-full justify-center px-2">
-          <div className="w-fit max-w-full">
-            <RichTextToolbar editor={activeTextEditor} />
-          </div>
-        </div>
-      )}
-
+      {/* Plus aucun header au-dessus de la page : Retour et le sélecteur de
+          feuille sont désormais intégrés à la toolbar flottante elle-même
+          (voir NotesToolbar.tsx) — la zone de page commence donc au tout
+          premier pixel de l'écran. La bannière d'import PDF et la barre de
+          texte contextuelle deviennent des overlays absolus (voir plus
+          bas) : aucune des deux ne réserve jamais d'espace dans le flux. */}
       <div ref={editorAreaRef} className="relative min-h-0 w-full flex-1">
         {/* Toolbar principale + barre d'options — flottantes, déplaçables
             (voir NotesToolbar.tsx), ancrées à ce même conteneur que la
@@ -842,6 +809,10 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
             la page" au sens propre, plus dans le flux de l'en-tête. */}
         <NotesToolbar
           boundsRef={editorAreaRef}
+          sheetLabel={sheetLabel}
+          paperLabel={paperLabel}
+          backgroundColor={backgroundColor}
+          onOpenSheetPanel={() => setSheetPanelOpen(true)}
           tool={tool}
           onSelectPen={selectPen}
           onSelectHighlighter={selectHighlighter}
@@ -892,6 +863,40 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
           rulerActive={rulerActive}
           onToggleRuler={toggleRuler}
         />
+
+        {/* Bandeau d'état de l'import PDF (voir handleImportPdf) — overlay
+            absolu, position fixe (ne suit pas la toolbar déplaçable, comme
+            la barre de texte ci-dessous) : n'affecte jamais la hauteur
+            disponible pour la page, disparaît de lui-même dès que l'import
+            réussit ou qu'un nouvel import démarre. */}
+        {pdfImportStatus && (
+          <div className="dark pointer-events-none absolute inset-x-0 top-20 z-10 flex justify-center px-2">
+            <div className="pointer-events-auto rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted shadow-[var(--shadow-md)]">
+              {pdfImportStatus}
+            </div>
+          </div>
+        )}
+
+        {/* Barre de texte contextuelle — visible uniquement quand l'outil
+            Texte est actif ET qu'une TextBox est réellement en édition
+            (`activeTextEditor`, voir plus haut). Overlay absolu à position
+            fixe : ne suit JAMAIS la position de la TextBox ni celle de la
+            toolbar principale (déplaçable) — c'est `activeTextEditor` qui
+            change, pas la position de cette barre. `data-text-toolbar-root` :
+            repère utilisé par TextBoxOverlay.tsx pour ne pas confondre un
+            clic ici avec un abandon réel du bloc en édition (voir son
+            `onBlur`). Rendu conditionnel pur : aucune hauteur réservée
+            quand elle est absente. */}
+        {tool === "text" && activeTextEditor && (
+          <div
+            data-text-toolbar-root
+            className="dark pointer-events-none absolute inset-x-0 top-20 z-10 flex justify-center px-2"
+          >
+            <div className="pointer-events-auto w-fit max-w-full">
+              <RichTextToolbar editor={activeTextEditor} />
+            </div>
+          </div>
+        )}
 
         {/* Fenêtre de zoom/défilement unique pour tout le carnet — même
             structure conteneur+wrapper que chaque NotesCanvas utilisait
@@ -971,8 +976,10 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
 
         {/* Contrôles de zoom — un seul exemplaire pour tout le carnet
             (auparavant dupliqué sur chaque page, quand chaque NotesCanvas
-            gérait son propre zoom indépendant). */}
-        <div className="pointer-events-none absolute bottom-3 right-3 z-20 flex w-fit items-center gap-1 rounded-full border border-border bg-card/95 px-1.5 py-1 shadow-sm">
+            gérait son propre zoom indépendant). `dark` : même palette
+            sombre "premium" que la toolbar flottante (voir son propre
+            commentaire), pour un ensemble de contrôles flottants cohérent. */}
+        <div className="dark pointer-events-none absolute bottom-3 right-3 z-20 flex w-fit items-center gap-1 rounded-full border border-border bg-card/95 px-1.5 py-1 shadow-[var(--shadow-md)]">
           <button
             type="button"
             onClick={() => zoomByButton(-0.25)}
@@ -986,7 +993,7 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
             type="button"
             onClick={resetZoom}
             aria-label="Réinitialiser le zoom"
-            title="Réinitialiser le zoom (100%, pleine largeur)"
+            title="Réinitialiser le zoom (100%, plein écran)"
             className="pointer-events-auto min-w-[3rem] rounded-full px-1 text-center text-[11px] font-medium text-muted transition hover:bg-background-alt hover:text-foreground"
           >
             {Math.round(zoom * 100)}%
@@ -1004,15 +1011,36 @@ export default function NotesPageClient({ auth, checkoutStatus, openAi }: NotesP
 
         {/* Indicateur de page — reflète currentPageId, mis à jour au scroll
             (IntersectionObserver, voir plus haut) et immédiatement au tap/
-            clic sur une page. */}
-        <div className="pointer-events-none absolute bottom-3 left-3 z-20 flex items-center gap-2 rounded-full border border-border/60 bg-card/95 px-3.5 py-2 text-xs font-medium text-foreground/80 shadow-[var(--shadow-md)] backdrop-blur-sm">
-          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
+            clic sur une page. Précédent/suivant naviguent via `goToPage`,
+            désactivés en butée (première/dernière page). Même palette
+            sombre que les autres contrôles flottants (voir plus haut). */}
+        <div className="dark pointer-events-none absolute bottom-3 left-3 z-20 flex items-center gap-0.5 rounded-full border border-border/60 bg-card/95 px-1.5 py-1 text-xs font-medium text-foreground/80 shadow-[var(--shadow-md)] backdrop-blur-sm">
+          <button
+            type="button"
+            onClick={() => goToPage(currentPageIndex - 1)}
+            disabled={currentPageIndex <= 0}
+            aria-label="Page précédente"
+            title="Page précédente"
+            className="pointer-events-auto grid h-7 w-7 shrink-0 place-items-center rounded-full text-foreground transition hover:bg-background-alt disabled:opacity-30 disabled:hover:bg-transparent"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
           {/* key={currentPageLabel} : rejoue le fondu (animate-fade, courbe
               --ease-signature) à chaque changement de page plutôt que de
               simplement remplacer le texte d'un coup. */}
-          <span key={currentPageLabel} className="animate-fade tabular-nums">
-            {currentPageLabel}
+          <span key={currentPageLabel} className="animate-fade min-w-[5.5rem] px-1 text-center tabular-nums">
+            {currentPageLabel} / {pages.length}
           </span>
+          <button
+            type="button"
+            onClick={() => goToPage(currentPageIndex + 1)}
+            disabled={currentPageIndex < 0 || currentPageIndex >= pages.length - 1}
+            aria-label="Page suivante"
+            title="Page suivante"
+            className="pointer-events-auto grid h-7 w-7 shrink-0 place-items-center rounded-full text-foreground transition hover:bg-background-alt disabled:opacity-30 disabled:hover:bg-transparent"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
         </div>
 
         {/* Assombrissement léger du canvas quand le panneau IA est ouvert —
