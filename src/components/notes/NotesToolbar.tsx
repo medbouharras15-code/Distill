@@ -4,8 +4,9 @@ import type { ComponentType, ReactNode, RefObject } from "react";
 import type { EraserMode, EraserTarget, HighlighterMode, PenType, ShapeType } from "@/lib/notes/types";
 import type { NotesTool } from "./NotesCanvas";
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { AiOrb } from "@/components/Brand";
-import { BackLink } from "@/components/ui";
+import { ChevronLeft } from "@/lib/icons";
 import { TOOL_ICON_ASSETS, type ToolIconKey } from "@/lib/notes/toolIconAssets";
 import { ToolIconAsset } from "./ToolIconAsset";
 import {
@@ -13,7 +14,6 @@ import {
   CircleShapeIcon,
   DragHandleIcon,
   EraserIcon,
-  FitScreenIcon,
   HighlighterIcon,
   LassoIcon,
   LineShapeIcon,
@@ -233,8 +233,32 @@ function SizeDotPicker({
   );
 }
 
-/** Bouton de la barre principale : icône (asset réaliste si configuré, sinon
- * repli SVG plat) + nom sous l'icône + glow menthe quand sélectionné. Les
+/** Vrai en orientation portrait (iPad y compris) — recalculé au montage puis
+ * à chaque rotation d'écran via `matchMedia`, jamais mesuré depuis un ref
+ * pendant le rendu. Sert à forcer le mode icônes-seules de `ToolButton` en
+ * portrait, où l'espace horizontal est le plus contraint : voir son usage
+ * ci-dessous. Un seul média-query partagé par le navigateur ; chaque bouton
+ * y ajoute son propre listener léger (~14 sur la barre), coût négligeable. */
+function useIsPortrait(): boolean {
+  const [isPortrait, setIsPortrait] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(orientation: portrait)").matches,
+  );
+  useEffect(() => {
+    const mql = window.matchMedia("(orientation: portrait)");
+    const update = () => setIsPortrait(mql.matches);
+    update();
+    mql.addEventListener("change", update);
+    return () => mql.removeEventListener("change", update);
+  }, []);
+  return isPortrait;
+}
+
+/** Bouton de la barre principale : icône seule par défaut (asset réaliste si
+ * configuré, sinon repli SVG plat), glow turquoise quand sélectionné — le
+ * nom sous l'icône n'apparaît que pour l'outil ACTUELLEMENT actif, et
+ * jamais en portrait (voir `useIsPortrait`, l'espace y est le plus
+ * contraint) : `title`/`aria-label` restent toujours présents, pour rester
+ * identifiable au survol/lecteur d'écran même sans étiquette visible. Les
  * outils pas encore branchés au moteur de dessin (Règle, Lasso, Note) sont
  * rendus désactivés plutôt que masqués, pour montrer où ils arriveront. */
 function ToolButton({
@@ -256,23 +280,21 @@ function ToolButton({
   onDoubleClick?: () => void;
   title?: string;
 }) {
+  const isPortrait = useIsPortrait();
+  const showLabel = active && !isPortrait;
   return (
-    // Étiquette conservée sous l'icône (voir la référence visuelle) — plus
-    // petite qu'avant la passe de compacité précédente, mais toujours
-    // présente : la zone tactile reste tout le bouton (icône + étiquette),
-    // nettement au-dessus de 40px, jamais réduite pour gagner de la place —
-    // seuls les espacements autour ont été resserrés.
     <button
       type="button"
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       disabled={disabled}
       aria-pressed={active}
+      aria-label={label}
       title={title ?? (disabled ? `${label} — bientôt disponible` : label)}
-      className="flex w-12 shrink-0 flex-col items-center gap-0.5 rounded-xl py-1 transition-all duration-200 active:scale-95 disabled:cursor-not-allowed disabled:active:scale-100"
+      className="flex min-w-10 shrink-0 flex-col items-center gap-0.5 rounded-xl px-0.5 py-1 transition-all duration-200 active:scale-95 disabled:cursor-not-allowed disabled:active:scale-100"
     >
       <span
-        className={`grid h-9 w-9 place-items-center rounded-full transition-all duration-200 ${
+        className={`grid h-8 w-8 place-items-center rounded-full transition-all duration-200 ${
           disabled
             ? "text-muted/50"
             : active
@@ -283,13 +305,9 @@ function ToolButton({
       >
         <ToolIconAsset asset={TOOL_ICON_ASSETS[iconKey]} fallback={fallback} alt={label} />
       </span>
-      <span
-        className={`text-[9px] font-medium leading-none transition-colors duration-200 ${
-          disabled ? "text-muted/50" : active ? "text-accent-dark" : "text-muted"
-        }`}
-      >
-        {label}
-      </span>
+      {showLabel && (
+        <span className="max-w-[3.5rem] truncate text-[9px] font-medium leading-none text-accent-dark">{label}</span>
+      )}
     </button>
   );
 }
@@ -660,7 +678,7 @@ export function NotesToolbar({
           className="pointer-events-none absolute -left-8 -top-10 h-36 w-36 rounded-full opacity-25 blur-2xl"
           style={{ background: "radial-gradient(circle, color-mix(in srgb, var(--accent) 38%, transparent) 0%, transparent 72%)" }}
         />
-        <div className="relative flex flex-nowrap items-center gap-1 overflow-x-auto rounded-2xl border border-border/60 bg-card/95 px-1.5 py-1.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
+        <div className="relative flex flex-nowrap items-center gap-0.5 overflow-x-auto rounded-2xl border border-border/60 bg-card/95 px-1 py-1.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
           {/* Poignée de déplacement — seul élément qui déclenche le drag de
               toute la toolbar (barre principale + barre d'options en
               dessous, ancrées ensemble) ; `touch-action: none` empêche le
@@ -682,22 +700,30 @@ export function NotesToolbar({
 
           {/* Retour + sélecteur de feuille — plus de header séparé
               au-dessus de la page (voir NotesPageClient.tsx) : intégrés
-              directement dans la barre flottante. */}
-          <BackLink href="/dashboard" className="shrink-0 px-1">
-            Retour
-          </BackLink>
+              directement dans la barre flottante, tous deux réduits à une
+              icône/pastille compacte (nom complet gardé en title/
+              aria-label uniquement) pour limiter la largeur totale. */}
+          <Link
+            href="/dashboard"
+            aria-label="Retour à Distill"
+            title="Retour à Distill"
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-muted-foreground transition-all duration-200 hover:bg-background-alt hover:text-foreground"
+          >
+            <ChevronLeft size={18} />
+          </Link>
 
           <button
             type="button"
             onClick={onOpenSheetPanel}
-            className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-background-alt px-2.5 py-1.5 text-[11px] font-medium text-muted transition hover:text-foreground"
+            aria-label={`Feuille : ${sheetLabel} · ${paperLabel}`}
+            title={`Feuille : ${sheetLabel} · ${paperLabel}`}
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-full transition-transform duration-200 active:scale-90"
           >
             <span
-              className="h-2.5 w-2.5 shrink-0 rounded-full border border-border"
+              className="h-5 w-5 shrink-0 rounded-full border-2 border-border"
               style={{ backgroundColor }}
               aria-hidden="true"
             />
-            {sheetLabel} · {paperLabel}
           </button>
 
           <div className="h-8 w-px shrink-0 bg-border/70" />
@@ -741,6 +767,7 @@ export function NotesToolbar({
             }}
           />
 
+          {/* Outils d'encre : stylos + surligneur + gomme. */}
           <div className="flex shrink-0 items-start gap-0.5">
             {PEN_TYPE_TOOLS.map(({ value, label, iconKey, Icon }) => (
               <ToolButton
@@ -768,6 +795,12 @@ export function NotesToolbar({
               fallback={<EraserIcon className="h-5 w-5" />}
               onClick={onSelectEraser}
             />
+          </div>
+
+          <div className="h-8 w-px shrink-0 bg-border/70" />
+
+          {/* Outils de sélection/mesure : règle + lasso. */}
+          <div className="flex shrink-0 items-start gap-0.5">
             <ToolButton
               active={rulerActive}
               label="Règle"
@@ -783,6 +816,13 @@ export function NotesToolbar({
               fallback={<LassoIcon className="h-5 w-5" />}
               onClick={onSelectLasso}
             />
+          </div>
+
+          <div className="h-8 w-px shrink-0 bg-border/70" />
+
+          {/* Contenu + navigation : texte, note, image, PDF, formes,
+              déplacer. */}
+          <div className="flex shrink-0 items-start gap-0.5">
             <ToolButton
               active={tool === "text"}
               label="Texte"
@@ -848,9 +888,8 @@ export function NotesToolbar({
             onClick={onFitToScreen}
             aria-label="Ajuster à l'écran (zoom 100%)"
             title="Ajuster à l'écran (zoom 100%)"
-            className="flex h-10 shrink-0 items-center gap-1 rounded-full border border-accent/50 bg-accent-light px-2.5 text-[11px] font-semibold text-accent-dark transition-all duration-200 hover:brightness-95 active:scale-95"
+            className="flex h-10 shrink-0 items-center rounded-full border border-accent/50 bg-accent-light px-2 text-[10px] font-semibold text-accent-dark transition-all duration-200 hover:brightness-95 active:scale-95"
           >
-            <FitScreenIcon className="h-4 w-4" />
             100%
           </button>
         </div>
