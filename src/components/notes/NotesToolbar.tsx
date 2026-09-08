@@ -678,69 +678,14 @@ export function NotesToolbar({
           className="pointer-events-none absolute -left-8 -top-10 h-36 w-36 rounded-full opacity-25 blur-2xl"
           style={{ background: "radial-gradient(circle, color-mix(in srgb, var(--accent) 38%, transparent) 0%, transparent 72%)" }}
         />
-        <div className="relative flex flex-nowrap items-center gap-0.5 overflow-x-auto rounded-2xl border border-border/60 bg-card/95 px-1 py-1.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
-          {/* Poignée de déplacement — seul élément qui déclenche le drag de
-              toute la toolbar (barre principale + barre d'options en
-              dessous, ancrées ensemble) ; `touch-action: none` empêche le
-              geste de défiler/zoomer la page pendant qu'on glisse la
-              poignée sur iPad. */}
-          <button
-            type="button"
-            aria-label="Déplacer la barre d'outils"
-            title="Déplacer la barre d'outils"
-            onPointerDown={handleHandlePointerDown}
-            onPointerMove={handleHandlePointerMove}
-            onPointerUp={handleHandlePointerUp}
-            onPointerCancel={handleHandlePointerUp}
-            className="grid h-10 w-6 shrink-0 cursor-grab place-items-center rounded-xl text-muted transition-colors hover:bg-background-alt hover:text-foreground active:cursor-grabbing"
-            style={{ touchAction: "none" }}
-          >
-            <DragHandleIcon className="h-4 w-4" />
-          </button>
-
-          {/* Retour + sélecteur de feuille — plus de header séparé
-              au-dessus de la page (voir NotesPageClient.tsx) : intégrés
-              directement dans la barre flottante, tous deux réduits à une
-              icône/pastille compacte (nom complet gardé en title/
-              aria-label uniquement) pour limiter la largeur totale. */}
-          <Link
-            href="/dashboard"
-            aria-label="Retour à Distill"
-            title="Retour à Distill"
-            className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-muted-foreground transition-all duration-200 hover:bg-background-alt hover:text-foreground"
-          >
-            <ChevronLeft size={18} />
-          </Link>
-
-          <button
-            type="button"
-            onClick={onOpenSheetPanel}
-            aria-label={`Feuille : ${sheetLabel} · ${paperLabel}`}
-            title={`Feuille : ${sheetLabel} · ${paperLabel}`}
-            className="grid h-10 w-10 shrink-0 place-items-center rounded-full transition-transform duration-200 active:scale-90"
-          >
-            <span
-              className="h-5 w-5 shrink-0 rounded-full border-2 border-border"
-              style={{ backgroundColor }}
-              aria-hidden="true"
-            />
-          </button>
-
-          <div className="h-8 w-px shrink-0 bg-border/70" />
-
-          <button
-            type="button"
-            onClick={onToggleAi}
-            aria-pressed={aiOpen}
-            aria-label="IA Distill — résumé & flashcards"
-            title="IA Distill — résumé & flashcards"
-            className="grid h-10 w-10 shrink-0 place-items-center rounded-full transition-transform duration-200 active:scale-90"
-          >
-            <AiOrb size={26} active={aiOpen} />
-          </button>
-
-          <div className="h-8 w-px shrink-0 bg-border/70" />
-
+        {/* Une seule carte flottante, deux rangées internes (jamais deux
+            barres indépendantes) : rangée 1 = méta/actions (poignée,
+            Retour, Feuille, IA, Annuler/Rétablir, 100 %), rangée 2 = les
+            outils de dessin/contenu. Les deux rangées se déplacent comme un
+            seul bloc (une seule poignée, sur la rangée 1) et la barre
+            d'options du stylo (plus bas dans ce composant) reste ancrée
+            juste en dessous de cette carte, suit donc le même drag. */}
+        <div className="relative flex flex-col gap-1 rounded-2xl border border-border/60 bg-card/95 px-1 py-1.5 shadow-[var(--shadow-lg)] backdrop-blur-sm">
           <input
             ref={fileInputRef}
             type="file"
@@ -767,104 +712,69 @@ export function NotesToolbar({
             }}
           />
 
-          {/* Outils d'encre : stylos + surligneur + gomme. */}
-          <div className="flex shrink-0 items-start gap-0.5">
-            {PEN_TYPE_TOOLS.map(({ value, label, iconKey, Icon }) => (
-              <ToolButton
-                key={value}
-                active={tool === "pen" && penType === value}
-                label={label}
-                iconKey={iconKey}
-                fallback={<Icon className="h-5 w-5" />}
-                onClick={() => selectPenType(value)}
-                onDoubleClick={onPenDoubleClick}
-                title={`${label} (double-clic : gomme rapide)`}
+          {/* Rangée 1 — méta/actions. */}
+          <div className="flex flex-nowrap items-center gap-0.5 overflow-x-auto">
+            {/* Poignée de déplacement — seul élément qui déclenche le drag de
+                toute la carte (les deux rangées + la barre d'options en
+                dessous, ancrées ensemble) ; `touch-action: none` empêche le
+                geste de défiler/zoomer la page pendant qu'on glisse la
+                poignée sur iPad. */}
+            <button
+              type="button"
+              aria-label="Déplacer la barre d'outils"
+              title="Déplacer la barre d'outils"
+              onPointerDown={handleHandlePointerDown}
+              onPointerMove={handleHandlePointerMove}
+              onPointerUp={handleHandlePointerUp}
+              onPointerCancel={handleHandlePointerUp}
+              className="grid h-10 w-6 shrink-0 cursor-grab place-items-center rounded-xl text-muted transition-colors hover:bg-background-alt hover:text-foreground active:cursor-grabbing"
+              style={{ touchAction: "none" }}
+            >
+              <DragHandleIcon className="h-4 w-4" />
+            </button>
+
+            {/* Retour + sélecteur de feuille — plus de header séparé
+                au-dessus de la page (voir NotesPageClient.tsx) : intégrés
+                directement dans la carte, réduits à une icône/pastille
+                compacte (nom complet gardé en title/aria-label). */}
+            <Link
+              href="/dashboard"
+              aria-label="Retour à Distill"
+              title="Retour à Distill"
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-muted-foreground transition-all duration-200 hover:bg-background-alt hover:text-foreground"
+            >
+              <ChevronLeft size={18} />
+            </Link>
+
+            <button
+              type="button"
+              onClick={onOpenSheetPanel}
+              aria-label={`Feuille : ${sheetLabel} · ${paperLabel}`}
+              title={`Feuille : ${sheetLabel} · ${paperLabel}`}
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-full transition-transform duration-200 active:scale-90"
+            >
+              <span
+                className="h-5 w-5 shrink-0 rounded-full border-2 border-border"
+                style={{ backgroundColor }}
+                aria-hidden="true"
               />
-            ))}
-            <ToolButton
-              active={tool === "highlighter"}
-              label="Surligneur"
-              iconKey="highlighter"
-              fallback={<HighlighterIcon className="h-5 w-5" />}
-              onClick={onSelectHighlighter}
-            />
-            <ToolButton
-              active={tool === "eraser"}
-              label="Gomme"
-              iconKey="eraser"
-              fallback={<EraserIcon className="h-5 w-5" />}
-              onClick={onSelectEraser}
-            />
-          </div>
+            </button>
 
-          <div className="h-8 w-px shrink-0 bg-border/70" />
+            <div className="h-8 w-px shrink-0 bg-border/70" />
 
-          {/* Outils de sélection/mesure : règle + lasso. */}
-          <div className="flex shrink-0 items-start gap-0.5">
-            <ToolButton
-              active={rulerActive}
-              label="Règle"
-              iconKey="ruler"
-              fallback={<RulerIcon className="h-5 w-5" />}
-              onClick={onToggleRuler}
-              title="Règle (reste active avec l'outil de dessin choisi)"
-            />
-            <ToolButton
-              active={tool === "lasso"}
-              label="Lasso"
-              iconKey="lasso"
-              fallback={<LassoIcon className="h-5 w-5" />}
-              onClick={onSelectLasso}
-            />
-          </div>
+            <button
+              type="button"
+              onClick={onToggleAi}
+              aria-pressed={aiOpen}
+              aria-label="IA Distill — résumé & flashcards"
+              title="IA Distill — résumé & flashcards"
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-full transition-transform duration-200 active:scale-90"
+            >
+              <AiOrb size={26} active={aiOpen} />
+            </button>
 
-          <div className="h-8 w-px shrink-0 bg-border/70" />
+            <div className="h-8 w-px shrink-0 bg-border/70" />
 
-          {/* Contenu + navigation : texte, note, image, PDF, formes,
-              déplacer. */}
-          <div className="flex shrink-0 items-start gap-0.5">
-            <ToolButton
-              active={tool === "text"}
-              label="Texte"
-              iconKey="text"
-              fallback={<TextToolIcon className="h-5 w-5" />}
-              onClick={onSelectText}
-            />
-            <ToolButton disabled active={false} label="Note" iconKey="note" fallback={<NoteIcon className="h-5 w-5" />} />
-            <ToolButton
-              active={tool === "photo"}
-              label="Image"
-              iconKey="photo"
-              fallback={<PhotoIcon className="h-5 w-5" />}
-              onClick={onSelectPhoto}
-            />
-            <ToolButton
-              active={false}
-              label="PDF"
-              iconKey="pdf"
-              fallback={<PdfFileIcon className="h-5 w-5" />}
-              onClick={() => pdfInputRef.current?.click()}
-              title="Importer un PDF (une page Distill par page PDF)"
-            />
-            <ToolButton
-              active={tool === "shapes"}
-              label="Formes"
-              iconKey="shapes"
-              fallback={<ShapesIcon className="h-5 w-5" />}
-              onClick={onSelectShapes}
-            />
-            <ToolButton
-              active={tool === "pan"}
-              label="Déplacer"
-              iconKey="pan"
-              fallback={<PanIcon className="h-5 w-5" />}
-              onClick={onSelectPan}
-            />
-          </div>
-
-          <div className="h-8 w-px shrink-0 bg-border/70" />
-
-          <div className="flex shrink-0 items-center gap-0.5">
             <ActionIconButton
               disabled={!canUndo}
               iconKey="undo"
@@ -879,19 +789,119 @@ export function NotesToolbar({
               onClick={onRedo}
               title="Rétablir"
             />
+
+            <div className="h-8 w-px shrink-0 bg-border/70" />
+
+            <button
+              type="button"
+              onClick={onFitToScreen}
+              aria-label="Ajuster à l'écran (zoom 100%)"
+              title="Ajuster à l'écran (zoom 100%)"
+              className="flex h-10 shrink-0 items-center rounded-full border border-accent/50 bg-accent-light px-2 text-[10px] font-semibold text-accent-dark transition-all duration-200 hover:brightness-95 active:scale-95"
+            >
+              100%
+            </button>
           </div>
 
-          <div className="h-8 w-px shrink-0 bg-border/70" />
+          <div className="h-px w-full shrink-0 bg-border/70" />
 
-          <button
-            type="button"
-            onClick={onFitToScreen}
-            aria-label="Ajuster à l'écran (zoom 100%)"
-            title="Ajuster à l'écran (zoom 100%)"
-            className="flex h-10 shrink-0 items-center rounded-full border border-accent/50 bg-accent-light px-2 text-[10px] font-semibold text-accent-dark transition-all duration-200 hover:brightness-95 active:scale-95"
-          >
-            100%
-          </button>
+          {/* Rangée 2 — outils de dessin/contenu. */}
+          <div className="flex flex-nowrap items-center gap-0.5 overflow-x-auto">
+            {/* Outils d'encre : stylos + surligneur + gomme. */}
+            <div className="flex shrink-0 items-start gap-0.5">
+              {PEN_TYPE_TOOLS.map(({ value, label, iconKey, Icon }) => (
+                <ToolButton
+                  key={value}
+                  active={tool === "pen" && penType === value}
+                  label={label}
+                  iconKey={iconKey}
+                  fallback={<Icon className="h-5 w-5" />}
+                  onClick={() => selectPenType(value)}
+                  onDoubleClick={onPenDoubleClick}
+                  title={`${label} (double-clic : gomme rapide)`}
+                />
+              ))}
+              <ToolButton
+                active={tool === "highlighter"}
+                label="Surligneur"
+                iconKey="highlighter"
+                fallback={<HighlighterIcon className="h-5 w-5" />}
+                onClick={onSelectHighlighter}
+              />
+              <ToolButton
+                active={tool === "eraser"}
+                label="Gomme"
+                iconKey="eraser"
+                fallback={<EraserIcon className="h-5 w-5" />}
+                onClick={onSelectEraser}
+              />
+            </div>
+
+            <div className="h-8 w-px shrink-0 bg-border/70" />
+
+            {/* Outils de sélection/mesure : règle + lasso. */}
+            <div className="flex shrink-0 items-start gap-0.5">
+              <ToolButton
+                active={rulerActive}
+                label="Règle"
+                iconKey="ruler"
+                fallback={<RulerIcon className="h-5 w-5" />}
+                onClick={onToggleRuler}
+                title="Règle (reste active avec l'outil de dessin choisi)"
+              />
+              <ToolButton
+                active={tool === "lasso"}
+                label="Lasso"
+                iconKey="lasso"
+                fallback={<LassoIcon className="h-5 w-5" />}
+                onClick={onSelectLasso}
+              />
+            </div>
+
+            <div className="h-8 w-px shrink-0 bg-border/70" />
+
+            {/* Contenu + navigation : texte, note, image, PDF, formes,
+                déplacer. */}
+            <div className="flex shrink-0 items-start gap-0.5">
+              <ToolButton
+                active={tool === "text"}
+                label="Texte"
+                iconKey="text"
+                fallback={<TextToolIcon className="h-5 w-5" />}
+                onClick={onSelectText}
+              />
+              <ToolButton disabled active={false} label="Note" iconKey="note" fallback={<NoteIcon className="h-5 w-5" />} />
+              <ToolButton
+                active={tool === "photo"}
+                label="Image"
+                iconKey="photo"
+                fallback={<PhotoIcon className="h-5 w-5" />}
+                onClick={onSelectPhoto}
+              />
+              <ToolButton
+                active={false}
+                label="PDF"
+                iconKey="pdf"
+                fallback={<PdfFileIcon className="h-5 w-5" />}
+                onClick={() => pdfInputRef.current?.click()}
+                title="Importer un PDF (une page Distill par page PDF)"
+              />
+              <ToolButton
+                active={tool === "shapes"}
+                label="Formes"
+                iconKey="shapes"
+                fallback={<ShapesIcon className="h-5 w-5" />}
+                onClick={onSelectShapes}
+              />
+              <ToolButton
+                active={tool === "pan"}
+                label="Déplacer"
+                iconKey="pan"
+                fallback={<PanIcon className="h-5 w-5" />}
+                onClick={onSelectPan}
+              />
+            </div>
+          </div>
         </div>
       </div>
 
